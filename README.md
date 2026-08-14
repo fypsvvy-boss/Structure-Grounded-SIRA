@@ -154,7 +154,7 @@ sira-cti/
 ### Setup
 
 ```bash
-git clone https://github.com/<ORG-OR-USER>/sira-cti.git
+git clone https://github.com/fypsvvy-boss/Structure-Grounded-SIRA.git
 cd sira-cti
 
 python -m venv .venv
