@@ -1,0 +1,15 @@
+# Core — Phase 1 (shared plumbing + graph tool)
+networkx>=3.2
+PyYAML>=6.0
+
+# Retrieval (Modules 1 and 3) — requires JDK 11+ on PATH
+pyserini>=0.22.0
+
+# Evaluation (Module 4)
+pytrec_eval>=0.5
+
+# Dense baseline (Module 3)
+sentence-transformers>=2.2.0
+
+# Dev
+pytest>=7.4
