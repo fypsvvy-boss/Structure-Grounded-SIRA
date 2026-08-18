@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Attack_Pattern_Catalog xmlns="http://capec.mitre.org/capec-3" Name="CAPEC" Version="3.9">
+  <Attack_Patterns>
+    <Attack_Pattern ID="49" Name="Password Brute Forcing" Abstraction="Standard" Status="Draft">
+      <Description>An adversary tries every possible value for a password until they succeed.</Description>
+      <Related_Attack_Patterns>
+        <Related_Attack_Pattern Nature="ChildOf" CAPEC_ID="112"/>
+      </Related_Attack_Patterns>
+      <Related_Weaknesses>
+        <Related_Weakness CWE_ID="307"/>
+        <Related_Weakness CWE_ID="521"/>
+      </Related_Weaknesses>
+      <Taxonomy_Mappings>
+        <Taxonomy_Mapping Taxonomy_Name="ATTACK">
+          <Entry_ID>1110.001</Entry_ID>
+          <Entry_Name>Brute Force: Password Guessing</Entry_Name>
+        </Taxonomy_Mapping>
+      </Taxonomy_Mappings>
+    </Attack_Pattern>
+    <Attack_Pattern ID="112" Name="Brute Force" Abstraction="Meta" Status="Draft">
+      <Description>An adversary systematically explores a space of possible secrets.</Description>
+      <Taxonomy_Mappings>
+        <Taxonomy_Mapping Taxonomy_Name="ATTACK">
+          <Entry_ID>1110</Entry_ID>
+          <Entry_Name>Brute Force</Entry_Name>
+        </Taxonomy_Mapping>
+        <Taxonomy_Mapping Taxonomy_Name="WASC">
+          <Entry_ID>11</Entry_ID>
+        </Taxonomy_Mapping>
+      </Taxonomy_Mappings>
+    </Attack_Pattern>
+    <Attack_Pattern ID="560" Name="Use of Known Domain Credentials" Abstraction="Standard" Status="Draft">
+      <Description>An adversary uses known credentials to gain access.</Description>
+      <Related_Attack_Patterns>
+        <Related_Attack_Pattern Nature="ChildOf" CAPEC_ID="112"/>
+      </Related_Attack_Patterns>
+    </Attack_Pattern>
+    <Attack_Pattern ID="999" Name="Obsolete Pattern" Abstraction="Standard" Status="Obsolete">
+      <Description>Retained for historical reference only.</Description>
+    </Attack_Pattern>
+  </Attack_Patterns>
+</Attack_Pattern_Catalog>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Weakness_Catalog xmlns="http://cwe.mitre.org/cwe-7" Name="CWE" Version="4.14">
+  <Weaknesses>
+    <Weakness ID="307" Name="Improper Restriction of Excessive Authentication Attempts"
+              Abstraction="Base" Structure="Simple" Status="Draft">
+      <Description>The product does not implement sufficient measures to prevent multiple failed authentication attempts within a short time frame.</Description>
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="799" View_ID="1000" Ordinal="Primary"/>
+      </Related_Weaknesses>
+      <Related_Attack_Patterns>
+        <Related_Attack_Pattern CAPEC_ID="49"/>
+        <Related_Attack_Pattern CAPEC_ID="560"/>
+      </Related_Attack_Patterns>
+    </Weakness>
+    <Weakness ID="799" Name="Improper Control of Interaction Frequency"
+              Abstraction="Class" Structure="Simple" Status="Incomplete">
+      <Description>The product does not properly limit the number of interactions it performs with an actor.</Description>
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="691" View_ID="1000"/>
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="691" Name="Insufficient Control Flow Management"
+              Abstraction="Pillar" Structure="Simple" Status="Draft">
+      <Description>The code does not sufficiently manage its control flow during execution.</Description>
+    </Weakness>
+    <Weakness ID="620" Name="Unverified Password Change"
+              Abstraction="Base" Structure="Simple" Status="Draft">
+      <Description>When setting a new password, the product does not require knowledge of the original password.</Description>
+      <Related_Weaknesses>
+        <Related_Weakness Nature="ChildOf" CWE_ID="799" View_ID="1000"/>
+      </Related_Weaknesses>
+    </Weakness>
+    <Weakness ID="217" Name="DEPRECATED: Failure to Protect Stored Data from Modification"
+              Abstraction="Base" Structure="Simple" Status="Deprecated">
+      <Description>This entry has been deprecated.</Description>
+    </Weakness>
+  </Weaknesses>
+  <Categories>
+    <Category ID="1015" Name="Limit Access" Status="Draft">
+      <Summary>Weaknesses in this category are related to limiting access.</Summary>
+      <Relationships>
+        <Has_Member CWE_ID="307" View_ID="1194"/>
+        <Has_Member CWE_ID="620" View_ID="1194"/>
+      </Relationships>
+    </Category>
+  </Categories>
+  <Views>
+    <View ID="1000" Name="Research Concepts" Status="Stable">
+      <Objective>This view is intended to facilitate research into weaknesses.</Objective>
+    </View>
+  </Views>
+</Weakness_Catalog>

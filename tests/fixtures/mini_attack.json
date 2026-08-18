@@ -1,0 +1,123 @@
+{
+  "type": "bundle",
+  "id": "bundle--mini-attack-fixture",
+  "objects": [
+    {
+      "type": "x-mitre-tactic",
+      "id": "x-mitre-tactic--credential-access",
+      "name": "Credential Access",
+      "description": "The adversary is trying to steal account names and passwords.",
+      "x_mitre_shortname": "credential-access",
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "TA0006"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--brute-force",
+      "name": "Brute Force",
+      "description": "Adversaries may use brute force techniques to gain access to accounts.",
+      "x_mitre_domains": ["enterprise-attack"],
+      "x_mitre_platforms": ["Windows", "Linux"],
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1110"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--password-guessing",
+      "name": "Password Guessing",
+      "description": "Adversaries with no prior knowledge of legitimate credentials may guess passwords.",
+      "x_mitre_is_subtechnique": true,
+      "x_mitre_domains": ["enterprise-attack"],
+      "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1110.001"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--credential-stuffing",
+      "name": "Credential Stuffing",
+      "description": "Adversaries may use credentials obtained from breach dumps.",
+      "x_mitre_is_subtechnique": true,
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1110.004"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--scripting-deprecated",
+      "name": "Scripting",
+      "description": "Deprecated technique retained for historical reference.",
+      "x_mitre_deprecated": true,
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1064"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--winlogon-old",
+      "name": "Winlogon Helper DLL",
+      "description": "Revoked in favour of a sub-technique.",
+      "revoked": true,
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1004"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--winlogon-new",
+      "name": "Winlogon Helper DLL",
+      "description": "Adversaries may abuse features of Winlogon to execute DLLs on logon.",
+      "x_mitre_is_subtechnique": true,
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1547.004"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--boot-autostart",
+      "name": "Boot or Logon Autostart Execution",
+      "description": "Adversaries may configure system settings to execute a program during boot.",
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1547"}]
+    },
+    {
+      "type": "attack-pattern",
+      "id": "attack-pattern--mobile-only",
+      "name": "Mobile Only Technique",
+      "description": "Present only in the mobile domain.",
+      "x_mitre_domains": ["mobile-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1400"}]
+    },
+    {
+      "type": "course-of-action",
+      "id": "course-of-action--password-policies",
+      "name": "Password Policies",
+      "description": "Set and enforce secure password policies for accounts.",
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "M1027"}]
+    },
+    {
+      "type": "relationship",
+      "id": "relationship--sub-1",
+      "relationship_type": "subtechnique-of",
+      "source_ref": "attack-pattern--password-guessing",
+      "target_ref": "attack-pattern--brute-force"
+    },
+    {
+      "type": "relationship",
+      "id": "relationship--sub-2",
+      "relationship_type": "subtechnique-of",
+      "source_ref": "attack-pattern--credential-stuffing",
+      "target_ref": "attack-pattern--brute-force"
+    },
+    {
+      "type": "relationship",
+      "id": "relationship--sub-3",
+      "relationship_type": "subtechnique-of",
+      "source_ref": "attack-pattern--winlogon-new",
+      "target_ref": "attack-pattern--boot-autostart"
+    },
+    {
+      "type": "relationship",
+      "id": "relationship--revoke-1",
+      "relationship_type": "revoked-by",
+      "source_ref": "attack-pattern--winlogon-old",
+      "target_ref": "attack-pattern--winlogon-new"
+    }
+  ]
+}
