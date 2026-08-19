@@ -44,3 +44,21 @@ def build_fixture_graph() -> OntologyGraph:
 
 def build_attack_only_graph() -> OntologyGraph:
     return OntologyGraph.from_files(attack_path=ATTACK_FIXTURE)
+
+
+class FakeDFLookup:
+    """A :class:`~sira_cti.index.df_stats.DFLookup` with hand-set counts.
+
+    Enrichment tests need a DF source that doesn't require building a real
+    Lucene index per test; ``df_stats.LuceneDFLookup`` is covered separately,
+    against a real (small, local, no-network) index.
+    """
+
+    def __init__(self, counts: dict[str, int], *, total_docs: int) -> None:
+        self._counts = {k.lower(): v for k, v in counts.items()}
+        self.total_docs = total_docs
+
+    def doc_freq(self, term: str) -> int:
+        # Mirror the real lookup's "max across tokens" policy closely enough
+        # for tests: split on whitespace, look up each word.
+        return max((self._counts.get(tok.lower(), 0) for tok in term.split()), default=0)

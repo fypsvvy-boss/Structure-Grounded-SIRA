@@ -10,6 +10,7 @@ from .schemas import (
     write_jsonl,
 )
 from .llm import CallLog, CallRecord, LLMClient, LLMError, OllamaClient, Scope, StubClient
+from .repro import config_hash, load_config
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -28,4 +29,6 @@ __all__ = [
     "OllamaClient",
     "Scope",
     "StubClient",
+    "config_hash",
+    "load_config",
 ]
