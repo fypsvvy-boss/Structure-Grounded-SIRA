@@ -22,7 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 class Source(str, Enum):
@@ -96,12 +96,32 @@ class TokenUsage:
 class ProposedTerm:
     """One piece of vocabulary the LLM suggested, plus its adjudication.
 
+    Three fields, three distinct facts, all of which can differ from one
+    another for a repaired structural term:
+
+    * ``term``             what the LLM literally wrote, sloppiness included
+                            (``"t1562/001"``)
+    * ``structural_id``    what actually enters the query, post-repair
+                            (``"T1685"``)
+    * ``repaired_from_id`` the canonical pre-repair identifier
+                            (``"T1562.001"``), set only when
+                            ``OntologyGraph.validate(..., revoked_policy="repair")``
+                            rewrote a REVOKED term rather than rejecting it
+
     Invariants (enforced at construction):
 
-    * ``kind == STRUCTURAL``   -> ``structural_id`` set, ``graph_validated`` is a bool
-    * ``kind != STRUCTURAL``   -> ``structural_id`` is None, ``graph_validated`` is None
-    * ``accepted``             -> ``reject_reason`` is None
-    * ``not accepted``         -> ``reject_reason`` is set
+    * ``kind == STRUCTURAL``     -> ``structural_id`` set, ``graph_validated`` is a bool
+    * ``kind != STRUCTURAL``     -> ``structural_id`` is None, ``graph_validated`` is None
+    * ``accepted``               -> ``reject_reason`` is None
+    * ``not accepted``           -> ``reject_reason`` is set
+    * ``repaired_from_id`` set   -> ``kind == STRUCTURAL``, ``accepted`` is True,
+                                     and it differs from ``structural_id``
+
+    A repaired term stays in ``accepted_terms`` (the accepted/rejected
+    partition is what lets Module 4 compute rejection rates without a third
+    state), but ``repaired_from_id`` keeps the fact that it needed repair
+    from disappearing into an ordinary accept. See
+    :meth:`EnrichmentRecord.staleness_rate`.
     """
 
     term: str
@@ -111,6 +131,7 @@ class ProposedTerm:
     doc_freq: Optional[int] = None
     accepted: bool = False
     reject_reason: Optional[RejectReason] = None
+    repaired_from_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.kind = TermKind(self.kind)
@@ -136,6 +157,17 @@ class ProposedTerm:
         if not self.accepted and self.reject_reason is None:
             raise ValueError(f"rejected term {self.term!r} must carry a reject_reason")
 
+        if self.repaired_from_id is not None:
+            if self.kind is not TermKind.STRUCTURAL:
+                raise ValueError(f"non-structural term {self.term!r} must not carry a repaired_from_id")
+            if not self.accepted:
+                raise ValueError(f"repaired_from_id on {self.term!r} requires accepted=True")
+            if self.repaired_from_id == self.structural_id:
+                raise ValueError(
+                    f"repaired_from_id on {self.term!r} must differ from structural_id "
+                    f"({self.structural_id!r}) -- otherwise nothing was repaired"
+                )
+
         if self.doc_freq is not None and self.doc_freq < 0:
             raise ValueError("doc_freq must be >= 0")
 
@@ -159,6 +191,34 @@ class ProposedTerm:
             doc_freq=doc_freq,
             accepted=True,
             reject_reason=None,
+        )
+
+    @classmethod
+    def repair(
+        cls,
+        term: str,
+        *,
+        structural_id: str,
+        repaired_from_id: str,
+        doc_freq: Optional[int] = None,
+    ) -> "ProposedTerm":
+        """A structural term whose REVOKED id was rewritten to its replacement.
+
+        Accepted, ``graph_validated=True``, no ``reject_reason`` — same shape
+        as :meth:`accept` for everything downstream that only looks at the
+        accepted/rejected partition — but ``repaired_from_id`` records the
+        canonical id it was rewritten from, so the RQ4 staleness signal is
+        not lost just because the term went on to validate.
+        """
+        return cls(
+            term=term,
+            kind=TermKind.STRUCTURAL,
+            structural_id=structural_id,
+            graph_validated=True,
+            doc_freq=doc_freq,
+            accepted=True,
+            reject_reason=None,
+            repaired_from_id=repaired_from_id,
         )
 
     @classmethod
@@ -206,6 +266,7 @@ class ProposedTerm:
             doc_freq=d.get("doc_freq"),
             accepted=bool(d.get("accepted", False)),
             reject_reason=RejectReason(d["reject_reason"]) if d.get("reject_reason") else None,
+            repaired_from_id=d.get("repaired_from_id"),
         )
 
 
@@ -249,6 +310,11 @@ class EnrichmentRecord:
         return [t for t in self.proposed_terms if not t.accepted]
 
     @property
+    def repaired_terms(self) -> list[ProposedTerm]:
+        """Accepted terms whose id was rewritten from a revoked one."""
+        return [t for t in self.proposed_terms if t.repaired_from_id is not None]
+
+    @property
     def structural_terms(self) -> list[ProposedTerm]:
         return [t for t in self.proposed_terms if t.kind is TermKind.STRUCTURAL]
 
@@ -262,6 +328,25 @@ class EnrichmentRecord:
         if not pool:
             return None
         return sum(1 for t in pool if not t.accepted) / len(pool)
+
+    def staleness_rate(self) -> Optional[float]:
+        """Share of structural terms the model got out-of-date, not wrong.
+
+        Counts both repaired terms (accepted after a revoked-id rewrite) and
+        outright REVOKED rejections — together, "the model's training data
+        was stale" as distinct from "the model hallucinated"
+        (``NOT_IN_GRAPH``). ``None`` when there are no structural terms,
+        mirroring :meth:`rejection_rate`.
+        """
+        pool = self.structural_terms
+        if not pool:
+            return None
+        stale = sum(
+            1
+            for t in pool
+            if t.repaired_from_id is not None or t.reject_reason is RejectReason.REVOKED
+        )
+        return stale / len(pool)
 
     def expansion_query(self) -> str:
         """The ``q_exp`` half of ``score(d) = BM25(q_orig,d) + w*BM25(q_exp,d)``."""

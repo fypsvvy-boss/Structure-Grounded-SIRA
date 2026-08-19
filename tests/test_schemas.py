@@ -83,6 +83,54 @@ def test_empty_term_is_rejected():
         ProposedTerm.accept("   ", TermKind.SYMPTOM)
 
 
+# -- repair (RevokedPolicy="repair" downstream) --------------------------------
+
+
+def test_repaired_term_is_accepted_and_preserves_the_original_id():
+    term = ProposedTerm.repair("t1562/001", structural_id="T1685", repaired_from_id="T1562.001")
+    assert term.accepted
+    assert term.reject_reason is None
+    assert term.graph_validated is True
+    assert term.structural_id == "T1685"
+    assert term.repaired_from_id == "T1562.001"
+    assert term.term == "t1562/001"
+
+
+def test_repaired_from_id_requires_accepted():
+    with pytest.raises(ValueError):
+        ProposedTerm(
+            term="T1562.001",
+            kind=TermKind.STRUCTURAL,
+            structural_id="T1685",
+            graph_validated=True,
+            accepted=False,
+            reject_reason=RejectReason.REVOKED,
+            repaired_from_id="T1562.001",
+        )
+
+
+def test_repaired_from_id_requires_a_structural_term():
+    with pytest.raises(ValueError):
+        ProposedTerm(
+            term="brute force",
+            kind=TermKind.COLLOQUIAL,
+            accepted=True,
+            repaired_from_id="T1562.001",
+        )
+
+
+def test_repaired_from_id_must_differ_from_structural_id():
+    with pytest.raises(ValueError):
+        ProposedTerm(
+            term="T1562.001",
+            kind=TermKind.STRUCTURAL,
+            structural_id="T1562.001",
+            graph_validated=True,
+            accepted=True,
+            repaired_from_id="T1562.001",
+        )
+
+
 def _record():
     return EnrichmentRecord(
         doc_id="CVE-2024-12345",
@@ -126,6 +174,29 @@ def test_rejection_rate_is_none_when_nothing_was_proposed():
     assert rec.rejection_rate() is None
 
 
+def test_staleness_rate_counts_repairs_and_revoked_rejections():
+    # 4 structural terms: one clean accept, one repaired, one REVOKED
+    # rejection, one NOT_IN_GRAPH rejection (a hallucination, not staleness).
+    rec = EnrichmentRecord(
+        doc_id="CVE-2024-12345",
+        source=Source.CVE,
+        original_text="...",
+        proposed_terms=[
+            _structural("T1110", accepted=True),
+            ProposedTerm.repair("t1562/001", structural_id="T1685", repaired_from_id="T1562.001"),
+            _structural("T1656", accepted=False, reason=RejectReason.REVOKED),
+            _structural("T9999", accepted=False, reason=RejectReason.NOT_IN_GRAPH),
+        ],
+    )
+    assert rec.repaired_terms == [rec.proposed_terms[1]]
+    assert rec.staleness_rate() == pytest.approx(0.5)   # 2 of 4 structural terms
+
+
+def test_staleness_rate_is_none_when_there_are_no_structural_terms():
+    rec = EnrichmentRecord(doc_id="q1", source=Source.QUERY, original_text="odd logins")
+    assert rec.staleness_rate() is None
+
+
 def test_expansion_query_uses_accepted_terms_only():
     q_exp = _record().expansion_query()
     assert "brute force login" in q_exp
@@ -152,6 +223,21 @@ def test_malformed_jsonl_line_reports_its_line_number(tmp_path):
     with pytest.raises(ValueError) as exc:
         list(read_jsonl(path))
     assert ":2:" in str(exc.value)
+
+
+def test_v1_0_0_records_without_repaired_from_id_load_cleanly():
+    # A record written before schema 1.1.0 has no "repaired_from_id" key at
+    # all -- from_dict must default it to None, not KeyError, and the record
+    # must behave as if nothing was ever repaired.
+    d = _record().to_dict()
+    d["schema_version"] = "1.0.0"
+    for t in d["proposed_terms"]:
+        t.pop("repaired_from_id", None)
+
+    rec = EnrichmentRecord.from_dict(d)
+    assert rec.schema_version == "1.0.0"
+    assert rec.repaired_terms == []
+    assert all(t.repaired_from_id is None for t in rec.proposed_terms)
 
 
 def test_token_usage_adds():
