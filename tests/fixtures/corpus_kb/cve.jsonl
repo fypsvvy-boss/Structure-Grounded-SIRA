@@ -1,0 +1,2 @@
+{"id": "0", "cve_id": "CVE-2024-12345", "title": "CVE-2024-12345", "contents": "{\"descriptions\": [{\"value\": \"Authentication bypass in the login endpoint allows repeated password guesses without lockout.\"}], \"weaknesses\": [{\"type\": \"Primary\", \"description\": [{\"value\": \"CWE-307\"}]}]}", "metadata": {"source": "nvd"}}
+{"id": "1", "cve_id": "CVE-2023-99999", "title": "CVE-2023-99999", "contents": "{\"descriptions\": [{\"value\": \"Buffer overflow in the parsing routine leads to remote code execution.\"}], \"weaknesses\": []}", "metadata": {"source": "nvd"}}

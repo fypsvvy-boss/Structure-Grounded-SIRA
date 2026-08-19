@@ -21,6 +21,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 ATTACK_FIXTURE = FIXTURES / "mini_attack.json"
 CWE_FIXTURE = FIXTURES / "mini_cwe.xml"
 CAPEC_FIXTURE = FIXTURES / "mini_capec.xml"
+CORPUS_KB_FIXTURE = FIXTURES / "corpus_kb"
 
 
 def load_fixture_result():

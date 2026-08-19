@@ -1,0 +1,2 @@
+{"id": "0", "mitre_id": "T1110", "title": "Brute Force", "contents": "{\"x_mitre_detection\": \"Monitor for repeated failed authentication attempts.\"}", "metadata": {"source": "mitre_ttp"}}
+{"id": "1", "mitre_id": "T1110.001", "title": "Password Guessing", "contents": "{\"x_mitre_platforms\": [\"Windows\", \"Linux\"]}", "metadata": {"source": "mitre_ttp"}}

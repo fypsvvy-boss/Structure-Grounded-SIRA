@@ -1,0 +1,1 @@
+{"id": "0", "capec_id": "49", "title": "Password Brute Forcing", "contents": "{\"Description\": \"An attacker tries many passwords in an attempt to guess the correct one.\"}", "metadata": {"source": "capec"}}

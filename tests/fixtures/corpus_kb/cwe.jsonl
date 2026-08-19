@@ -1,0 +1,1 @@
+{"id": "0", "cwe_id": "307", "title": "Improper Restriction of Excessive Authentication Attempts", "contents": "{\"Common_Consequences\": {\"Consequence\": {\"Scope\": \"Other\", \"Impact\": \"Reduce Performance\"}}}", "metadata": {"source": "cwe"}}

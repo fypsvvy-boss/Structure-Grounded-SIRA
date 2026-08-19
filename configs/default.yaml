@@ -11,9 +11,12 @@ retrieval:
 enrichment:
   max_terms_per_doc: 12
   max_terms_per_query: 8
-  df_max_ratio: 0.10     # reject terms appearing in >10% of the corpus (too_common)
+  df_max_ratio: 0.10     # reject terms appearing in >10% of the (base) corpus (too_common)
   df_min_count: 1        # reject terms absent from the index (not_in_index)
   require_in_index: true # query-side terms must already exist in the enriched index
+  corpus_prompt_version: corpus-v1
+  concurrency: 2                  # Ollama is local -- keep modest by default
+  max_new_tokens: 512
 
 graph:
   # Pinned to ATT&CK v17.1 (mitre-attack/attack-stix-data), the last release
@@ -39,6 +42,27 @@ llm:
   temperature: 0.0
   max_retries: 2
 
+corpus:
+  # CTIConnect's own structured knowledge base -- see data/README.md. Doc ids
+  # are canonicalised to match CTIConnect's own baseline convention (CVE-…,
+  # CWE-…, CAPEC-…, T####[.###]) so the index this module builds stays
+  # doc-id-compatible with CTIConnect's qrels and other baselines.
+  kb_dir: data/CTIConnect/corpus_kb
+  kinds: [cve, cwe, capec, mitre]
+
+index:
+  base_dir: indexes/base          # unenriched -- also Module 3's plain-BM25 baseline
+  enriched_dir: indexes/enriched  # base contents + an "expansion" field of accepted terms
+  threads: 2
+  stemmer: porter                 # matches the Phase 0 SciFact reproduction
+
 eval:
   seed: 42
   metrics: [recall@1, recall@10, recall@100, ndcg@10]
+
+  # Deprecated identifiers are rejected. Known cost: CWE-264 appears in
+  # CTIConnect gold (1 row of 1,859). Admitting deprecated entries to recover
+  # it would open all 335 deprecated nodes to the expansion vocabulary — a
+  # broad change for a rounding error, and harder to defend as a pre-registered
+  # choice. allow_deprecated=True is retained for the ablation.
+  allow_deprecated: false
