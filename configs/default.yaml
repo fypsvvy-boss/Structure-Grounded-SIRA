@@ -53,6 +53,7 @@ corpus:
 index:
   base_dir: indexes/base          # unenriched -- also Module 3's plain-BM25 baseline
   enriched_dir: indexes/enriched  # base contents + an "expansion" field of accepted terms
+  enrichment_path: indexes/enrichment/corpus.jsonl  # scripts/enrich_corpus.py's output
   threads: 2
   stemmer: porter                 # matches the Phase 0 SciFact reproduction
 
