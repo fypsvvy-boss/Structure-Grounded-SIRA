@@ -69,6 +69,16 @@
     },
     {
       "type": "attack-pattern",
+      "id": "attack-pattern--password-spraying-old",
+      "name": "Password Spraying",
+      "description": "Revoked sub-technique. No subtechnique-of relationship object exists for it in this bundle, modelling how revocation prunes a node's edges along with everything else -- it is syntactically T1110's child but graph-orphaned.",
+      "revoked": true,
+      "x_mitre_is_subtechnique": true,
+      "x_mitre_domains": ["enterprise-attack"],
+      "external_references": [{"source_name": "mitre-attack", "external_id": "T1110.002"}]
+    },
+    {
+      "type": "attack-pattern",
       "id": "attack-pattern--boot-autostart",
       "name": "Boot or Logon Autostart Execution",
       "description": "Adversaries may configure system settings to execute a program during boot.",

@@ -51,7 +51,11 @@ def main() -> int:
 
     cfg = yaml.safe_load(Path(args.config).read_text())["graph"]
 
-    missing = [p for p in (cfg["attack_path"], cfg["cwe_path"], cfg["capec_path"]) if not Path(p).exists()]
+    attack_paths = cfg["attack_path"]
+    if isinstance(attack_paths, str):
+        attack_paths = [attack_paths]
+
+    missing = [p for p in (*attack_paths, cfg["cwe_path"], cfg["capec_path"]) if not Path(p).exists()]
     if missing:
         print("Missing source files — see data/README.md for fetch steps:")
         for path in missing:
@@ -59,7 +63,7 @@ def main() -> int:
         return 1
 
     graph = OntologyGraph.from_files(
-        attack_path=cfg["attack_path"],
+        attack_path=attack_paths,
         cwe_path=cfg["cwe_path"],
         capec_path=cfg["capec_path"],
         domains=cfg.get("domains"),

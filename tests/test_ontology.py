@@ -9,7 +9,7 @@ elsewhere in the suite would catch it.
 from helpers import build_attack_only_graph, build_fixture_graph
 
 from sira_cti.common import RejectReason
-from sira_cti.graph import Namespace
+from sira_cti.graph import Namespace, RevokedPolicy
 
 
 def test_valid_technique_passes_and_canonicalises():
@@ -51,6 +51,74 @@ def test_revoked_technique_is_rejected_and_names_its_replacement():
     assert result.replacement_id == "T1547.004"
 
 
+def test_revoked_policy_defaults_to_reject():
+    # Default behaviour is unchanged whether or not revoked_policy is passed.
+    g = build_fixture_graph()
+    result = g.validate("T1004")
+    assert not result.valid
+    assert result.repaired is False
+    assert result.reject_reason is RejectReason.REVOKED
+    assert result.replacement_id == "T1547.004"
+
+
+def test_revoked_policy_repair_accepts_and_rewrites_to_the_replacement():
+    g = build_fixture_graph()
+    result = g.validate("T1004", revoked_policy="repair")
+    assert result.valid
+    assert result.canonical_id == "T1547.004"
+    assert result.node.node_id == "T1547.004"
+    assert result.node.name == "Winlogon Helper DLL"
+
+
+def test_revoked_policy_repair_still_records_that_a_repair_happened():
+    # The rejection log is the RQ4 dataset -- a repaired term must remain
+    # distinguishable from a term that was simply valid all along.
+    g = build_fixture_graph()
+    result = g.validate("T1004", revoked_policy="repair")
+    assert result.repaired is True
+    assert result.reject_reason is RejectReason.REVOKED
+    assert result.replacement_id == "T1547.004"
+
+    clean = g.validate("T1110")
+    assert clean.repaired is False
+    assert clean.reject_reason is None
+
+
+def test_revoked_policy_accepts_the_enum_too():
+    g = build_fixture_graph()
+    result = g.validate("T1004", revoked_policy=RevokedPolicy.REPAIR)
+    assert result.valid and result.repaired
+
+
+def test_revoked_policy_repair_still_rejects_deprecated_terms():
+    # Repair only applies to REVOKED terms; DEPRECATED is a separate reject
+    # reason with no replacement to repair to.
+    g = build_fixture_graph()
+    result = g.validate("T1064", revoked_policy="repair")
+    assert not result.valid
+    assert result.reject_reason is RejectReason.DEPRECATED
+    assert result.repaired is False
+
+
+def test_revoked_policy_repair_cannot_repair_without_a_replacement():
+    # T1110.002 is revoked but carries no revoked-by relationship (see the
+    # syntactic-parent-fallback fixture note) -- there is nothing to repair
+    # to, so repair policy must fall back to reject rather than fabricate one.
+    g = build_fixture_graph()
+    result = g.validate("T1110.002", revoked_policy="repair")
+    assert not result.valid
+    assert result.repaired is False
+    assert result.reject_reason is RejectReason.REVOKED
+    assert result.replacement_id is None
+
+
+def test_validate_many_forwards_revoked_policy():
+    g = build_fixture_graph()
+    results = g.validate_many(["T1004", "T1110"], revoked_policy="repair")
+    assert results[0].valid and results[0].repaired
+    assert results[1].valid and not results[1].repaired
+
+
 def test_deprecated_technique_is_rejected_by_default():
     g = build_fixture_graph()
     assert g.validate("T1064").reject_reason is RejectReason.DEPRECATED
@@ -89,6 +157,30 @@ def test_parents_and_children_span_both_hierarchy_conventions():
     assert g.parents("T1110.001") == ["T1110"]          # ATT&CK subtechnique-of
     assert g.parents("CWE-307") == ["CWE-799"]          # CWE ChildOf
     assert set(g.children("T1110")) == {"T1110.001", "T1110.004"}
+
+
+def test_parents_falls_back_to_the_syntactic_parent_when_the_edge_is_pruned():
+    # T1110.002 is revoked with no subtechnique-of relationship object in the
+    # fixture at all -- modelling how revocation prunes a node's edges. It is
+    # still syntactically T1110's child, and parents() should say so for the
+    # audit log even though the graph carries no such edge.
+    g = build_fixture_graph()
+    assert g.parents("T1110.002") == ["T1110"]
+
+
+def test_syntactic_parent_fallback_does_not_change_validation():
+    # The fallback is read by context()/parents() for readability; validate()
+    # must be completely unaware of it. A pruned-edge sub-technique is still
+    # rejected as REVOKED, not smuggled in because its parent resolves.
+    g = build_fixture_graph()
+    result = g.validate("T1110.002")
+    assert not result.valid
+    assert result.reject_reason is RejectReason.REVOKED
+    # A genuinely invented sub-technique of a real parent must still be
+    # NOT_IN_GRAPH -- the fallback must not make up parents for IDs that were
+    # never loaded at all.
+    assert g.parents("T1110.099") == []
+    assert g.validate("T1110.099").reject_reason is RejectReason.NOT_IN_GRAPH
 
 
 def test_siblings_exclude_the_node_itself():
@@ -164,7 +256,7 @@ def test_attack_only_graph_still_validates_attack_ids():
 def test_stats_report_status_and_edge_breakdowns():
     stats = build_fixture_graph().stats()
     assert stats["nodes"] > 0
-    assert stats["nodes_by_status"]["revoked"] == 1
+    assert stats["nodes_by_status"]["revoked"] == 2   # T1004 and T1110.002
     assert stats["nodes_by_namespace"]["cwe"] >= 5
     assert "subtechnique_of" in stats["edges_by_type"]
 

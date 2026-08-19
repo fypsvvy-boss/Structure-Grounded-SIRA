@@ -180,6 +180,21 @@ def load_attack_stix(path: str | Path, *, domains: Optional[Iterable[str]] = Non
             result.warnings.append(f"unparseable ATT&CK external_id: {ext_id!r}")
             continue
 
+        if stix_type != "attack-pattern" and parsed.node_type is not node_type:
+            # Legacy collision, not a parsing failure: early ATT&CK releases
+            # minted mitigations (course-of-action) with the same T#### id as
+            # a technique, before M#### mitigation IDs existed. ~200 of these
+            # remain in the catalogue purely for backward-compatible URLs. Our
+            # ID space treats T#### as technique-namespace (normalize.py), so
+            # letting one in here would let it silently occupy — and on a
+            # longer description, overwrite via add_node's tie-break — the
+            # real technique's node_id.
+            result.warnings.append(
+                f"skipped legacy {stix_type} {ext_id!r} ({obj.get('name')!r}): "
+                f"id belongs to {parsed.node_type.value}-namespace, not {node_type.value}"
+            )
+            continue
+
         if obj.get("revoked"):
             status = Status.REVOKED
         elif obj.get("x_mitre_deprecated"):
@@ -400,17 +415,33 @@ def load_capec_xml(path: str | Path) -> LoadResult:
 
 def load_all(
     *,
-    attack_path: Optional[str | Path] = None,
+    attack_path: Optional[str | Path | Iterable[str | Path]] = None,
     cwe_path: Optional[str | Path] = None,
     capec_path: Optional[str | Path] = None,
     domains: Optional[Iterable[str]] = None,
 ) -> LoadResult:
-    """Load whichever sources are provided into one result."""
+    """Load whichever sources are provided into one result.
+
+    ``attack_path`` accepts either a single bundle or a list of bundles —
+    the ATT&CK STIX data is split one file per domain (enterprise/mobile/ICS),
+    and CTIConnect's snapshot spans all three. Loading only the enterprise
+    file leaves every mobile- and ICS-only technique unresolvable, which
+    shows up as ``not_in_graph`` for terms that are perfectly real.
+    """
     combined = LoadResult()
-    if attack_path:
-        combined.extend(load_attack_stix(attack_path, domains=domains))
+    for path in _as_path_list(attack_path):
+        combined.extend(load_attack_stix(path, domains=domains))
     if cwe_path:
         combined.extend(load_cwe_xml(cwe_path))
     if capec_path:
         combined.extend(load_capec_xml(capec_path))
     return combined
+
+
+def _as_path_list(value: Optional[str | Path | Iterable[str | Path]]) -> list[str | Path]:
+    """Normalise a single path or an iterable of paths to a list, dropping ``None``."""
+    if value is None:
+        return []
+    if isinstance(value, (str, Path)):
+        return [value]
+    return list(value)

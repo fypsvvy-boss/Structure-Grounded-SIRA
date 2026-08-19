@@ -24,6 +24,7 @@ Those are different findings, and the distinction is free to record.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -32,6 +33,22 @@ import networkx as nx
 from ..common.schemas import RejectReason
 from .loaders import EdgeType, LoadResult, OntologyEdge, OntologyNode, Status, load_all
 from .normalize import Namespace, NodeType, ParsedID, parse_structural_id
+
+
+class RevokedPolicy(str, Enum):
+    """How :meth:`OntologyGraph.validate` treats a REVOKED term.
+
+    ``REJECT`` (default) is the README/RQ4 baseline: a revoked term fails
+    validation, and ``replacement_id`` names what it should have been. Under
+    ``REPAIR``, the same term is accepted with ``canonical_id`` rewritten to
+    the replacement — useful when the pipeline would rather silently correct
+    stale-training-data mistakes than lose them at the retrieval stage. See
+    :class:`ValidationResult` for how the repair is still recorded rather
+    than disappearing from the RQ4 dataset.
+    """
+
+    REJECT = "reject"
+    REPAIR = "repair"
 
 
 @dataclass
@@ -44,6 +61,15 @@ class ValidationResult:
     node: Optional[OntologyNode] = None
     reject_reason: Optional[RejectReason] = None
     replacement_id: Optional[str] = None
+    repaired: bool = False
+    """True iff ``revoked_policy="repair"`` rewrote a REVOKED term into its
+    replacement. ``valid`` is True and ``reject_reason`` is still REVOKED in
+    that case — the repair happened *because* the term was revoked, and that
+    is exactly the signal the RQ4 rejection log must not lose just because
+    the term went on to validate. (Downstream, ``ProposedTerm`` cannot carry
+    both ``accepted=True`` and a ``reject_reason`` under its current
+    invariant — recording this in an ``EnrichmentRecord`` needs a schemas.py
+    change; see the summary.)"""
 
     def __bool__(self) -> bool:
         return self.valid
@@ -55,6 +81,7 @@ class ValidationResult:
             "canonical_id": self.canonical_id,
             "reject_reason": self.reject_reason.value if self.reject_reason else None,
             "replacement_id": self.replacement_id,
+            "repaired": self.repaired,
             "name": self.node.name if self.node else None,
         }
 
@@ -85,11 +112,14 @@ class OntologyGraph:
     def from_files(
         cls,
         *,
-        attack_path: Optional[str | Path] = None,
+        attack_path: Optional[str | Path | Iterable[str | Path]] = None,
         cwe_path: Optional[str | Path] = None,
         capec_path: Optional[str | Path] = None,
         domains: Optional[Iterable[str]] = None,
     ) -> "OntologyGraph":
+        """``attack_path`` may be a single STIX bundle or a list of them — pass
+        one path per domain (enterprise/mobile/ICS) to load the full ATT&CK
+        matrix, as CTIConnect's snapshot spans all three."""
         return cls.from_load_result(
             load_all(
                 attack_path=attack_path,
@@ -144,13 +174,28 @@ class OntologyGraph:
 
     # -- the validation step under test -------------------------------------------
 
-    def validate(self, term: str, *, allow_deprecated: bool = False) -> ValidationResult:
+    def validate(
+        self,
+        term: str,
+        *,
+        allow_deprecated: bool = False,
+        revoked_policy: RevokedPolicy | str = RevokedPolicy.REJECT,
+    ) -> ValidationResult:
         """Adjudicate one LLM-proposed structural term.
 
         ``allow_deprecated`` exists for the RQ4 ablation: a deprecated
         technique's text is still in the corpus, so admitting it may help
         recall even though it is not current guidance. Off by default.
+
+        ``revoked_policy`` (``graph.revoked_policy`` in config) is
+        ``"reject"`` by default — a revoked term fails, naming
+        ``replacement_id``. Under ``"repair"`` it is accepted instead, with
+        ``canonical_id``/``node`` rewritten to the replacement; see
+        :class:`ValidationResult.repaired` for how that repair still shows up
+        in the RQ4 log. A revoked node with no recorded replacement cannot be
+        repaired and is rejected regardless of policy.
         """
+        policy = RevokedPolicy(revoked_policy)
         parsed: Optional[ParsedID] = parse_structural_id(term)
         if parsed is None:
             return ValidationResult(
@@ -167,6 +212,17 @@ class OntologyGraph:
             )
 
         if node.status is Status.REVOKED:
+            replacement = self._nodes.get(node.revoked_by) if node.revoked_by else None
+            if policy is RevokedPolicy.REPAIR and replacement is not None:
+                return ValidationResult(
+                    valid=True,
+                    input_term=term,
+                    canonical_id=replacement.node_id,
+                    node=replacement,
+                    reject_reason=RejectReason.REVOKED,
+                    replacement_id=replacement.node_id,
+                    repaired=True,
+                )
             return ValidationResult(
                 valid=False,
                 input_term=term,
@@ -190,9 +246,16 @@ class OntologyGraph:
         )
 
     def validate_many(
-        self, terms: Iterable[str], *, allow_deprecated: bool = False
+        self,
+        terms: Iterable[str],
+        *,
+        allow_deprecated: bool = False,
+        revoked_policy: RevokedPolicy | str = RevokedPolicy.REJECT,
     ) -> list[ValidationResult]:
-        return [self.validate(t, allow_deprecated=allow_deprecated) for t in terms]
+        return [
+            self.validate(t, allow_deprecated=allow_deprecated, revoked_policy=revoked_policy)
+            for t in terms
+        ]
 
     # -- neighbourhood (used to expand a validated term) ---------------------------
 
@@ -215,10 +278,24 @@ class OntologyGraph:
         ]
 
     def parents(self, node_id: str) -> list[str]:
-        """Hierarchical parents: ATT&CK ``subtechnique-of`` or CWE/CAPEC ``ChildOf``."""
-        return self._typed_out(node_id, EdgeType.SUBTECHNIQUE_OF) + self._typed_out(
-            node_id, EdgeType.CHILD_OF
-        )
+        """Hierarchical parents: ATT&CK ``subtechnique-of`` or CWE/CAPEC ``ChildOf``.
+
+        Falls back to the *syntactic* parent (``ParsedID.parent_id``, e.g.
+        ``T1110.002`` -> ``T1110``) when a sub-technique has no
+        ``subtechnique-of`` edge at all. Revocation prunes a node's
+        relationships along with everything else, leaving it graph-orphaned
+        even though its ID still names its parent. This exists for audit-log
+        readability only — :meth:`validate` never calls ``parents()``, so the
+        fallback cannot change which terms pass validation.
+        """
+        subtechnique_of = self._typed_out(node_id, EdgeType.SUBTECHNIQUE_OF)
+        if not subtechnique_of and node_id in self._nodes:
+            # Only for nodes the graph actually loaded — never invent a
+            # parent for an ID that was never a real node to begin with.
+            parsed = parse_structural_id(node_id)
+            if parsed is not None and parsed.is_subtechnique and parsed.parent_id in self._nodes:
+                subtechnique_of = [parsed.parent_id]
+        return subtechnique_of + self._typed_out(node_id, EdgeType.CHILD_OF)
 
     def children(self, node_id: str) -> list[str]:
         return self._typed_in(node_id, EdgeType.SUBTECHNIQUE_OF) + self._typed_in(

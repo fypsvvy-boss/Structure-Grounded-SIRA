@@ -16,11 +16,20 @@ enrichment:
   require_in_index: true # query-side terms must already exist in the enriched index
 
 graph:
-  attack_path: data/raw/attack/enterprise-attack.json
-  cwe_path: data/raw/cwe/cwec_latest.xml
+  # Pinned to ATT&CK v17.1 (mitre-attack/attack-stix-data), the last release
+  # before CTIConnect's 2025-09-01 snapshot — see data/README.md for why.
+  attack_path:
+    - data/raw/attack/enterprise-attack.json
+    - data/raw/attack/mobile-attack.json
+    - data/raw/attack/ics-attack.json
+  cwe_path: data/raw/cwe/cwec_latest.xml.zip
   capec_path: data/raw/capec/capec_latest.xml
-  domains: [enterprise-attack]
+  domains: [enterprise-attack, mobile-attack, ics-attack]
   allow_deprecated: false      # flip to true only for the RQ4 ablation
+  revoked_policy: reject       # reject | repair -- repair rewrites canonical_id to
+                                # replacement_id instead of failing validation; the
+                                # rejection log still records that a repair happened
+                                # (ValidationResult.repaired), it just isn't dropped here
   include_siblings: false      # sibling expansion dilutes BM25 discriminative weight
 
 llm:

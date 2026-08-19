@@ -1,5 +1,7 @@
 """Loaders for the three MITRE source formats."""
 
+import json
+
 from helpers import ATTACK_FIXTURE, CAPEC_FIXTURE, CWE_FIXTURE, load_fixture_result
 
 from sira_cti.graph import (
@@ -56,6 +58,49 @@ def test_domain_filter_excludes_other_matrices():
     assert "T1400" not in enterprise          # mobile-only
     assert "T1110" in enterprise
     assert "T1400" in _by_id(load_attack_stix(ATTACK_FIXTURE))
+
+
+def test_legacy_mitigation_sharing_a_technique_id_does_not_shadow_the_technique(tmp_path):
+    # Real MITRE data: ~200 pre-M#### mitigations were minted with the same
+    # T#### id as a technique (e.g. "Masquerading Mitigation" -> T1036,
+    # alongside the technique T1036 "Masquerading" itself). Left unguarded,
+    # add_node's "richer description wins" tie-break can let the legacy
+    # mitigation silently replace the real technique node when its
+    # description happens to be longer — reporting an active technique as a
+    # MITIGATION, or as deprecated, for reasons that have nothing to do with
+    # the technique itself.
+    bundle = {
+        "type": "bundle",
+        "objects": [
+            {
+                "type": "attack-pattern",
+                "id": "attack-pattern--masquerading",
+                "name": "Masquerading",
+                "description": "short",
+                "x_mitre_domains": ["enterprise-attack"],
+                "external_references": [{"source_name": "mitre-attack", "external_id": "T1036"}],
+            },
+            {
+                "type": "course-of-action",
+                "id": "course-of-action--masquerading-mitigation",
+                "name": "Masquerading Mitigation",
+                "description": "a much longer legacy description than the technique above",
+                "x_mitre_deprecated": True,
+                "x_mitre_domains": ["enterprise-attack"],
+                "external_references": [{"source_name": "mitre-attack", "external_id": "T1036"}],
+            },
+        ],
+    }
+    path = tmp_path / "collision.json"
+    path.write_text(json.dumps(bundle))
+
+    result = load_attack_stix(path)
+    nodes = _by_id(result)
+
+    assert nodes["T1036"].node_type is NodeType.TECHNIQUE
+    assert nodes["T1036"].name == "Masquerading"
+    assert nodes["T1036"].status is Status.ACTIVE
+    assert any("T1036" in w and "course-of-action" in w for w in result.warnings)
 
 
 # -- CWE ------------------------------------------------------------------------

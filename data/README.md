@@ -6,19 +6,34 @@ Everything under `data/` is gitignored. Fetch it with the commands below.
 
 ```bash
 mkdir -p data/raw/attack
-curl -L -o data/raw/attack/enterprise-attack.json \
-  https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json
+for domain in enterprise-attack mobile-attack ics-attack; do
+  curl -L -o data/raw/attack/$domain.json \
+    https://raw.githubusercontent.com/mitre-attack/attack-stix-data/v17.1/$domain/$domain.json
+done
 ```
 
-The full `mitre/cti` repo is large; only the enterprise bundle is needed unless
-the project later extends to the mobile or ICS matrices, in which case fetch the
-corresponding bundle and drop the `domains` filter in `configs/default.yaml`.
+Source is `mitre-attack/attack-stix-data` (STIX 2.1, one versioned release per
+tag), **not** the `mitre/cti` mirror — that repo tracks `master`, i.e.
+whatever the current live release is on the day you happen to `curl` it, which
+makes every result silently unreproducible six months later.
 
-**Pin the version.** ATT&CK ships a new release roughly twice a year, and
-technique IDs are deprecated and revoked between them. Record the bundle's
-`x_mitre_version` alongside every results file, or a re-run six months from now
-will produce a different rejection rate for reasons that have nothing to do
-with the model.
+**Pinned to `v17.1`.** CTIConnect's corpus snapshot (`snapshot_date` in
+`data/cticonnect/corpus_kb/MANIFEST.json`) is dated 2025-09-01. `v17.1` was
+tagged 2025-05-06 and `v18.0` not until 2025-10-28, so `v17.1` is the release
+CTIConnect's snapshot actually reflects — pin anything later and gold labels
+that were valid when the benchmark was built (e.g. the `T1562` family,
+`T1656`) come out revoked for reasons that have nothing to do with the model
+under test.
+
+**Load all three domains.** `configs/default.yaml`'s `graph.attack_path`
+takes a list; give it enterprise, mobile, and ICS. CTIConnect's QA rows span
+all three matrices, and loading enterprise alone leaves every mobile- and
+ICS-only technique unresolvable (`not_in_graph`) even though it is real.
+
+Record the pinned tag (`v17.1`) alongside every results file — the next ATT&CK
+release will revoke more IDs, and a re-run against a different pin will
+produce a different rejection rate for reasons that have nothing to do with
+the model.
 
 ## CWE
 
