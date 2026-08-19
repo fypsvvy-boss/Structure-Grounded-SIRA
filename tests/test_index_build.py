@@ -21,7 +21,7 @@ from sira_cti.index import (
     build_enriched_index,
     write_json_collection,
 )
-from sira_cti.index.corpus import CorpusDocument, load_corpus
+from sira_cti.index.corpus import load_corpus
 from sira_cti.index.df_stats import LuceneDFLookup, too_common
 
 

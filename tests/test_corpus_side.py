@@ -13,7 +13,7 @@ import json
 import pytest
 from helpers import FakeDFLookup, build_fixture_graph
 
-from sira_cti.common import RejectReason, Source, StubClient, TermKind, read_jsonl
+from sira_cti.common import RejectReason, Source, StubClient, read_jsonl
 from sira_cti.enrichment.corpus_side import (
     MalformedReplyError,
     propose_terms,
