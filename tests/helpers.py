@@ -12,6 +12,8 @@ runs offline and in CI without a multi-hundred-megabyte download.
 
 from __future__ import annotations
 
+import re
+
 from pathlib import Path
 
 from sira_cti.graph import OntologyGraph, load_all
@@ -58,7 +60,13 @@ class FakeDFLookup:
         self._counts = {k.lower(): v for k, v in counts.items()}
         self.total_docs = total_docs
 
-    def doc_freq(self, term: str) -> int:
-        # Mirror the real lookup's "max across tokens" policy closely enough
-        # for tests: split on whitespace, look up each word.
-        return max((self._counts.get(tok.lower(), 0) for tok in term.split()), default=0)
+    def doc_freq(self, term: str, *, combine: str = "max") -> int:
+        # Mirror the real lookup's per-token combine policy closely enough for
+        # tests. The real analyzer also splits on punctuation (``CWE-307`` ->
+        # ``["cwe", "307"]``); this splits on whitespace and hyphens so a test
+        # can exercise the multi-token path without a live Lucene index.
+        tokens = [tok for tok in re.split(r"[\s\-]+", term) if tok]
+        dfs = [self._counts.get(tok.lower(), 0) for tok in tokens]
+        if not dfs:
+            return 0
+        return min(dfs) if combine == "min" else max(dfs)

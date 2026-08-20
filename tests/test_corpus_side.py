@@ -13,7 +13,7 @@ import json
 import pytest
 from helpers import FakeDFLookup, build_fixture_graph
 
-from sira_cti.common import RejectReason, Source, StubClient, read_jsonl
+from sira_cti.common import RejectReason, Source, StubClient, TermKind, read_jsonl
 from sira_cti.enrichment.corpus_side import (
     MalformedReplyError,
     propose_terms,
@@ -375,3 +375,95 @@ def test_summarize_returns_none_staleness_rate_with_no_structural_terms(tmp_path
         output_path=out, max_terms=12, df_max_ratio=0.9,
     )
     assert summarize(out)["staleness_rate"] is None
+
+
+# -- kind routing: a mislabelled "structural" is not a hallucination -----------------
+
+
+def test_mislabelled_structural_is_rerouted_and_judged_on_its_merits():
+    # zzip_get32 is a real zziplib symbol the model tagged kind="structural"
+    # in the first real Qwen run. It never reached for an identifier, so it
+    # must not be booked as MALFORMED_ID -- and with DF 0 it is maximally
+    # discriminative, exactly the vocabulary enrichment exists to add.
+    client = _client([{"term": "zzip_get32", "kind": "structural"}])
+    terms = propose_terms(_doc(), client, build_fixture_graph(), _df(total_docs=100), max_terms=12, df_max_ratio=0.10)
+    assert terms[0].accepted
+    assert terms[0].reject_reason is None
+    assert terms[0].kind is not TermKind.STRUCTURAL
+    assert terms[0].structural_id is None
+    assert terms[0].graph_validated is None
+
+
+def test_mislabelled_structural_still_faces_the_df_gate():
+    # Re-routing is not an amnesty: a common word rejected as TOO_COMMON is a
+    # different RQ4 fact from a hallucinated identifier, and both differ from
+    # an accept.
+    client = _client([{"term": "medium", "kind": "structural"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(total_docs=100, medium=50), max_terms=12, df_max_ratio=0.10
+    )
+    assert terms[0].reject_reason is RejectReason.TOO_COMMON
+    assert terms[0].kind is not TermKind.STRUCTURAL
+
+
+def test_a_botched_identifier_is_still_malformed_id():
+    # The RQ4 signal we actually want: the model aimed at an identifier and
+    # missed. Re-routing must not swallow this.
+    for term in ("CWE-abc", "T99"):
+        client = _client([{"term": term, "kind": "structural"}])
+        terms = propose_terms(_doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5)
+        assert terms[0].reject_reason is RejectReason.MALFORMED_ID, term
+        assert terms[0].kind is TermKind.STRUCTURAL, term
+
+
+def test_kind_routing_only_demotes_never_promotes():
+    # A valid id labelled "colloquial" stays colloquial: promoting it would
+    # put an unvalidated identifier into the structural pool and silently
+    # change what RQ4's denominator counts.
+    client = _client([{"term": "T1110", "kind": "colloquial"}])
+    terms = propose_terms(_doc(), client, build_fixture_graph(), _df(total_docs=100), max_terms=12, df_max_ratio=0.10)
+    assert terms[0].kind is TermKind.COLLOQUIAL
+    assert terms[0].structural_id is None
+
+
+# -- DF gate: structural ids are judged on their rarest token ------------------------
+
+
+def test_structural_id_is_not_rejected_for_its_namespace_prefix():
+    # Regression for docs/04_OPEN_QUESTIONS.md question 1. Under the old
+    # max-across-tokens rule "CWE-307" was scored as DF("cwe"), a constant
+    # shared by every identifier in the catalogue -- measured at 2974/6044 =
+    # 0.492 on the real base index, so *every* CWE was rejected regardless of
+    # which one it was, while one-token ATT&CK ids bypassed the gate entirely.
+    client = _client([{"term": "CWE-307", "kind": "structural"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(total_docs=100, cwe=50, **{"307": 2}),
+        max_terms=12, df_max_ratio=0.10,
+    )
+    assert terms[0].accepted
+    assert terms[0].doc_freq == 2          # the number, not the namespace prefix
+    assert terms[0].graph_validated is True
+
+
+def test_a_genuinely_common_structural_id_is_still_too_common():
+    # The gate still bites -- an identifier whose own number is everywhere is
+    # undiscriminative and must fail, or the fix would be an exemption.
+    client = _client([{"term": "CWE-307", "kind": "structural"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(total_docs=100, cwe=50, **{"307": 40}),
+        max_terms=12, df_max_ratio=0.10,
+    )
+    assert terms[0].reject_reason is RejectReason.TOO_COMMON
+    assert terms[0].doc_freq == 40
+
+
+def test_ordinary_phrases_still_judged_by_their_most_common_word():
+    # The min rule is scoped to structural ids only. "remote attacker" is
+    # undiscriminative because of "attacker", however rare "remote" is.
+    client = _client([{"term": "remote attacker", "kind": "colloquial"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(total_docs=100, remote=2, attacker=60),
+        max_terms=12, df_max_ratio=0.10,
+    )
+    assert terms[0].reject_reason is RejectReason.TOO_COMMON
+    assert terms[0].doc_freq == 60

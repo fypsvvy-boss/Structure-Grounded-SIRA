@@ -10,6 +10,7 @@ Pipeline, per document::
 
     prompt -> client.generate() -> parse_json_loose() (reused from llm.py)
            -> strict shape check           [malformed -> raise, never []]
+           -> kind routing                 [demote a mislabelled "structural"]
            -> graph.validate() for kind=="structural" terms
            -> DF filter (too_common) over everything that survived so far
 
@@ -50,10 +51,10 @@ from ..common.schemas import (
     read_jsonl,
     write_jsonl,
 )
-from ..graph.normalize import parse_structural_id
+from ..graph.normalize import is_id_shaped, looks_structural, parse_structural_id
 from ..graph.ontology import OntologyGraph, RevokedPolicy
 from ..index.corpus import CorpusDocument
-from ..index.df_stats import DFLookup
+from ..index.df_stats import Combine, DFLookup
 from .prompts.corpus_side import PROMPT_VERSION, SYSTEM_PROMPT, build_prompt
 
 _VALID_KINDS = {k.value for k in TermKind}
@@ -95,6 +96,51 @@ def _extract_proposals(parsed: object) -> list[tuple[str, str]]:
             raise MalformedReplyError(f"item {i} has an unrecognised 'kind' {kind!r}: {item!r}")
         out.append((term.strip(), kind))
     return out
+
+
+# -- kind routing (before the graph gate) -------------------------------------------
+
+# Where a mislabelled "structural" proposal is sent instead. TermKind has no
+# "unknown" member and adding one would change the frozen EnrichmentRecord
+# contract (four-owner sign-off, see docs/02_MODULE1_STATE.md), so this reuses
+# the existing catch-all: COLLOQUIAL is defined in the prompt as "an informal
+# name an analyst might type", which is what these terms actually are.
+_MISLABELLED_STRUCTURAL_KIND = TermKind.COLLOQUIAL
+
+
+def _route_kind(kind: TermKind, term_text: str) -> TermKind:
+    """Correct a ``kind="structural"`` label the model put on a non-identifier.
+
+    Qwen2.5-7B mislabels routinely: the first real run tagged ``heap-based``,
+    ``zzip_get32``, ``local`` and ``medium`` as structural. Routing on the
+    model's own label sent those to the graph gate, which correctly found no
+    identifier and rejected them as ``MALFORMED_ID``.
+
+    That conflates two different failures, and the conflation is expensive
+    because the rejection log *is* the RQ4 dataset (see the module docstring):
+
+    * the model **reached for an identifier and got it wrong** (``CWE-abc``,
+      ``T99``) -- a real hallucination, real RQ4 signal, still ``MALFORMED_ID``;
+    * the model **filled in the wrong form field** on ordinary vocabulary --
+      not a hallucination at all, and booking it as one inflates the headline
+      RQ4 rate with a schema-compliance slip.
+
+    :func:`~sira_cti.graph.normalize.is_id_shaped` separates the two. A term
+    that never reached for an identifier is relabelled and judged on its
+    merits like any other vocabulary -- which is also how ``zzip_get32``
+    (a real zziplib symbol, document frequency 0 in the base index, so
+    maximally discriminative) stops being discarded over a label.
+
+    Deliberately one-way: this only ever *demotes* STRUCTURAL. A term the
+    model labelled colloquial is left alone even if it parses as an
+    identifier, because promoting it would put an unvalidated id into the
+    structural pool and quietly change what RQ4 counts.
+    """
+    if kind is not TermKind.STRUCTURAL:
+        return kind
+    if looks_structural(term_text) or is_id_shaped(term_text):
+        return kind
+    return _MISLABELLED_STRUCTURAL_KIND
 
 
 # -- structural adjudication (graph gate) -------------------------------------------
@@ -140,6 +186,21 @@ def _indexable_text(term: ProposedTerm) -> str:
     return term.structural_id if term.kind is TermKind.STRUCTURAL else term.term
 
 
+def _df_combine(term: ProposedTerm) -> Combine:
+    """Which per-token DF combine rule this term is judged under.
+
+    Structural identifiers get ``"min"``, everything else ``"max"``. The
+    reasoning, and the measured numbers behind it, are in
+    :data:`sira_cti.index.df_stats.Combine`. In one line: ``CWE-307``
+    analyzes to ``["cwe", "307"]``, and ``cwe`` is a constant shared by every
+    identifier in the catalogue, so judging a CWE by its most common token
+    judges every CWE identically and rejects all of them -- while one-token
+    ATT&CK ids bypass the gate entirely. The identity of a structural id
+    lives in its number, so the number is what the gate reads.
+    """
+    return "min" if term.kind is TermKind.STRUCTURAL else "max"
+
+
 def _apply_df_filter(term: ProposedTerm, df_lookup: DFLookup, *, df_max_ratio: float) -> ProposedTerm:
     """Downgrade an accepted/repaired term to ``TOO_COMMON`` if it isn't discriminative.
 
@@ -154,7 +215,7 @@ def _apply_df_filter(term: ProposedTerm, df_lookup: DFLookup, *, df_max_ratio: f
     if not term.accepted:
         return term
 
-    doc_freq = df_lookup.doc_freq(_indexable_text(term))
+    doc_freq = df_lookup.doc_freq(_indexable_text(term), combine=_df_combine(term))
     ratio = doc_freq / df_lookup.total_docs if df_lookup.total_docs else 0.0
 
     if ratio > df_max_ratio:
@@ -204,7 +265,7 @@ def propose_terms(
 
     terms: list[ProposedTerm] = []
     for term_text, kind_str in proposals[:max_terms]:
-        kind = TermKind(kind_str)
+        kind = _route_kind(TermKind(kind_str), term_text)
         if kind is TermKind.STRUCTURAL:
             pt = _adjudicate_structural(
                 term_text, graph, allow_deprecated=allow_deprecated, revoked_policy=revoked_policy

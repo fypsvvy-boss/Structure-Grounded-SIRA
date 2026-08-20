@@ -48,3 +48,5 @@ Thumbs.db
 # Local data / outputs (uncomment if these should not be tracked)
 data/
 # outputs/
+
+indexes/

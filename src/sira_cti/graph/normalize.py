@@ -155,3 +155,44 @@ def extract_structural_ids(text: str) -> list[ParsedID]:
 def looks_structural(text: str) -> bool:
     """Cheap check used to route a proposed term to the graph filter."""
     return parse_structural_id(text) is not None
+
+
+# An attempt at an identifier, well-formed or not. Either an explicit namespace
+# word ("CWE-abc", "CAPEC 12x"), a prose lead-in ("MITRE thing"), or an ATT&CK
+# letter prefix sitting directly on a digit ("T99", "S3"). The digit is what
+# keeps ordinary vocabulary out: "medium" starts with the mitigation prefix M
+# and "local" is all letters, but neither puts a digit where an ID would.
+_ID_SHAPED = re.compile(
+    r"^(?:mitre|att&ck|att\s*&\s*ck)\b"
+    r"|^(?:cwe|capec|cve)\b"
+    r"|^(?:TA|DS|T|M|G|S|C)[\-_:]?\d",
+    re.IGNORECASE,
+)
+
+
+def is_id_shaped(text: str) -> bool:
+    """Whether ``text`` was *plausibly an attempt* at a structural identifier.
+
+    Distinct from :func:`looks_structural`, which asks whether the attempt
+    *succeeded*. The gap between the two is the interesting one for RQ4::
+
+        looks_structural("CWE-307")  -> True    valid identifier
+        looks_structural("CWE-abc")  -> False   but is_id_shaped -> True
+        looks_structural("heap-based") -> False and is_id_shaped -> False
+
+    Corpus-side enrichment routes on that gap. An open-weight model
+    routinely mislabels ordinary vocabulary as ``kind="structural"`` --
+    observed in the first real Qwen2.5-7B run, which tagged ``heap-based``,
+    ``zzip_get32``, ``local`` and ``medium`` as structural. Those never
+    reached for an identifier at all, so scoring them as ``MALFORMED_ID``
+    would book a form-filling slip as an identifier hallucination and
+    inflate the RQ4 rate. ``CWE-abc`` genuinely did reach for one and missed;
+    that is real RQ4 signal and must stay ``MALFORMED_ID``.
+    """
+    if not text:
+        return False
+    raw = text.strip().strip(".,;:()[]\"'")
+    if not raw:
+        return False
+    cleaned = _PROSE_PREFIX.sub("", raw).strip()
+    return bool(_ID_SHAPED.match(raw) or (cleaned and _ID_SHAPED.match(cleaned)))

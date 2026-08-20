@@ -14,6 +14,7 @@ from .normalize import (
     NodeType,
     ParsedID,
     extract_structural_ids,
+    is_id_shaped,
     looks_structural,
     parse_structural_id,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "NodeType",
     "ParsedID",
     "extract_structural_ids",
+    "is_id_shaped",
     "looks_structural",
     "parse_structural_id",
     "OntologyGraph",
