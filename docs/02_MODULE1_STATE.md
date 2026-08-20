@@ -22,8 +22,56 @@ Per-document pipeline:
 3. Strict shape check → a malformed reply raises `MalformedReplyError` and the
    doc is **not written**. Resuming retries it, rather than a fake
    empty-proposals record ever contaminating the JSONL.
-4. `graph.validate()` for structural terms (against the real ontology graph).
-5. DF `too_common` gate.
+4. **Kind routing** (`_route_kind`) — added 2026-08-20, see below.
+5. `graph.validate()` for structural terms (against the real ontology graph).
+6. DF `too_common` gate — **structural identifiers are scored on their rarest
+   analyzed token, everything else on its most common one**, see below.
+
+#### Kind routing (step 4)
+
+The model self-declares a `kind` for every term it proposes, and the pipeline
+routes on that label. Qwen2.5-7B mislabels routinely: the first real run tagged
+`heap-based`, `zzip_get32`, `local` and `medium` as `kind="structural"` — the
+label reserved for formal ATT&CK/CWE/CAPEC identifiers. All four went to the
+graph gate and came back `MALFORMED_ID`.
+
+That conflated two different failures, and the conflation is expensive because
+the rejection log **is** the RQ4 dataset:
+
+- the model *reached for an identifier and got it wrong* (`CWE-abc`, `T99`) —
+  a real hallucination, real RQ4 signal;
+- the model *filled in the wrong form field* on ordinary vocabulary — not a
+  hallucination at all, and booking it as one inflates the headline RQ4 rate.
+
+`graph/normalize.py:is_id_shaped()` separates them: it asks whether the term was
+*plausibly an attempt* at an identifier, as opposed to `looks_structural()`,
+which asks whether the attempt *succeeded*. A `structural` label on something
+that was never an identifier attempt is demoted to `colloquial` and judged like
+any other vocabulary; a botched identifier stays `MALFORMED_ID`.
+
+Routing is **one-way — it only demotes, never promotes.** A term the model
+labelled `colloquial` is left alone even if it parses as a valid identifier,
+because promoting it would put an unvalidated id into the structural pool and
+silently change RQ4's denominator.
+
+`colloquial` is the demotion target because `TermKind` has no `unknown` member
+and adding one is a frozen-contract change needing four-owner sign-off.
+
+#### DF combine rule (step 6)
+
+Anserini's analyzer splits `CWE-307` into `["cwe", "307"]` but keeps `T1110.001`
+as one token. The gate used to score a multi-token term by its **most common**
+token, which meant every CWE identifier was scored as DF(`cwe`) = 2974/6044 =
+**0.492** — identical for every CWE, ~5x `df_max_ratio`, so *every CWE was
+rejected unconditionally* while one-token ATT&CK ids scored 0 and passed
+unconditionally.
+
+`DFLookup.doc_freq` now takes an explicit `combine` argument (`"max"` | `"min"`),
+picked per term by `_df_combine()`: `"min"` for structural identifiers (the
+namespace prefix is a catalogue-wide constant; the number carries the identity),
+`"max"` for everything else (a phrase is only as discriminative as its commonest
+word). Full reasoning and measurements: `04_OPEN_QUESTIONS.md` question 1, and
+the `Combine` docstring in `index/df_stats.py`.
 
 `run_corpus_enrichment()` is:
 - **Resumable** — JSONL keyed on `doc_id`, one flushed append per doc; a crash
@@ -57,7 +105,9 @@ Per-document pipeline:
 deliberately, to keep ordering visible.
 
 ### Tests
-145 tests pass (78 baseline → 145: +9 corpus loader, +29 enrichment pipeline,
+160 tests pass (was 145 before the 2026-08-20 gate fixes: +5 `is_id_shaped`,
++7 kind-routing and structural-DF cases, +3 real-Lucene combine/tokenization
+checks). Earlier count breakdown: 145 tests pass (78 baseline → 145: +9 corpus loader, +29 enrichment pipeline,
 +12 real-but-tiny Lucene index builds, +7 schema). All offline — `StubClient`
 throughout, no network, no live LLM.
 

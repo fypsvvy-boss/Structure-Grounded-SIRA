@@ -87,6 +87,37 @@ def test_too_common_helper_uses_the_configured_ratio(base_index):
     assert not too_common("zzzznotarealterm", lookup, df_max_ratio=0.0)
 
 
+def test_lucene_df_lookup_combine_rules_differ_on_a_multi_token_term(base_index):
+    # "authentication bypass" analyzes to ["authent", "bypass"], which sit in
+    # 3 and 1 of the 6 fixture documents. The two combine rules must actually
+    # read different tokens -- this is the mechanism behind
+    # docs/04_OPEN_QUESTIONS.md question 1, verified against real Lucene
+    # rather than a hand-rolled tokenizer that could disagree with it.
+    lookup = LuceneDFLookup(base_index)
+    assert lookup.doc_freq("authentication bypass") == 3               # default: max
+    assert lookup.doc_freq("authentication bypass", combine="max") == 3
+    assert lookup.doc_freq("authentication bypass", combine="min") == 1
+
+
+def test_lucene_df_lookup_splits_a_cwe_id_but_not_an_attack_id(base_index):
+    # The tokenization asymmetry the combine rule exists to compensate for,
+    # pinned against the real analyzer so a Lucene/Anserini upgrade that
+    # changes it fails here loudly instead of silently skewing RQ1.
+    from pyserini.index.lucene import LuceneIndexReader
+
+    reader = LuceneIndexReader(str(base_index))
+    assert reader.analyze("CWE-307") == ["cwe", "307"]      # two tokens
+    assert reader.analyze("T1110.001") == ["t1110.001"]     # one token
+
+
+def test_too_common_honours_the_combine_rule(base_index):
+    lookup = LuceneDFLookup(base_index)
+    # 3/6 = 0.5 under max, 1/6 = 0.167 under min: the same term, the same
+    # threshold, opposite verdicts.
+    assert too_common("authentication bypass", lookup, df_max_ratio=0.25)
+    assert not too_common("authentication bypass", lookup, df_max_ratio=0.25, combine="min")
+
+
 def test_fake_df_lookup_satisfies_the_same_protocol():
     from sira_cti.index.df_stats import DFLookup
 
