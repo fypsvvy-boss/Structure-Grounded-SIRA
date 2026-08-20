@@ -20,6 +20,7 @@ from sira_cti.enrichment.corpus_side import (
     run_corpus_enrichment,
     summarize,
 )
+from sira_cti.enrichment.prompts.corpus_side import PROMPT_VERSION
 from sira_cti.graph import RevokedPolicy
 from sira_cti.index.corpus import CorpusDocument
 
@@ -297,7 +298,7 @@ def test_manifest_records_prompt_version_model_and_config_hash(tmp_path):
         corpus_kinds=["mitre"],
     )
     manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
-    assert manifest["prompt_version"] == "corpus-v1"
+    assert manifest["prompt_version"] == PROMPT_VERSION   # records it; not pinned to a literal
     assert manifest["model"] == "qwen-test"
     assert manifest["config_hash"] == "deadbeef1234"
     assert manifest["kinds"] == ["mitre"]

@@ -14,7 +14,9 @@ enrichment:
   df_max_ratio: 0.10     # reject terms appearing in >10% of the (base) corpus (too_common)
   df_min_count: 1        # reject terms absent from the index (not_in_index)
   require_in_index: true # query-side terms must already exist in the enriched index
-  corpus_prompt_version: corpus-v1
+  corpus_prompt_version: corpus-v1   # keep in step with prompts/corpus_side.py:PROMPT_VERSION
+                                     # (corpus-v2 was tried and reverted:
+                                     #  docs/experiments/prompt-corpus-v2.md)
   concurrency: 2                  # Ollama is local -- keep modest by default
   max_new_tokens: 512
 

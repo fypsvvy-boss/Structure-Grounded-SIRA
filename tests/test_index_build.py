@@ -22,6 +22,7 @@ from sira_cti.index import (
     write_json_collection,
 )
 from sira_cti.index.corpus import load_corpus
+from sira_cti.enrichment.prompts.corpus_side import PROMPT_VERSION
 from sira_cti.index.df_stats import LuceneDFLookup, too_common
 
 
@@ -173,7 +174,7 @@ def test_enriched_index_manifest_traces_back_to_the_enrichment_run(enriched_inde
     manifest = json.loads((index_dir / "manifest.json").read_text())
     assert manifest["kind"] == "enriched"
     assert manifest["enrichment_path"] == str(enrichment_path)
-    assert manifest["enrichment_prompt_version"] == "corpus-v1"
+    assert manifest["enrichment_prompt_version"] == PROMPT_VERSION
     assert manifest["enrichment_model"] == "stub"
 
 

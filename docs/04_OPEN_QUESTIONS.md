@@ -241,3 +241,119 @@ Option 2 is cheapest and probably right, but it touches what RQ4 counts, so it
 needs a deliberate call. Note this interacts with Module 2: query-side
 enrichment is specified to *avoid* guessing a specific CVE identifier, so
 whatever is decided here should be consistent with that.
+
+
+---
+
+## 7. (New, opened 2026-08-20 — HIGH, affects RQ1 directly) Enrichment is largely re-proposing text the document already contains
+
+**Measured on the 20-document run under the fixed gates: 80 of 131 accepted
+terms (61.1%) already appear verbatim in the document's own text. For structural
+identifiers it is 17 of 17 — 100%.**
+
+Measurement method (be precise about this, a loose check overstates it): a
+structural id counts as present if its literal canonical form appears in the raw
+text after stripping punctuation; a phrase counts as present only if its analyzed
+token sequence appears as a *contiguous run* in the document's analyzed tokens.
+A set-membership check instead of a contiguous one inflates the number, because
+`CWE-331` analyzes to `["cwe","331"]` and both tokens can occur far apart.
+
+Breakdown by kind:
+
+```
+  structural :  17/17  already present (100%)
+     symptom :  16/18  already present  (89%)
+  colloquial :  26/40  already present  (65%)
+     product :  21/55  already present  (38%)
+ misspelling :   0/1   already present   (0%)
+```
+
+### Why this is the most serious finding so far
+
+A term already in the document's `contents` is **already indexed and already
+retrievable**. Injecting it into the `expansion` field adds no new way to reach
+the document. It consumes one of the `max_terms_per_doc` (12) slots, costs
+completion tokens, and contributes nothing to recall.
+
+For the thesis specifically: **every single structural identifier the model
+proposed was one already written in the CVE's own text.** CTIConnect's CVE
+records embed their CWE mapping, so the model is reading `CWE-119` off the page
+and handing it back. The ontology graph then validates it — correctly, but the
+grounding is confirming a copy, not catching a leap of inference. RQ1 asks
+whether graph-grounded proposals are more valid and discriminative than
+ungrounded ones; if the grounded proposals are transcriptions, a high validity
+rate measures the model's ability to copy, not the mechanism under test.
+
+The prompt already says "Do NOT restate words already present in the entry — the
+index already has those for free" (`prompts/corpus_side.py`). The model ignores
+it, and **nothing in the pipeline enforces it.**
+
+### Options
+
+1. **Enforce it as a gate.** Reject a term whose analyzed tokens already appear
+   contiguously in the document's own text. Cleanest and matches the stated
+   intent. Needs a new `RejectReason` (`already_in_document`) = frozen-contract
+   change = four-owner sign-off. Keeping these in the rejection log rather than
+   dropping them is consistent with the project's "never silently drop" rule and
+   would itself be a publishable measurement.
+2. **Filter silently at index-injection time** (`build_enriched.py`) rather than
+   at adjudication. No schema change, but it hides a real model behaviour from
+   the RQ4 log — against the spirit of the project's conventions.
+3. **Prompt-iterate first.** Cheapest experiment: the instruction exists and is
+   being ignored, so try strengthening it (few-shot negative example, or feeding
+   the model an explicit "words already present" list to avoid) and re-measure
+   before building any gate.
+
+### Option 3 was tried on 2026-08-20 and FAILED — recommendation is now option 1
+
+A `corpus-v2` prompt was written and run against the same 20 documents. It made
+the constraint operational rather than a bare negation, demonstrated the failure
+with a `BAD reply` example, repeated it in the user turn, and told the model to
+propose a *different* identifier when the entry already cites one. Full text and
+analysis: `docs/experiments/prompt-corpus-v2.md`.
+
+```
+                                   v1        v2
+  redundant share of accepted   61.1%     59.5%     <- target metric: unmoved
+  GENUINELY NEW terms indexed      51        30     <- got worse
+  structural accepted               17         3
+  malformed_id                       1         3
+```
+
+The target metric moved 1.6 points (noise) while genuinely-new output fell by
+41%. The model complied with the *letter* of the instruction — it proposed
+fewer terms — without complying with its *intent*: it kept copying. The prompt
+was reverted to `corpus-v1`.
+
+**Do not retry this with stronger wording.** v1 already contained the
+instruction, v2 made it about as forceful as a prompt can be, and the copying
+rate barely moved. Two rounds of evidence say the model will not self-police
+here.
+
+**Recommendation: option 1 — enforce it as a gate.** This needs a new
+`RejectReason` (`already_in_document`) on the frozen contract, so it needs
+four-owner sign-off. Keep the rejected terms in the log rather than dropping
+them, per the project's standing rule; the redundancy rate is itself a
+publishable measurement about what an open-weight model does on this task.
+
+Implementation note for whoever builds it: the check must be a **contiguous
+analyzed-token match** (or a literal substring match for identifiers), not set
+membership — `CWE-331` analyzes to `["cwe","331"]` and both tokens occur
+separately in most CVE records, so a set check reports false redundancy. The
+measurement code used for both runs is the reference.
+
+### Related, same run
+
+- **The model proposed zero ATT&CK and zero CAPEC identifiers** across 20
+  documents. All 19 structural proposals were CWE (18) plus one CVE. Structural
+  terms were only 19 of 223 proposals (8.5%) overall. The graph-grounding
+  mechanism under test is barely being exercised, and the ATT&CK half of the
+  ontology not at all. This may be a property of CVE source documents
+  specifically — see the sampling caveat below — but it needs checking before
+  any RQ1 claim about "the ATT&CK/CWE/CAPEC ontology" as a whole.
+- **Sampling caveat: all 20 documents were CVEs.** `load_corpus(..., limit=20)`
+  takes the first N in load order, and those are all CVE records. Nothing in this
+  run says anything about how enrichment behaves on CWE, CAPEC or ATT&CK source
+  documents. **Any RQ1 comparison across catalogues needs a stratified sample,
+  not a prefix.** Worth adding a `--stratify` or per-kind limit to
+  `scripts/enrich_corpus.py`.
