@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sira_cti.common import OllamaClient, config_hash, load_config
 from sira_cti.enrichment.corpus_side import run_corpus_enrichment, summarize, summarize_by_source
+from sira_cti.enrichment.prompts.corpus_side import PROMPT_VERSION
 from sira_cti.graph import OntologyGraph
 from sira_cti.index import LuceneDFLookup, load_corpus, sample_corpus
 
@@ -109,7 +110,7 @@ def main() -> int:
         allow_deprecated=graph_cfg.get("allow_deprecated", False),
         revoked_policy=graph_cfg.get("revoked_policy", "reject"),
         concurrency=args.concurrency if args.concurrency is not None else enrich_cfg.get("concurrency", 1),
-        prompt_version=enrich_cfg.get("corpus_prompt_version", "corpus-v1"),
+        prompt_version=PROMPT_VERSION,
         config_hash=config_hash(args.config),
         corpus_kinds=list(corpus_cfg["kinds"]),
         sampling=sampling,

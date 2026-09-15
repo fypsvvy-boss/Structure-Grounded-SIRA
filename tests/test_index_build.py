@@ -138,8 +138,9 @@ def enriched_index(tmp_path_factory, base_index):
 
     def responder(prompt: str) -> str:
         # Give T1110 a colloquial expansion term that appears nowhere in its
-        # own contents -- the point of the whole exercise.
-        if "id T1110)" in prompt:
+        # own contents -- the point of the whole exercise. Keyed on T1110's
+        # text ("Brute Force {...}"), since corpus-v3 prompts carry no doc id.
+        if "):\nBrute Force {" in prompt:
             return json.dumps([{"term": "zzz-canary-term", "kind": "colloquial"}])
         return json.dumps([])
 

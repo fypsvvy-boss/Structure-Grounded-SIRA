@@ -104,8 +104,29 @@ the `Combine` docstring in `index/df_stats.py`.
 `--dry-run`. `build_index.py --stage` is required with no `both` option,
 deliberately, to keep ordering visible.
 
+Added 2026-09-15:
+- **`enrich_corpus.py --per-kind N [--seed S]`** — a seeded random N of each
+  document type, via `sample_corpus()` in `index/corpus.py`. Mutually exclusive
+  with `--limit`. Each type draws from its own generator seeded by
+  `(seed, kind)`, so a type's sample doesn't change when another type is added
+  or dropped; the same seed always gives the same documents, which keeps sampled
+  runs resumable. The manifest records how documents were chosen in a new
+  `sampling` field (`{"method": "per_kind", ...}` or `{"method": "prefix", ...}`).
+- **Per-source summary** — `summarize_by_source()` in `corpus_side.py`, printed at
+  the end of every run: counts per source document type, including which
+  catalogue each structural proposal belongs to.
+- **`scripts/measure_redundancy.py`** — the question-7 "already in its own
+  document" measurement, saved. Read-only, no LLM. Reproduces the v1/v2 numbers
+  exactly, and adds a per-proposal classification of where each structural id
+  could have been copied from (`literal` / `own_id` / `bare_number` /
+  `not_found`). Its matching functions are the reference for the proposed
+  `already_in_document` gate; they live in `scripts/` untested until that gate is
+  approved and they move into `corpus_side.py` with tests.
+
 ### Tests
-160 tests pass (was 145 before the 2026-08-20 gate fixes: +5 `is_id_shaped`,
+170 tests pass (+10 on 2026-09-15: 7 `sample_corpus`, 1 sampling manifest,
+1 `summarize_by_source`, 1 "prompt carries no doc id"; four existing tests now
+key their fake model replies on document text instead of the id). 160 before that (was 145 before the 2026-08-20 gate fixes: +5 `is_id_shaped`,
 +7 kind-routing and structural-DF cases, +3 real-Lucene combine/tokenization
 checks). Earlier count breakdown: 145 tests pass (78 baseline → 145: +9 corpus loader, +29 enrichment pipeline,
 +12 real-but-tiny Lucene index builds, +7 schema). All offline — `StubClient`
@@ -180,5 +201,13 @@ reads it.)
 
 `PROMPT_VERSION` is NOT in the frozen `EnrichmentRecord` contract. It's recorded
 in a sidecar `<output>.manifest.json` instead, to avoid a schema sign-off round.
+The script reads it straight from `prompts/corpus_side.py` (since 2026-09-15 —
+it used to come from a config key that could drift out of step).
+
+Versions: `corpus-v1` (original); `corpus-v2` (stronger "don't restate"
+wording — reverted, `docs/experiments/prompt-corpus-v2.md`); **`corpus-v3`
+(live)** — v1 with the document's own id removed from the user-turn header, so
+the model can't copy an entry's id back as a "proposal". History and reasoning
+are in the `PROMPT_VERSION` docstring and the question-7 proposal.
 **Known limitation — see `04_OPEN_QUESTIONS.md`:** this doesn't compose with
 resumability (resume can mix records from two prompt versions under one manifest).

@@ -17,7 +17,20 @@ from __future__ import annotations
 
 from ...index.corpus import CorpusDocument
 
-PROMPT_VERSION = "corpus-v1"
+PROMPT_VERSION = "corpus-v3"
+"""Version history (``corpus-v2`` was a reverted experiment, see
+``docs/experiments/prompt-corpus-v2.md``, so its name is not reused):
+
+* ``corpus-v1`` -- the user turn opened with ``Catalogue entry (cwe, id CWE-1321)``.
+* ``corpus-v3`` -- the same prompt with the document's id removed from that
+  header. The stratified run showed every structural id proposed on a CWE or
+  ATT&CK entry was that entry's own id, read off this header, because
+  ``corpus_kb`` text does not contain it -- a transcription the graph then
+  "validated". Whether an entry should be searchable by its own id is a
+  retrieval decision for Module 3, not something to get by asking the LLM to
+  copy it. Decision 2 in ``docs/proposals/already-in-document-gate.md``.
+  (A CVE's id is still visible: ``corpus_kb`` puts it in the CVE's title.)
+"""
 
 _KIND_GUIDE = """\
 - "colloquial": an informal name an analyst might type ("brute force login")
@@ -54,7 +67,7 @@ def build_prompt(doc: CorpusDocument, *, max_terms: int) -> str:
     """The user turn for one document. ``SYSTEM_PROMPT`` carries the fixed
     instructions; this carries the one thing that varies per call."""
     return (
-        f"Catalogue entry ({doc.source.value}, id {doc.doc_id}):\n"
+        f"Catalogue entry ({doc.source.value}):\n"
         f"{doc.text}\n\n"
         f"Propose at most {max_terms} terms."
     )

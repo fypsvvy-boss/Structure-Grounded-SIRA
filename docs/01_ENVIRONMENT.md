@@ -88,7 +88,12 @@ Order matters — the pipeline enforces it with hard errors, by design:
 .venv/bin/python scripts/build_index.py --stage base --config configs/default.yaml
 
 # 2. Corpus-side enrichment (needs base index; calls Ollama)
-.venv/bin/python scripts/enrich_corpus.py --limit 20        # --dry-run / --limit N for cheap iteration
+.venv/bin/python scripts/enrich_corpus.py --limit 20        # smoke test only: first 20 = all CVEs
+.venv/bin/python scripts/enrich_corpus.py --per-kind 10 \
+    --output indexes/enrichment/corpus_stratified.jsonl     # 10 random of each type (seed = eval.seed)
+
+# 2b. (optional, no LLM) how many accepted terms just repeat their own document
+.venv/bin/python scripts/measure_redundancy.py indexes/enrichment/corpus_stratified.jsonl
 
 # 3. Enriched index (needs the enrichment JSONL from step 2)
 .venv/bin/python scripts/build_index.py --stage enriched --config configs/default.yaml
@@ -96,3 +101,19 @@ Order matters — the pipeline enforces it with hard errors, by design:
 
 `build_index.py` requires `--stage {base|enriched}` explicitly — there is no
 `both` option, deliberately, to keep the ordering visible rather than hidden.
+
+Use `--limit` only to check the pipeline runs. For any result about behaviour,
+use `--per-kind`: `corpus_kb` files are concatenated CVE-first and sorted by id,
+so a `--limit` prefix is CVE-only and not random. Give every sampled run its own
+`--output` — resuming a different sample into an existing file mixes the two.
+A 40-document `--per-kind 10` run took ~7 minutes at concurrency 2.
+
+`build_index.py --stage enriched` always reads `index.enrichment_path` from the
+config (`corpus.jsonl`), not whatever `--output` you last enriched into.
+
+**⚠️ Always pass `--output` for now.** `corpus.jsonl` (the config default) was
+written with prompt `corpus-v1`; the live prompt is `corpus-v3`. A run without
+`--output` resumes into that file, skipping the 20 CVEs it already holds and
+appending new records under a different prompt, with one manifest overwritten to
+claim a single version (`04_OPEN_QUESTIONS.md` question 2). Nothing currently
+stops this.

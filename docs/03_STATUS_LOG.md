@@ -8,6 +8,24 @@
 
 ## Current headline
 
+**2026-09-15 (later): prompt `corpus-v3` — the document's own id removed from the
+prompt — confirms the own-id copies came from the header (9 -> 0), and exposes
+what the model does when it has nothing to copy: almost nothing, and wrong.**
+ATT&CK entries produced no identifiers at all; CWE entries produced two, and
+both were real CWEs that have nothing to do with the entry (Prototype Pollution
+-> Format String; Infinite Loop -> Race Condition). The graph gate accepted both,
+because it checks that an id *exists*, not that it *fits*. See the log entry
+below and new open question 8.
+
+**2026-09-15: first stratified run (10 documents of each type) — the model has
+not made a single cross-catalogue inference.** Every structural identifier it
+proposed on every document type was copied from what it was shown: 22 of 22 in
+this run, 47 of 48 across all three runs to date. On CWE and ATT&CK documents it
+hands back the document's *own* id, which the prompt header supplies. The
+redundancy check as written in the question-7 proposal misses those copies, so
+the proposal has been amended before it goes out. Full numbers in the log entry
+below and in `04_OPEN_QUESTIONS.md` question 7.
+
 **2026-09-15: the question 7 sign-off request is written and waiting on the
 other three owners.** `docs/proposals/already-in-document-gate.md` — read
 it before implementing anything in that area. Nothing in `schemas.py` has
@@ -42,6 +60,161 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Decisions on the question 7 proposal, and the `corpus-v3` prompt run
+**Decisions (Module 1, 2026-09-15).** (1) Approve the `already_in_document`
+gate, with its structural check limited to ids written in the text or named by
+a labelled id field (`@CWE_ID`, `@CAPEC_ID`, `@Exclude_ID`, and `Entry_ID` only
+inside an `ATTACK` taxonomy mapping) — the looser "any quoted number" version
+would have matched WASC/OWASP codes like `"Entry_ID": "07"`. Still needs Modules
+2/3/4. (2) Remove the document's own id from the prompt header; whether entries
+should be searchable by their own id goes to Module 3. Both recorded in the
+proposal, which now has a per-owner sign-off table.
+
+**Changes.** Prompt `corpus-v3` (`"Catalogue entry (cwe):"`, no id; `corpus-v2`
+is the reverted experiment's name so it is not reused). `enrich_corpus.py` now
+records `PROMPT_VERSION` from the prompt module, and the
+`enrichment.corpus_prompt_version` config key is gone — closes the latent bug
+logged earlier. `measure_redundancy.py`: check tightened as above, plus a second
+headline line for what the approved gate rule would reject. Four existing tests
+used to pick documents by spotting "id T1110" in the prompt; they now key on the
+document text instead (assertions unchanged), and one new test pins that the
+prompt carries no id. 169 -> 170 tests.
+
+**Run.** Same 40 documents as the `corpus-v1` stratified run (seed 42), output
+`indexes/enrichment/corpus_stratified_v3.jsonl`. 40 docs, 0 failed, 695.5s
+(slower than v1's 411.5s; nothing in the change explains that, most likely machine
+load — not investigated). 419 terms: 210 accepted, 209 rejected — `too_common:
+207`, `malformed_id: 2`.
+
+```
+  structural ids proposed            corpus-v1    corpus-v3
+  cve     (literal copies)                10            9   (8 CWE + 1 CVE id, also in the text)
+  cwe     (own id, from header)            5            0
+          (not copied from anywhere)       0            2   <- both wrong, see below
+  attack  (own id, from header)            4            0
+  capec   (labelled-field copies)          3            2   (CWE-173; T1195.001)
+```
+
+**1. The own-id copies came from the header.** Removing it took them from 9 to
+0, with no drop in overall output (437 -> 419 terms proposed). ATT&CK entries
+now propose **no** identifiers at all; CWE entries propose two.
+
+**2. The only two identifiers not copied from anywhere were both wrong.**
+
+```
+  CWE-1321 Prototype Pollution  -> CWE-134 Use of Externally-Controlled Format String
+  CWE-835  Infinite Loop        -> CWE-362 Race Condition
+```
+
+Neither is a parent, child or sibling of its entry; the only ancestor each pair
+shares is a CWE **Pillar** (`CWE-664`, `CWE-691`) — the top level of the
+hierarchy, about as unrelated as two weaknesses in the same catalogue get. Both
+passed the graph gate as valid, because validation checks that an id exists.
+This is new open question 8: once the model stops copying, the error it makes is
+"real but irrelevant", and existence checking cannot see it.
+
+**3. First ATT&CK id ever proposed for a non-ATT&CK entry** — `T1195.001` for
+`CAPEC-538` — but copied from that entry's own ATT&CK taxonomy mapping.
+
+**4. Two `malformed_id`, neither a hallucinated ontology id.** `CVE-2024-34359`
+for `CVE-2024-4897` is a CVE id that appears in the CVE's own text (question
+6). `'Mitre mobile attack'` for `T1470` is the `"mitre-mobile-attack"`
+kill-chain name copied from the entry and labelled structural; it was not
+demoted to colloquial because `is_id_shaped()` treats anything *starting with*
+"mitre" as an identifier attempt (`_ID_SHAPED` in `graph/normalize.py`). Same
+class as question 3's known limitation — a small `malformed_id` overcount. Not
+changed mid-experiment; noted under question 3.
+
+**Redundancy** (headline rule): 55.6% -> 62.4% of accepted terms. Removing
+identifiers from CWE/ATT&CK changed the denominators and n=10 per type is small;
+treat as noise, not as the prompt making copying worse.
+
+**⚠️ Live-file hazard.** `index.enrichment_path` is still `corpus.jsonl`, which
+was written with `corpus-v1`. Running `enrich_corpus.py` without `--output` now
+resumes into it under `corpus-v3` — two prompt versions in one file (question 2).
+Always pass `--output` until question 2's guard exists. `indexes/enriched` is
+still built from the v1 file.
+
+### Stratified sample: 10 documents of each type
+Command:
+`.venv/bin/python scripts/enrich_corpus.py --per-kind 10 --output indexes/enrichment/corpus_stratified.jsonl`
+(seed 42 from `eval.seed`, recorded in the manifest's new `sampling` field).
+Result: **40 docs, 0 failed**, 411.5s (~10.3s/doc at concurrency 2). 437 terms:
+225 accepted, 212 rejected — `too_common: 211`, `deprecated: 1`. Prompt
+`corpus-v1`, gates unchanged since the 2026-08-20 fixes. Base index is the full
+6,044 documents, so DF numbers are real.
+
+**What was built for this** (all Module 1-internal, no contract change):
+`sample_corpus()` in `index/corpus.py` (seeded random N per type; each type draws
+from its own generator so dropping a type doesn't reshuffle the others);
+`--per-kind` / `--seed` on `scripts/enrich_corpus.py`; a `sampling` field in the
+enrichment manifest; `summarize_by_source()` printed at the end of every run; and
+`scripts/measure_redundancy.py`, the question-7 measurement saved as a script. It
+reproduces the logged v1 and v2 numbers exactly (80/131 with every per-kind cell
+matching; 44/74). 160 -> 169 tests.
+
+**By source document type:**
+
+```
+            docs  proposed  accepted   structural proposed    already in own text*
+  cve         10       108        52   cwe 10                 48/52  (92%)
+  capec       10       120        71   cwe 2, capec 1         42/71  (59%)
+  attack      10       105        53   attack 4               25/53  (47%)
+  cwe         10       104        49   cwe 5                  10/49  (20%)
+                                                              ----------------
+                                                              125/225 (55.6%)
+  * headline rule from question 7 (literal id / contiguous tokens)
+```
+
+**Finding 1 — every structural proposal was a copy, on every document type.**
+`measure_redundancy.py` now also classifies each structural proposal by where it
+could have come from:
+
+```
+  cve     literal=10       CWE-79 etc. written in the CVE's own text
+  cwe     own_id=5         CWE-1321 proposed for the CWE-1321 entry
+  attack  own_id=4         T1437 proposed for the T1437 entry
+  capec   bare_number=3    "@CWE_ID": "120" in the JSON -> proposed CWE-120
+  not_found (i.e. a possible genuine inference): none
+```
+
+Replayed over the earlier runs: v1 19/19 literal; v2 6 literal plus **one**
+not found anywhere — `CWE-125` for `CVE-2018-6484`, whose record cites no CWE at
+all. That single case is the only candidate genuine inference in 48 structural
+proposals, and whether it is the *right* CWE has not been checked.
+
+The `own_id` case is invisible to the headline redundancy rule, because
+`corpus_kb` text for CWE/CAPEC/ATT&CK entries holds the title but not the id —
+the id reaches the model only through the prompt header
+(`prompts/corpus_side.py`: `"Catalogue entry (cwe, id CWE-1321)"`). So question
+7's 100%-of-structural figure was not a CVE quirk: it holds across all four
+types, and the proposal's detection rule needed amending (done — see its
+"Update after the stratified run" section).
+
+**Finding 2 — the zero-ATT&CK result was not a sampling artifact.** ATT&CK ids
+appear only on ATT&CK documents, and only as their own id. Nothing proposes an
+ATT&CK technique for a CVE, CWE or CAPEC entry. It is also not missing
+information: 3 of the 10 sampled CAPEC entries carry explicit ATT&CK taxonomy
+mappings in their own text (`CAPEC-267` -> `"Entry_ID": "1027"`, `CAPEC-538` ->
+`1195.001`, `CAPEC-654` -> `1056`, `1548.004`) and the model proposed none of
+them, not even as copies. Whole corpus: 177 of 615 CAPEC entries carry such a
+mapping. Documents with no structural proposal at all: cve 1/10, cwe 5/10,
+attack 6/10, capec 7/10.
+
+**Finding 3 — redundancy tracks how much text there is to copy.** CVE records
+(median 1,390 chars, 9 of 10 cite a CWE in their text) are 92% redundant; CWE
+entries (median 502 chars — `corpus_kb`'s CWE rows have no Description field)
+are 20%. Do not read the overall 61% -> 56% change as the model improving: CVEs
+alone went from 61% (the first 20 in file order, 2012–2018 records) to 92% (this
+random 10, mostly 2024–2025). At 10–20 documents per cell these rates are not
+yet stable — enough to see the pattern, not to quote a figure.
+
+**Also:** one `deprecated` rejection is `T1470` proposing its own id — the
+`corpus_kb` snapshot contains an entry ATT&CK v17.1 marks deprecated.
+`too_common` is 211 of 212 rejections here; the `df_max_ratio` decision is still
+open. `build_index.py --stage enriched` was **not** re-run: `indexes/enriched`
+still reflects `corpus.jsonl` (v1, CVE-only), which is the live set.
 
 ### Question 7 sign-off request drafted
 Wrote up the recommendation from the failed `corpus-v2` experiment (below) as
@@ -285,21 +458,58 @@ Reading of this run:
       `RejectReason`, then build the gate.** Highest priority; it undercuts RQ1
       more than either gate bug did, and prompting has been ruled out.
       **Sign-off request drafted 2026-09-15:**
-      `docs/proposals/already-in-document-gate.md` — waiting on Module
-      2/3/4 owners to respond before Module 1 implements anything.
-- [ ] Fix `scripts/enrich_corpus.py` to read `PROMPT_VERSION` from the prompt
-      module rather than from config, so the manifest cannot record a version the
-      prompt does not have.
-- [ ] **Stratify the corpus sample.** Every result so far is from CVE documents
-      only. Add a per-kind limit to `scripts/enrich_corpus.py` and re-run before
-      any cross-catalogue claim.
-- [ ] Investigate why the model proposes **no ATT&CK or CAPEC identifiers**. Is
-      it the source type (CVE docs), the prompt, or the model's CTI priors? This
-      is close to the heart of RQ1.
+      `docs/proposals/already-in-document-gate.md` — **Module 1 approved
+      2026-09-15** (check 2 limited to labelled id fields); waiting on Module
+      2/3/4 owners before Module 1 implements the gate.
+- [x] Fix `scripts/enrich_corpus.py` to read `PROMPT_VERSION` from the prompt
+      module rather than from config. — Done 2026-09-15, alongside `corpus-v3`
+      (changing the version is exactly when the old way would have recorded the
+      wrong one). The `enrichment.corpus_prompt_version` config key is removed.
+- [x] **Stratify the corpus sample.** — Done 2026-09-15: `--per-kind`, 10 of
+      each type, `corpus_stratified.jsonl`. See that log entry.
+- [ ] Investigate why the model proposes **no ATT&CK or CAPEC identifiers**. —
+      **Narrowed 2026-09-15:** not the sample (it holds across all four types)
+      and not missing information (3/10 CAPEC entries carry ATT&CK mappings it
+      ignores). What remains open is prompt vs. model. Evidence so far leans
+      model: the reverted v2 prompt asked explicitly for the related ATT&CK
+      technique / CAPEC pattern and got 7 ids back, all CWE. But v2 also
+      suppressed output overall, so it is not a clean test. Next step that
+      stays inside the model policy: re-run the same stratified sample with a
+      larger open-weight model (e.g. `qwen2.5:14b`) to see whether the links
+      appear with scale. A frontier model would answer it faster but is reserved
+      for the final run (`01_ENVIRONMENT.md`), so using one here is a team call.
+- [x] Decide whether the prompt header should keep giving the model the
+      document's own id. — **Decided 2026-09-15 (Module 1): no.** Removed in
+      prompt `corpus-v3`; whether entries are searchable by their own id is
+      handed to Module 3 (next item). Reasoning in the proposal. Confirmed by
+      re-running the 40-document sample: own-id copies 9 -> 0.
+- [ ] **New — question 8:** the graph gate accepts ids that exist but don't fit
+      the entry (`CWE-1321` Prototype Pollution -> `CWE-134` Format String).
+      Recommendation: re-check with a larger open-weight model first, then decide
+      between measuring relatedness offline and gating on it. Worth raising with
+      the supervisor — a relatedness check is arguably what "grounding against a
+      hierarchical ontology" should mean for RQ1.
+- [ ] **Run the same 40 documents with `qwen2.5:14b`** (`ollama pull
+      qwen2.5:14b`, ~9 GB) under `corpus-v3`, own `--output`. Answers "prompt or
+      model" for the zero cross-catalogue ids and question 8 in one run.
+- [ ] **Before the next default-path run:** `index.enrichment_path` still points
+      at the `corpus-v1` file `corpus.jsonl`. Either implement question 2's
+      version guard, or always pass `--output`.
+- [ ] **Flag to Module 3:** a CWE/CAPEC/ATT&CK entry's own id is not in its
+      indexed `contents` (title + JSON body only, the same as CTIConnect's own
+      baselines). Measured on `indexes/base`: `CWE-1321` and `CWE-378` do not
+      return their own entry in the top 1,000; `T1437` returns zero hits;
+      `CAPEC-14` finds itself at rank 306. Included in the proposal's Module 3
+      section so it reaches Student 3 either way.
 - [ ] Decide `df_max_ratio` against retrieval metrics, not by eye. Sensitivity
       table is in the log entry above.
 - [ ] Make the kind-mislabel rate observable (runtime counter or sidecar log).
 - [ ] Fix prompt-versioning-vs-resume composition (`04_OPEN_QUESTIONS.md` q2).
 - [ ] Decide `04_OPEN_QUESTIONS.md` q6 (CVE identifiers as structural) — now
       confirmed live, it is the only remaining `malformed_id` in the run.
-- [ ] (Low priority) `build_base.py` subprocess should use `sys.executable`.
+- [x] ~~(Low priority) `build_base.py` subprocess should use `sys.executable`.~~
+      — **Not a bug, corrected 2026-09-15:** `build_base.py` has invoked the
+      indexer as `sys.executable -m pyserini.index.lucene` since its first commit
+      (`988709b`). The conda Python seen earlier must have come from launching the
+      script itself with a bare `python`, which the `.venv/bin/python` rule in
+      `01_ENVIRONMENT.md` already covers.

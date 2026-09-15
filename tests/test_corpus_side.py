@@ -192,7 +192,7 @@ def test_run_writes_one_record_per_doc_with_rejects_kept(tmp_path):
     out = tmp_path / "enrichment.jsonl"
 
     def responder(prompt: str) -> str:
-        if "T1110" in prompt:
+        if "Brute Force" in prompt:   # keyed on text: corpus-v3 prompts carry no doc id
             return _reply([{"term": "T1110", "kind": "structural"}, {"term": "T9999", "kind": "structural"}])
         return _reply([{"term": "auth bypass", "kind": "colloquial"}])
 
@@ -305,12 +305,14 @@ def test_manifest_records_prompt_version_model_and_config_hash(tmp_path):
 
 
 def test_concurrency_processes_every_doc_exactly_once_without_cross_talk(tmp_path):
-    docs = [_doc(f"T{1100 + i}", text=f"doc {i}") for i in range(6)]
+    docs = [_doc(f"T{1100 + i}", text=f"doc number {i}") for i in range(6)]
 
     def responder(prompt: str) -> str:
         # Deterministic, stateless function of the prompt -- safe across threads.
-        doc_id = prompt.split("id ")[1].split(")")[0]
-        return _reply([{"term": f"term-for-{doc_id}", "kind": "colloquial"}])
+        # Keyed on the document text: since corpus-v3 the prompt no longer
+        # carries the doc id.
+        i = int(prompt.split("doc number ")[1].split()[0])
+        return _reply([{"term": f"term-for-T{1100 + i}", "kind": "colloquial"}])
 
     out = tmp_path / "enrichment.jsonl"
     summary = run_corpus_enrichment(
@@ -487,11 +489,11 @@ def test_manifest_records_how_the_documents_were_sampled(tmp_path):
 def test_summarize_by_source_splits_counts_by_document_type_and_catalogue(tmp_path):
     from sira_cti.enrichment.corpus_side import summarize_by_source
 
-    cve_doc = CorpusDocument(doc_id="CVE-2024-1", source=Source.CVE, title="x", text="x")
+    cve_doc = CorpusDocument(doc_id="CVE-2024-1", source=Source.CVE, title="x", text="cve record text")
     attack_doc = _doc("T1110")
 
     def responder(prompt: str) -> str:
-        if "CVE-2024-1" in prompt:
+        if "cve record text" in prompt:   # keyed on text: corpus-v3 prompts carry no doc id
             return _reply([
                 {"term": "CWE-307", "kind": "structural"},
                 {"term": "T9999", "kind": "structural"},
@@ -516,3 +518,16 @@ def test_summarize_by_source_splits_counts_by_document_type_and_catalogue(tmp_pa
     attack = by_source["attack"]
     assert attack["structural_proposed_by_namespace"] == {"capec": 1}
     assert attack["accepted"] == 2
+
+
+def test_prompt_does_not_give_the_model_the_documents_own_id():
+    # corpus-v3: with the id in the header, every structural id proposed on a
+    # CWE/ATT&CK entry was that entry's own id copied back. Decision 2 in
+    # docs/proposals/already-in-document-gate.md.
+    from sira_cti.enrichment.prompts.corpus_side import build_prompt
+
+    doc = CorpusDocument(doc_id="CWE-1321", source=Source.CWE, title="Prototype Pollution", text="Prototype Pollution {}")
+    prompt = build_prompt(doc, max_terms=12)
+    assert "CWE-1321" not in prompt
+    assert "1321" not in prompt
+    assert "Prototype Pollution" in prompt

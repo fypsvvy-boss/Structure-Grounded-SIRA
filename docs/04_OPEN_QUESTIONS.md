@@ -185,6 +185,15 @@ but for the true reason.
 
 ### Known limitation, accepted deliberately
 
+*Second instance, 2026-09-15 (`corpus-v3` run):* `'Mitre mobile attack'` — the
+`"mitre-mobile-attack"` kill-chain name copied from `T1470`'s own text, labelled
+structural — was recorded as `malformed_id`, because `_ID_SHAPED` treats any
+string *starting with* `mitre` or `att&ck` as an identifier attempt. A tighter
+rule would require an id-like token after the prefix (`MITRE ATT&CK T1110`
+yes, `Mitre mobile attack` no). Not changed yet: it alters what RQ4 counts, and
+at one case in 40 documents it can wait for a deliberate change with its own
+before/after.
+
 `is_id_shaped` is a shape test, so real security jargon that happens to look like
 an identifier — `S3 bucket`, `C2 server` — reads as ID-shaped and would still be
 recorded as `malformed_id` if the model labels it structural. This is the
@@ -207,12 +216,15 @@ default.
 
 ---
 
-## 5. (Low priority) subprocess interpreter bug
+## 5. ~~(Low priority) subprocess interpreter bug~~ NOT A BUG — corrected 2026-09-15
 
-`src/sira_cti/index/build_base.py` calls the pyserini indexer subprocess as
-`python` by name. On this machine conda's Python got picked instead of the venv's.
-Should use `sys.executable`. Masked by the `.venv/bin/python` explicit-path
-workaround, so low urgency, but it's a real portability bug.
+~~`src/sira_cti/index/build_base.py` calls the pyserini indexer subprocess as
+`python` by name.~~ It doesn't, and never did: it has run
+`sys.executable -m pyserini.index.lucene` since its first commit (`988709b`), so
+the subprocess always uses whichever Python launched the script. The conda Python
+seen on this machine must have come from starting the script itself with a bare
+`python` — which the "always use `.venv/bin/python`" rule in `01_ENVIRONMENT.md`
+already covers. Nothing to fix.
 
 ---
 
@@ -365,4 +377,121 @@ measurement code used for both runs is the reference.
   run says anything about how enrichment behaves on CWE, CAPEC or ATT&CK source
   documents. **Any RQ1 comparison across catalogues needs a stratified sample,
   not a prefix.** Worth adding a `--stratify` or per-kind limit to
-  `scripts/enrich_corpus.py`.
+  `scripts/enrich_corpus.py`. — *Done 2026-09-15 (`--per-kind`); see below.*
+
+### Stratified run, 2026-09-15 — the finding holds on every document type, and is worse than it looked
+
+10 randomly sampled documents of each type (`corpus_stratified.jsonl`, seed 42).
+Full numbers are in the `03_STATUS_LOG.md` entry of the same date. For this
+question, three things:
+
+**1. Every structural identifier was copied — on all four document types.** The
+headline rule above only catches ids written literally in the text, and on CWE,
+CAPEC and ATT&CK documents it scored structural terms 0/5, 0/3 and 0/3 already
+present, which looks like the problem is CVE-only. It isn't. Classifying each
+structural proposal by where it could have come from
+(`scripts/measure_redundancy.py`):
+
+```
+  cve     10/10  literal      "CWE-79" is written in the CVE's own text
+  cwe      5/5   own id       proposed CWE-1321 for the CWE-1321 entry
+  attack   4/4   own id       proposed T1437 for the T1437 entry
+  capec    3/3   bare number  text has "@CWE_ID": "120"; proposed CWE-120
+```
+
+The own-id case comes from the prompt, not the document: `corpus_kb` rows for
+these types hold the title and a JSON body but not the id, and the prompt header
+supplies it (`"Catalogue entry (cwe, id CWE-1321)"`). The bare-number case is the
+CAPEC JSON writing related ids without their prefix. Across all three runs to
+date, **47 of 48 structural proposals were copies**; the one exception is
+`CWE-125` for `CVE-2018-6484` (v2 prompt), a record that cites no CWE, and
+whether that is the correct CWE has not been checked.
+
+**2. The redundancy check proposed for the gate needs to cover these.** As first
+written, the proposal's detection rule (literal id, contiguous tokens) would let
+every own-id and bare-number copy through. The proposal has been amended; see its
+"Update after the stratified run" section, which also raises the harder question
+of whether the prompt header should give the model the id at all.
+
+**3. The zero-ATT&CK result was not a sampling artifact, and not missing
+information.** ATT&CK ids appear only on ATT&CK documents, only as their own id.
+3 of the 10 sampled CAPEC entries contain explicit ATT&CK taxonomy mappings in
+their own text (e.g. `CAPEC-267` -> `"Entry_ID": "1027"`) and the model proposed
+none of them. So the grounding mechanism under test has still not been shown a
+single cross-catalogue proposal from this model.
+
+Prompt or model? The live prompt (`corpus-v1`) only defines what a structural id
+*is*; it never asks for related ids from other catalogues. But the reverted
+`corpus-v2` prompt did ask explicitly — "propose the ATT&CK technique this
+weakness is exploited by, a related CAPEC attack pattern" — and across 20 CVE
+documents it returned 7 structural ids, **all CWE, zero ATT&CK, zero CAPEC**.
+That points at the model rather than the wording, with one caveat: v2 also
+suppressed output overall (see `docs/experiments/prompt-corpus-v2.md`), so it is
+not a clean test. This is now closer to the centre of RQ1 than the redundancy
+rate is: if Qwen2.5-7B does not make cross-catalogue links, the graph gate has
+nothing to catch during development, and the frontier model reserved for the
+final run may behave completely differently — meaning development-time
+measurements of the gate would not predict final-run behaviour at all.
+
+### Decisions and the `corpus-v3` run, 2026-09-15
+
+Module 1 approved the gate (structural check limited to literal ids and
+labelled id fields) and removed the document's own id from the prompt header
+(`corpus-v3`). Proposal: `docs/proposals/already-in-document-gate.md`, now
+awaiting Modules 2/3/4. Re-running the same 40 documents under `corpus-v3`: the
+own-id copies went from 9 to 0; ATT&CK entries then proposed no identifiers at
+all, and the only two identifiers not copied from anywhere were both wrong —
+which is question 8.
+
+---
+
+## 8. (New, opened 2026-09-15 — affects RQ1) The graph gate accepts identifiers that are real but irrelevant
+
+**What happened.** In the `corpus-v3` stratified run, the model made its first
+two structural proposals that were not copied from the entry or the prompt:
+
+```
+  CWE-1321 Prototype Pollution  -> proposed CWE-134 Use of Externally-Controlled Format String
+  CWE-835  Infinite Loop        -> proposed CWE-362 Race Condition
+```
+
+Both ids exist, so both were accepted. Both are wrong for their entry: neither
+is a parent, child or sibling, and the only ancestor each pair shares is a CWE
+Pillar (`CWE-664`, `CWE-691`), the very top of the hierarchy.
+
+**Why it matters.** The grounding step under test (`OntologyGraph.validate()`)
+answers one question: does this identifier exist, and is it current? That catches
+invented ids (`T9999`) and stale ones (revoked/deprecated). It cannot catch a real
+id attached to the wrong document — and on the evidence so far, that is the
+error this model makes when it isn't copying. Qwen2.5-7B has fabricated **zero**
+non-existent ontology ids: `not_in_graph` is 0 in all five saved runs (125
+documents). So during development the gate's
+existence check has had nothing to reject, while the one kind of wrong
+identifier that did appear sailed through. An RQ1 result of "graph-grounded
+proposals are ~100% valid" would be true and would not mean what a reader
+assumes.
+
+It also means copied identifiers and wrong identifiers look identical in the
+current rejection log — both are accepted and `graph_validated=True`.
+
+**Options — not decided.**
+
+1. **Report it, don't gate it.** Keep validation as existence-only, and measure
+   relatedness offline (graph distance between the proposed id and the entry, or
+   the ids the entry cites) as a write-up metric. No code or contract change.
+2. **Add a relatedness gate.** Reject a structural id that is not within *k*
+   hops of an anchor: the entry itself where it is a graph node (CWE, CAPEC,
+   ATT&CK entries), or the ids the entry cites (a CVE's CWE). The graph tool
+   already exposes parents/children/siblings/mapped links, so this is cheap to
+   build — but it needs a new `RejectReason` (four-owner sign-off), a choice of
+   *k*, and a guard against it rejecting correct-but-distant links (a CAPEC
+   pattern legitimately mapping to an ATT&CK technique is one "mapped" hop, not
+   hierarchy distance).
+3. **Treat it as model-scale noise.** Two cases at n=40 is thin. Re-check with a
+   larger open-weight model before designing anything — if a bigger model stops
+   making these, option 1 is enough.
+
+Recommendation, for discussion: **3 then 1** — two examples justify measuring,
+not yet a new gate. But note that option 2 is arguably closer to what "grounding
+against a hierarchical ontology" should mean for RQ1 than an existence check,
+and is worth raising with the supervisor regardless of what the next run shows.

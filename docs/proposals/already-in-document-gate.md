@@ -1,6 +1,6 @@
 # Proposal: reject terms that just repeat the document's own words
 
-**Status: DRAFT — awaiting sign-off from all four module owners.**
+**Status: Module 1 approved (2026-09-15) — awaiting Modules 2, 3 and 4.**
 **Needs:** agreement to add one new value to `RejectReason` in
 `src/sira_cti/common/schemas.py` — the frozen contract Modules 1–4 all share.
 **Opened by:** Module 1, 2026-09-15. **Background:** `docs/04_OPEN_QUESTIONS.md`
@@ -95,12 +95,113 @@ document without the phrase `CWE-331` ever appearing together:
 
 This is exactly the check that produced the 61.1%/100% numbers above, so
 adopting it doesn't change what's already been measured — it just enforces
-what's already been observed.
+what's already been observed. It is now a saved script,
+`scripts/measure_redundancy.py`, which reproduces those numbers exactly.
+
+**This rule on its own is not enough** — see the next section.
+
+## Update after the stratified run (2026-09-15)
+
+The numbers above came from CVE documents only. A second run took 10 random
+documents of each type (CVE, CWE, CAPEC, ATT&CK). It showed that the rule
+above misses most of the copying on the three non-CVE types, because the model
+copies identifiers from two places the rule doesn't look:
+
+```
+  document type   structural ids proposed   where each one came from
+  cve             10                        written in the text ("CWE-79")     <- rule catches
+  cwe              5                        the document's own id              <- rule misses
+  attack           4                        the document's own id              <- rule misses
+  capec            3                        a bare number in the JSON text     <- rule misses
+                                            ("@CWE_ID": "120" -> CWE-120)
+```
+
+Across all three runs so far: **47 of 48 structural ids were copies.** Zero
+ATT&CK or CAPEC ids were proposed for any document other than that entry
+itself — even though 3 of the 10 sampled CAPEC entries list ATT&CK mappings in
+their own text.
+
+So for structural terms the detection rule becomes two checks, both reported
+under the one proposed reason `already_in_document`:
+
+1. **the id is written in the text** (the original rule — `CWE-79`);
+2. **the id is named by a labelled id field in the entry's own JSON.** The
+   catalogue comes from the field name, never guessed from a bare number:
+
+   | field | becomes | note |
+   |---|---|---|
+   | `"@CWE_ID": "120"` | `CWE-120` | |
+   | `"@CAPEC_ID": "444"`, `"@Exclude_ID": "515"` | `CAPEC-444`, `CAPEC-515` | both are CAPEC references |
+   | `"Entry_ID": "1027"` | `T1027` | **only** inside an `"@Taxonomy_Name": "ATTACK"` mapping |
+
+   The ATT&CK condition matters: WASC and OWASP mappings use `Entry_ID` too
+   (e.g. `"Entry_ID": "07"`), and a looser "any quoted number" rule would have
+   matched those. `@ID` (the entry's own id) is deliberately not in the list —
+   see the next section. Checked across all 615 CAPEC entries: the extracted
+   ATT&CK ids match the `ATTACK`-labelled mappings exactly, with no leaks. In
+   `corpus_kb` only CAPEC entries carry these fields.
+
+An earlier draft of this section had a third check ("the document's own id")
+and a looser version of check 2 ("the number appears anywhere as a quoted
+value"). Module 1 dropped the first and tightened the second — see below.
+
+### The document's own id — decided by Module 1, no gate check needed
+
+Up to prompt `corpus-v1`, the document's own id reached the model through the
+**prompt header** (`"Catalogue entry (cwe, id CWE-1321)"`), not through the
+document text:
+`corpus_kb` stores CWE/CAPEC/ATT&CK entries as title + JSON body, without the
+id. That cuts both ways:
+
+- **For rejecting it:** proposing an entry's own id is a transcription, and the
+  graph "validating" it tests nothing RQ1 cares about. Counting it as a
+  successful grounded proposal inflates exactly the number RQ1 reports.
+- **Against rejecting it:** because the id is *not* in the indexed text,
+  injecting it genuinely makes the entry findable by its own id. Measured on the
+  base index: a search for `CWE-1321` or `CWE-378` does not return that entry
+  anywhere in the top 1,000; `T1437` returns no hits at all; `CAPEC-14` finds
+  its own entry at rank 306. Rejecting the own id removes real retrieval value.
+
+**Decision (Module 1, 2026-09-15): take the id out of the prompt header, and
+leave "should an entry be searchable by its own id" to Module 3.** This is a
+Module 1 prompt change, so it needs no sign-off, and it is already done: prompt
+`corpus-v3` opens with `Catalogue entry (cwe):` and no id.
+
+Why this over the other two options:
+
+- **The LLM is an unreliable way to make ids searchable.** It proposed its own
+  id for only 5 of 10 CWE entries and 4 of 10 ATT&CK entries. If entries should
+  be findable by id, adding the id at indexing time covers all 6,044 entries,
+  every time, for zero tokens.
+- **Keeping it accepted** would count a transcription as a successful grounded
+  proposal — inflating exactly the number RQ1 reports.
+- **Rejecting it** records the copy honestly, but keeps paying tokens to watch
+  the model copy something we already know it will copy.
+
+This decouples "is the id searchable" (a retrieval design choice, Module 3's)
+from "did the model infer something" (an RQ1 measurement, Module 1's). One
+limit: a CVE's own id is still visible to the model, because `corpus_kb` puts
+it in the CVE's title — and CVE ids are not graph nodes anyway (open question
+6).
+
+**Result, same 40 documents re-run under `corpus-v3`:** own-id proposals went
+from 9 to 0, with no drop in overall output. ATT&CK entries then proposed no
+identifiers at all. The only two identifiers not copied from anywhere
+(`CWE-1321` -> `CWE-134`, `CWE-835` -> `CWE-362`) exist but are wrong for their
+entries, and the graph accepted them — that is a separate problem from this
+proposal, logged as open question 8. It does not change this proposal: copies
+are still the large majority of structural proposals, and the gate still
+catches all the ones that remain.
 
 ### What Module 1 would implement once this is approved (no further sign-off needed)
 
 - A new `_already_in_document(term, doc_text, analyzer) -> bool` in
-  `corpus_side.py`.
+  `corpus_side.py`, ported from the reference functions in
+  `scripts/measure_redundancy.py` (`contains_contiguous`,
+  `already_in_document_structural`, `labelled_ids_in_text`) together with
+  tests — the script already reports what the gate *would* reject
+  ("under the approved gate rule"), so the gate's effect can be checked
+  against it exactly.
 - `DFLookup` (`index/df_stats.py`) gains an `analyze(text) -> list[str]`
   method — it already wraps a `LuceneIndexReader`, which already has this;
   it's just not exposed on the protocol yet. Internal to Module 1, not a
@@ -130,6 +231,14 @@ and more genuinely-new, terms land there than would otherwise. Might move
 your recall numbers versus what you'd see on the current (unfiltered)
 enriched index — worth knowing before you tune `w`.
 
+Separately, and true today regardless of this decision: **a CWE, CAPEC or
+ATT&CK entry's own id is not in its indexed text.** In the base (plain-BM25
+baseline) index, searching `CWE-1321` doesn't return the `CWE-1321` entry in
+the top 1,000, and `T1437` returns nothing. This matches how CTIConnect's own
+baselines index the corpus (title + contents), so it may be the intended
+setup for comparability — but entity-linking questions that name an id will
+behave very differently depending on it, so decide it deliberately.
+
 **Module 4 (evaluation).** `RejectReason` currently has six values
 (`not_in_graph`, `too_common`, `not_in_index`, `deprecated`, `revoked`,
 `malformed_id`); this would make seven. `EnrichmentRecord.rejection_rate()`
@@ -142,19 +251,38 @@ that needs the seventh added.
 
 ## Decision needed
 
-Please respond (in this file, a PR comment, or however the team's doing
-sign-off) with one of:
+**What is being signed off:** a new `RejectReason` value
+`already_in_document`, and a gate in Module 1 that applies it — before the DF
+filter — using the rule above (contiguous analyzed tokens for ordinary terms;
+checks 1 and 2 for structural ids).
 
-- [ ] **Approve as specified** — value name `already_in_document`, gate runs
-      before the DF filter.
-- [ ] **Approve with changes** — say what (alternate name, different gate
-      ordering, different detection rule, etc.)
-- [ ] **Reject** — and if so, which of the other two options from
-      `04_OPEN_QUESTIONS.md` question 7 should Module 1 pursue instead
-      (silent filtering at index time, which hides this from the RQ4 log; or
-      something else)?
+**One reason to prefer the gate over filtering silently at index-build time**
+(option 2 in question 7), beyond keeping the RQ4 log honest: Module 3 builds
+the expansion query from `accepted_terms`. If copies were dropped later, in
+`build_enriched.py`, then `accepted_terms` would list terms that are not
+actually in the index, and every module reading the shared record would be
+working from a false list. Rejecting at the gate keeps "accepted" and "indexed"
+meaning the same thing.
+
+**A wording precision:** "zero extra recall" above means a copied term adds no
+*new way to find* its document. Depending on how Module 3 scores the expansion
+field (question 4), a copied term can still move that document up the ranking.
+That doesn't change the case for the gate — the expansion field is meant to
+hold new vocabulary, not a second copy of the old — but it is the accurate
+claim.
+
+| Owner | Decision | Date | Notes |
+|---|---|---|---|
+| Module 1 | **Approve**, with check 2 limited to labelled id fields (as now written) | 2026-09-15 | Own-id question resolved separately by prompt change, see above |
+| Module 2 | *pending* | | |
+| Module 3 | *pending* | | Also: decide whether entries should be searchable by their own id |
+| Module 4 | *pending* | | |
+
+To respond: fill in your row (approve / approve with changes — say what /
+reject — and if rejecting, which alternative from `04_OPEN_QUESTIONS.md`
+question 7 Module 1 should pursue instead).
 
 Once all four have weighed in, Module 1 will implement the `schemas.py`
-change plus the gate itself, re-run the archived 20-document sample under
-it, and log the before/after in `docs/03_STATUS_LOG.md` — the same way the
-DF-combine and kind-routing gate fixes were logged on 2026-08-20.
+change plus the gate itself, re-run the saved samples under it, and log the
+before/after in `docs/03_STATUS_LOG.md` — the same way the DF-combine and
+kind-routing gate fixes were logged on 2026-08-20.
