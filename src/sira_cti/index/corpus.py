@@ -16,6 +16,7 @@ gitignored clone, not a stable dependency of this project.
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
@@ -101,3 +102,35 @@ def load_corpus(
             n += 1
             if limit is not None and n >= limit:
                 return
+
+
+def sample_corpus(
+    kb_dir: str | Path, kinds: Iterable[str] = KINDS, *, per_kind: int, seed: int
+) -> list[CorpusDocument]:
+    """A seeded random sample of ``per_kind`` documents from each knowledge base.
+
+    ``load_corpus(limit=N)`` takes a prefix, and a prefix of ``corpus_kb`` is
+    not a sample of it twice over: kinds are concatenated, so the first 3,011
+    documents are all CVEs; and each file is sorted by id, so even a
+    per-kind prefix is one narrow slice (the first ``mitre`` rows are
+    ``T1001`` and its own sub-techniques). Sampling at random within each
+    kind avoids both.
+
+    The same ``seed`` always yields the same documents, which is what lets a
+    sampled run resume -- ``run_corpus_enrichment`` skips done ``doc_id`` s,
+    and a different sample would silently mix two populations in one file.
+    Each kind draws from its own generator seeded by ``(seed, kind)``, so
+    adding or dropping a kind from ``kinds`` does not change which documents
+    the other kinds get. A kind with fewer than ``per_kind`` entries
+    contributes all of them. Output is grouped by kind in ``kinds`` order,
+    file order within a kind.
+    """
+    if per_kind < 1:
+        raise ValueError(f"per_kind must be >= 1, got {per_kind}")
+    out: list[CorpusDocument] = []
+    for kind in kinds:
+        docs = list(load_kb(kb_dir, kind))
+        rng = random.Random(f"{seed}:{kind}")
+        picked = sorted(rng.sample(range(len(docs)), min(per_kind, len(docs))))
+        out.extend(docs[i] for i in picked)
+    return out

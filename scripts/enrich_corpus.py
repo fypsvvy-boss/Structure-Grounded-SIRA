@@ -9,10 +9,17 @@ rather than silently assumed.
 
     python scripts/enrich_corpus.py --config configs/default.yaml
     python scripts/enrich_corpus.py --limit 5 --dry-run   # cheap iteration
-    python scripts/enrich_corpus.py --limit 50            # a real small slice
+    python scripts/enrich_corpus.py --per-kind 10 --output indexes/enrichment/corpus_stratified.jsonl
+
+``--limit N`` takes the first N documents in load order, which for corpus_kb
+means CVEs only until N passes 3,011 -- fine for smoke-testing, useless for any
+claim about CWE/CAPEC/ATT&CK. ``--per-kind N`` takes a seeded random N from
+each document type instead (seed: ``--seed``, default ``eval.seed``).
 
 Resumable: re-running with the same ``--output`` skips documents already in
-that file and only retries ones that previously failed to parse.
+that file and only retries ones that previously failed to parse. Give a
+sampled run its own ``--output`` -- resuming a different sample into the same
+file mixes two populations.
 """
 
 from __future__ import annotations
@@ -24,16 +31,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sira_cti.common import OllamaClient, config_hash, load_config
-from sira_cti.enrichment.corpus_side import run_corpus_enrichment, summarize
+from sira_cti.enrichment.corpus_side import run_corpus_enrichment, summarize, summarize_by_source
 from sira_cti.graph import OntologyGraph
-from sira_cti.index import LuceneDFLookup, load_corpus
+from sira_cti.index import LuceneDFLookup, load_corpus, sample_corpus
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--output", default=None, help="defaults to config's index.enrichment_path")
-    parser.add_argument("--limit", type=int, default=None, help="cap total documents (cheap iteration)")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--limit", type=int, default=None, help="first N documents in load order (CVE-only below 3,011)")
+    selection.add_argument("--per-kind", type=int, default=None, help="seeded random N documents from each type")
+    parser.add_argument("--seed", type=int, default=None, help="sampling seed for --per-kind (default: eval.seed)")
     parser.add_argument("--concurrency", type=int, default=None, help="override config's enrichment.concurrency")
     parser.add_argument("--dry-run", action="store_true", help="run the pipeline but write nothing to disk")
     args = parser.parse_args()
@@ -79,7 +89,13 @@ def main() -> int:
 
     corpus_cfg = cfg["corpus"]
     enrich_cfg = cfg["enrichment"]
-    docs = load_corpus(corpus_cfg["kb_dir"], corpus_cfg["kinds"], limit=args.limit)
+    if args.per_kind is not None:
+        seed = args.seed if args.seed is not None else cfg["eval"]["seed"]
+        docs = sample_corpus(corpus_cfg["kb_dir"], corpus_cfg["kinds"], per_kind=args.per_kind, seed=seed)
+        sampling = {"method": "per_kind", "per_kind": args.per_kind, "seed": seed}
+    else:
+        docs = load_corpus(corpus_cfg["kb_dir"], corpus_cfg["kinds"], limit=args.limit)
+        sampling = {"method": "prefix", "limit": args.limit}
 
     print(f"Enriching -> {output_path}  (model={llm_cfg['model']}, dry_run={args.dry_run})")
     summary = run_corpus_enrichment(
@@ -96,6 +112,7 @@ def main() -> int:
         prompt_version=enrich_cfg.get("corpus_prompt_version", "corpus-v1"),
         config_hash=config_hash(args.config),
         corpus_kinds=list(corpus_cfg["kinds"]),
+        sampling=sampling,
         dry_run=args.dry_run,
     )
 
@@ -118,6 +135,13 @@ def main() -> int:
         print(f"  repaired: {stats['repaired']}")
         rate = stats["staleness_rate"]
         print(f"  staleness_rate: {rate:.3f}" if rate is not None else "  staleness_rate: n/a")
+
+        print("\nBy source document type:")
+        for source, s in sorted(summarize_by_source(output_path).items()):
+            print(f"  {source}: {s['docs']} docs, {s['proposed']} proposed, {s['accepted']} accepted")
+            print(f"    rejected: {s['rejected_by_reason'] or '{}'}")
+            print(f"    structural proposed by catalogue: {s['structural_proposed_by_namespace'] or '{}'}")
+            print(f"    structural accepted by catalogue: {s['structural_accepted_by_namespace'] or '{}'}")
 
     return 0
 

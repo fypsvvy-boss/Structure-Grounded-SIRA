@@ -1,6 +1,6 @@
 from .build_base import build_base_index, write_json_collection
 from .build_enriched import EXPANSION_FIELD, build_enriched_index, write_json_collection_with_expansion
-from .corpus import KINDS, CorpusDocument, load_corpus, load_kb
+from .corpus import KINDS, CorpusDocument, load_corpus, load_kb, sample_corpus
 from .df_stats import DFLookup, LuceneDFLookup, too_common
 
 __all__ = [
@@ -8,6 +8,7 @@ __all__ = [
     "CorpusDocument",
     "load_corpus",
     "load_kb",
+    "sample_corpus",
     "build_base_index",
     "write_json_collection",
     "build_enriched_index",

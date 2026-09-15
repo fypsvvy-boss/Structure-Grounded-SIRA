@@ -298,13 +298,20 @@ def _append_failure(path: Path, doc_id: str, error: str) -> None:
 
 
 def _write_manifest(
-    output_path: Path, *, prompt_version: str, model: str, config_hash: Optional[str], kinds: list[str]
+    output_path: Path,
+    *,
+    prompt_version: str,
+    model: str,
+    config_hash: Optional[str],
+    kinds: list[str],
+    sampling: Optional[dict[str, object]],
 ) -> None:
     manifest = {
         "prompt_version": prompt_version,
         "model": model,
         "config_hash": config_hash,
         "kinds": kinds,
+        "sampling": sampling,
         "created_at": time.time(),
     }
     output_path.with_suffix(output_path.suffix + ".manifest.json").write_text(
@@ -327,6 +334,7 @@ def run_corpus_enrichment(
     prompt_version: str = PROMPT_VERSION,
     config_hash: Optional[str] = None,
     corpus_kinds: Optional[list[str]] = None,
+    sampling: Optional[dict[str, object]] = None,
     dry_run: bool = False,
     on_record: Optional[Callable[[EnrichmentRecord], None]] = None,
 ) -> EnrichmentRunSummary:
@@ -343,6 +351,12 @@ def run_corpus_enrichment(
 
     ``dry_run=True`` runs the full pipeline (so ``--dry-run`` in the CLI is a
     real cost/latency preview) but writes nothing to disk.
+
+    ``sampling`` describes how ``docs`` was chosen (e.g. ``{"method":
+    "per_kind", "per_kind": 10, "seed": 42}``) and is recorded in the
+    manifest as-is. Without it, a JSONL of 40 documents cannot say whether
+    it is the first 40 or a stratified 40, and conclusions drawn from the
+    two are not interchangeable.
     """
     output_path = Path(output_path)
     docs = list(docs)
@@ -441,6 +455,7 @@ def run_corpus_enrichment(
             model=model_name,
             config_hash=config_hash,
             kinds=corpus_kinds or [],
+            sampling=sampling,
         )
 
     return summary
@@ -482,3 +497,44 @@ def summarize(output_path: str | Path) -> dict[str, object]:
         "repaired": n_repaired,
         "staleness_rate": (staleness_num / staleness_den) if staleness_den else None,
     }
+
+
+def summarize_by_source(output_path: str | Path) -> dict[str, dict[str, object]]:
+    """The same counts as :func:`summarize`, split by the *source document's* type.
+
+    Answers a different question from the whole-file totals: not "how often
+    are proposals rejected" but "does what the model proposes depend on what
+    it is reading". In particular ``structural_proposed_by_namespace`` shows
+    which catalogue each structural proposal came from (``attack``, ``cwe``,
+    ``capec``, or ``other`` for anything the normalizer doesn't place, such as
+    a CVE id) -- so a run with zero ATT&CK proposals shows *which* source
+    documents produced none, rather than one undifferentiated zero.
+    """
+    out: dict[str, dict[str, object]] = {}
+    for rec in read_jsonl(output_path):
+        s = out.setdefault(
+            rec.source.value,
+            {
+                "docs": 0,
+                "proposed": 0,
+                "accepted": 0,
+                "rejected_by_reason": {},
+                "structural_proposed_by_namespace": {},
+                "structural_accepted_by_namespace": {},
+            },
+        )
+        s["docs"] += 1
+        s["proposed"] += len(rec.proposed_terms)
+        s["accepted"] += len(rec.accepted_terms)
+        for t in rec.rejected_terms:
+            reasons = s["rejected_by_reason"]
+            reasons[t.reject_reason.value] = reasons.get(t.reject_reason.value, 0) + 1
+        for t in rec.structural_terms:
+            parsed = parse_structural_id(t.structural_id)
+            ns = parsed.namespace.value if parsed is not None else "other"
+            proposed = s["structural_proposed_by_namespace"]
+            proposed[ns] = proposed.get(ns, 0) + 1
+            if t.accepted:
+                accepted = s["structural_accepted_by_namespace"]
+                accepted[ns] = accepted.get(ns, 0) + 1
+    return out

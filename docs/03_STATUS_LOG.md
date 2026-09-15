@@ -8,6 +8,11 @@
 
 ## Current headline
 
+**2026-09-15: the question 7 sign-off request is written and waiting on the
+other three owners.** `docs/proposals/already-in-document-gate.md` — read
+it before implementing anything in that area. Nothing in `schemas.py` has
+changed; this is the request, not the implementation.
+
 **Phase 1 / Module 1: two gate bugs found and fixed after the first real LLM run
 (2026-08-20). Both were distorting RQ1/RQ4 rather than merely being untidy.**
 `04_OPEN_QUESTIONS.md` questions 1 and 3 are now RESOLVED — read those two
@@ -37,6 +42,24 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Question 7 sign-off request drafted
+Wrote up the recommendation from the failed `corpus-v2` experiment (below) as
+a formal decision request for all four module owners:
+`docs/proposals/already-in-document-gate.md`. Covers: the exact
+`RejectReason` value being proposed (`already_in_document`), where the new
+gate would run in `corpus_side.py`'s pipeline (before the DF filter, flagged
+as itself part of the decision), the detection rule (same contiguous-token
+match used for the 61.1%/100% measurement, not a looser set check), and a
+"what this changes for you" section per module — Module 2 almost certainly
+doesn't need the gate logic itself (no source document to compare against on
+the query side) but does need to know the enum value exists; Module 3 sees
+fewer/more-genuinely-new expansion terms with no code change required; Module
+4 gets a seventh `RejectReason` bucket, automatically counted by
+`rejection_rate()` but worth checking against anything that special-cases the
+current six by name.
+
+No code changed. `schemas.py` is untouched pending the actual sign-off.
 
 ### Prompt iteration against question 7 — NEGATIVE RESULT, reverted
 Tried `corpus-v2`, a much more forceful version of the "do not restate the
@@ -261,6 +284,9 @@ Reading of this run:
 - [ ] **Question 7 — get four-owner sign-off for an `already_in_document`
       `RejectReason`, then build the gate.** Highest priority; it undercuts RQ1
       more than either gate bug did, and prompting has been ruled out.
+      **Sign-off request drafted 2026-09-15:**
+      `docs/proposals/already-in-document-gate.md` — waiting on Module
+      2/3/4 owners to respond before Module 1 implements anything.
 - [ ] Fix `scripts/enrich_corpus.py` to read `PROMPT_VERSION` from the prompt
       module rather than from config, so the manifest cannot record a version the
       prompt does not have.

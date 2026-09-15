@@ -468,3 +468,51 @@ def test_ordinary_phrases_still_judged_by_their_most_common_word():
     )
     assert terms[0].reject_reason is RejectReason.TOO_COMMON
     assert terms[0].doc_freq == 60
+
+
+# -- sampling provenance + per-source summary ------------------------------------------
+
+
+def test_manifest_records_how_the_documents_were_sampled(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_doc("T1110")], client_factory=lambda: StubClient(responder=lambda _p: _reply([])),
+        graph=build_fixture_graph(), df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+        sampling={"method": "per_kind", "per_kind": 10, "seed": 42},
+    )
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["sampling"] == {"method": "per_kind", "per_kind": 10, "seed": 42}
+
+
+def test_summarize_by_source_splits_counts_by_document_type_and_catalogue(tmp_path):
+    from sira_cti.enrichment.corpus_side import summarize_by_source
+
+    cve_doc = CorpusDocument(doc_id="CVE-2024-1", source=Source.CVE, title="x", text="x")
+    attack_doc = _doc("T1110")
+
+    def responder(prompt: str) -> str:
+        if "CVE-2024-1" in prompt:
+            return _reply([
+                {"term": "CWE-307", "kind": "structural"},
+                {"term": "T9999", "kind": "structural"},
+                {"term": "CVE-2017-5974", "kind": "structural"},
+            ])
+        return _reply([{"term": "CAPEC-49", "kind": "structural"}, {"term": "spraying", "kind": "colloquial"}])
+
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [cve_doc, attack_doc], client_factory=lambda: StubClient(responder=responder),
+        graph=build_fixture_graph(), df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+    )
+    by_source = summarize_by_source(out)
+
+    assert set(by_source) == {"cve", "attack"}
+    cve = by_source["cve"]
+    assert cve["docs"] == 1 and cve["proposed"] == 3 and cve["accepted"] == 1
+    assert cve["structural_proposed_by_namespace"] == {"cwe": 1, "attack": 1, "other": 1}
+    assert cve["structural_accepted_by_namespace"] == {"cwe": 1}
+    assert cve["rejected_by_reason"] == {"not_in_graph": 1, "malformed_id": 1}
+
+    attack = by_source["attack"]
+    assert attack["structural_proposed_by_namespace"] == {"capec": 1}
+    assert attack["accepted"] == 2

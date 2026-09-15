@@ -304,6 +304,15 @@ it, and **nothing in the pipeline enforces it.**
    the model an explicit "words already present" list to avoid) and re-measure
    before building any gate.
 
+### Sign-off requested 2026-09-15 — see `docs/proposals/already-in-document-gate.md`
+
+The recommendation below (option 1) has been written up as a formal decision
+request for all four owners: exact `RejectReason` value, where the gate slots
+into `corpus_side.py`, the detection rule, and what it changes for each
+module. Nothing in `schemas.py` has been touched — that document *is* the
+sign-off request, not a pre-emptive implementation. Update this section once
+a decision comes back.
+
 ### Option 3 was tried on 2026-08-20 and FAILED — recommendation is now option 1
 
 A `corpus-v2` prompt was written and run against the same 20 documents. It made
