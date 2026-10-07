@@ -22,7 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 
 
 class Source(str, Enum):
@@ -65,6 +65,45 @@ class RejectReason(str, Enum):
     DEPRECATED = "deprecated"
     REVOKED = "revoked"
     MALFORMED_ID = "malformed_id"
+    # Added in schema 1.2.0, both additive (no existing value changes meaning,
+    # so a 1.1.0 reader that switches on the old six still parses every old
+    # record -- but see docs/proposals/name-id-consistency.md: new enum values
+    # are still a frozen-contract change and need four-owner sign-off).
+    NAME_MISMATCH = "name_mismatch"
+    """The id exists, but the model's own claim about what it *is* was wrong.
+
+    An existence check asks "is CWE-79 a real id". On a dense integer
+    namespace the answer is almost always yes, so the check passes a model
+    that is counting upwards rather than reasoning (CWE-73, 74, 75 ...).
+    Making the model state the title alongside the id, and checking that
+    claim against MITRE's, is the question an existence check cannot ask.
+    This is the adaptation SIRA's Wikipedia-category grounding needs to
+    transfer to CTI, where ids are integers instead of names.
+    """
+    LLM_JSON_ERROR = "llm_json_error"
+    """The reply never parsed, after a retry with an explicit nudge.
+
+    Recorded against the document (as a single synthetic rejected term
+    carrying the raw reply) rather than left unwritten, so a resume can reach
+    "all documents done". At temperature 0 an unwritten document is retried
+    forever with the identical prompt and fails identically forever.
+    """
+
+
+class RejectStage(str, Enum):
+    """*Which gate* rejected a term, as opposed to *why*.
+
+    ``reject_reason`` and ``rejected_at_stage`` are not redundant: the stage
+    is what the RQ4 ablation needs ("how much is the name check doing that
+    the existence check was not"), and it stays answerable even if reasons
+    are added or split later. The mapping is fixed, so it is derived from
+    ``reject_reason`` when a caller does not pass one.
+    """
+
+    PARSE = "parse"      # the reply was never usable
+    GRAPH = "graph"      # the id does not exist / is deprecated / revoked / malformed
+    NAME = "name"        # the id exists, the model's claimed title does not match
+    DF = "df"            # document frequency: too common, or absent from the index
 
 
 @dataclass
@@ -133,10 +172,43 @@ class ProposedTerm:
     reject_reason: Optional[RejectReason] = None
     repaired_from_id: Optional[str] = None
 
+    # -- schema 1.2.0 additions (all default to "not measured", so a 1.1.0
+    # record loads unchanged and nothing downstream has to know about them) --
+
+    claimed_name: Optional[str] = None
+    """What the model said this id's official title is. None for a
+    non-structural term, and None for a structural one the model refused to
+    name (which is itself a NAME_MISMATCH -- no claim, no evidence)."""
+
+    official_name: Optional[str] = None
+    """MITRE's actual title for ``structural_id``, as loaded from the
+    catalogues. None when the id was never found in the graph."""
+
+    rejected_at_stage: Optional[RejectStage] = None
+    """Which gate rejected this term. Derived from ``reject_reason`` when not
+    passed explicitly; always None on an accepted term."""
+
+    in_counting_run: bool = False
+    """Measurement only, never a reason to reject. True when this id sits in a
+    run of three or more consecutive ids from the same catalogue inside one
+    document's proposals (CWE-73, CWE-74, CWE-75), i.e. the model appears to
+    have enumerated rather than recalled. Observed on 29 of 83 non-copied ids
+    in the 2026-10-07 qwen2.5:14b run."""
+
+    graph_distance: Optional[int] = None
+    """Shortest path, in ontology edges, from the source document's own node
+    to this id. None when either end is not in the graph (every CVE, since
+    CVEs are not ontology nodes) or no path exists within the search cap.
+    Reported, never filtered on: enrichment exists to add the links an
+    entry's own data lacks, so a distance filter would reject exactly the
+    novel ids that make the method worth having."""
+
     def __post_init__(self) -> None:
         self.kind = TermKind(self.kind)
         if self.reject_reason is not None:
             self.reject_reason = RejectReason(self.reject_reason)
+        if self.rejected_at_stage is not None:
+            self.rejected_at_stage = RejectStage(self.rejected_at_stage)
 
         if not self.term or not self.term.strip():
             raise ValueError("ProposedTerm.term must be a non-empty string")
@@ -156,6 +228,15 @@ class ProposedTerm:
             raise ValueError(f"accepted term {self.term!r} must not carry a reject_reason")
         if not self.accepted and self.reject_reason is None:
             raise ValueError(f"rejected term {self.term!r} must carry a reject_reason")
+
+        if self.accepted:
+            if self.rejected_at_stage is not None:
+                raise ValueError(f"accepted term {self.term!r} must not carry a rejected_at_stage")
+        elif self.rejected_at_stage is None:
+            self.rejected_at_stage = _STAGE_FOR_REASON[self.reject_reason]
+
+        if self.graph_distance is not None and self.graph_distance < 0:
+            raise ValueError("graph_distance must be >= 0")
 
         if self.repaired_from_id is not None:
             if self.kind is not TermKind.STRUCTURAL:
@@ -181,6 +262,8 @@ class ProposedTerm:
         *,
         structural_id: Optional[str] = None,
         doc_freq: Optional[int] = None,
+        claimed_name: Optional[str] = None,
+        official_name: Optional[str] = None,
     ) -> "ProposedTerm":
         kind = TermKind(kind)
         return cls(
@@ -191,6 +274,8 @@ class ProposedTerm:
             doc_freq=doc_freq,
             accepted=True,
             reject_reason=None,
+            claimed_name=claimed_name,
+            official_name=official_name,
         )
 
     @classmethod
@@ -201,6 +286,8 @@ class ProposedTerm:
         structural_id: str,
         repaired_from_id: str,
         doc_freq: Optional[int] = None,
+        claimed_name: Optional[str] = None,
+        official_name: Optional[str] = None,
     ) -> "ProposedTerm":
         """A structural term whose REVOKED id was rewritten to its replacement.
 
@@ -219,6 +306,8 @@ class ProposedTerm:
             accepted=True,
             reject_reason=None,
             repaired_from_id=repaired_from_id,
+            claimed_name=claimed_name,
+            official_name=official_name,
         )
 
     @classmethod
@@ -230,6 +319,9 @@ class ProposedTerm:
         *,
         structural_id: Optional[str] = None,
         doc_freq: Optional[int] = None,
+        claimed_name: Optional[str] = None,
+        official_name: Optional[str] = None,
+        stage: Optional[RejectStage] = None,
     ) -> "ProposedTerm":
         kind = TermKind(kind)
         graph_validated: Optional[bool] = None
@@ -248,12 +340,16 @@ class ProposedTerm:
             doc_freq=doc_freq,
             accepted=False,
             reject_reason=RejectReason(reason),
+            claimed_name=claimed_name,
+            official_name=official_name,
+            rejected_at_stage=stage,
         )
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["kind"] = self.kind.value
         d["reject_reason"] = self.reject_reason.value if self.reject_reason else None
+        d["rejected_at_stage"] = self.rejected_at_stage.value if self.rejected_at_stage else None
         return d
 
     @classmethod
@@ -267,6 +363,13 @@ class ProposedTerm:
             accepted=bool(d.get("accepted", False)),
             reject_reason=RejectReason(d["reject_reason"]) if d.get("reject_reason") else None,
             repaired_from_id=d.get("repaired_from_id"),
+            claimed_name=d.get("claimed_name"),
+            official_name=d.get("official_name"),
+            rejected_at_stage=(
+                RejectStage(d["rejected_at_stage"]) if d.get("rejected_at_stage") else None
+            ),
+            in_counting_run=bool(d.get("in_counting_run", False)),
+            graph_distance=d.get("graph_distance"),
         )
 
 
@@ -275,6 +378,24 @@ _GRAPH_FAILURES = {
     RejectReason.DEPRECATED,
     RejectReason.REVOKED,
     RejectReason.MALFORMED_ID,
+}
+"""Reasons that mean validation itself failed, so ``graph_validated=False``.
+
+``NAME_MISMATCH`` is deliberately **not** in here. A name mismatch happens
+*after* the id has been found in the graph, so ``graph_validated`` stays
+True and the record says, truthfully, "this id exists and the model still
+did not know what it was" -- which is the whole finding.
+"""
+
+_STAGE_FOR_REASON = {
+    RejectReason.NOT_IN_GRAPH: RejectStage.GRAPH,
+    RejectReason.DEPRECATED: RejectStage.GRAPH,
+    RejectReason.REVOKED: RejectStage.GRAPH,
+    RejectReason.MALFORMED_ID: RejectStage.GRAPH,
+    RejectReason.NAME_MISMATCH: RejectStage.NAME,
+    RejectReason.TOO_COMMON: RejectStage.DF,
+    RejectReason.NOT_IN_INDEX: RejectStage.DF,
+    RejectReason.LLM_JSON_ERROR: RejectStage.PARSE,
 }
 
 

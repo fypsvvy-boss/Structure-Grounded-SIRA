@@ -18,7 +18,14 @@ from .normalize import (
     looks_structural,
     parse_structural_id,
 )
-from .ontology import OntologyGraph, RevokedPolicy, ValidationResult
+from .ontology import (
+    NameCheck,
+    OntologyGraph,
+    RevokedPolicy,
+    ValidationResult,
+    name_overlap,
+    name_tokens,
+)
 
 __all__ = [
     "EdgeType",
@@ -37,7 +44,10 @@ __all__ = [
     "is_id_shaped",
     "looks_structural",
     "parse_structural_id",
+    "NameCheck",
     "OntologyGraph",
     "RevokedPolicy",
     "ValidationResult",
+    "name_overlap",
+    "name_tokens",
 ]

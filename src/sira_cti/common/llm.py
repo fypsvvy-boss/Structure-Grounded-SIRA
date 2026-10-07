@@ -151,6 +151,29 @@ class CallLog:
         return len(self.records)
 
 
+@dataclass
+class GenOptions:
+    """The generation settings that shape a reply, resolved for one call."""
+
+    max_new_tokens: Optional[int] = None
+    json_mode: bool = False
+    json_schema: Optional[dict[str, Any]] = None
+    """A JSON Schema for the whole reply (Ollama "structured outputs").
+
+    Measurably different from ``json_mode``, not a refinement of it. Asked for
+    ``format: "json"`` with a prompt that wants an array, qwen2.5:14b returns
+    a single **object** -- one proposal where twelve were requested, which
+    silently guts a run rather than failing it. Given the array schema
+    instead, the same model on the same document returns twelve. The
+    unconstrained setting fails a different way: it emitted a valid-looking
+    array with one element's opening brace missing (CAPEC-587, 2026-10-07),
+    which no amount of retrying at temperature 0 will change.
+
+    So: prefer the schema. ``json_mode`` is kept only because it is what a
+    backend without schema support offers.
+    """
+
+
 class LLMClient(ABC):
     """Base class. Subclasses implement :meth:`_complete` only.
 
@@ -165,11 +188,38 @@ class LLMClient(ABC):
         log: Optional[CallLog] = None,
         max_retries: int = 2,
         retry_backoff_s: float = 1.5,
+        max_new_tokens: Optional[int] = None,
+        json_mode: bool = False,
+        json_schema: Optional[dict[str, Any]] = None,
     ) -> None:
         self.model = model
         self.log = log if log is not None else CallLog()
         self.max_retries = max_retries
         self.retry_backoff_s = retry_backoff_s
+        self.max_new_tokens = max_new_tokens
+        self.json_mode = json_mode
+        self.json_schema = json_schema
+
+    # These three live on the base class, not on one backend, because they are
+    # the settings that change what a *reply* looks like rather than how it is
+    # transported -- and a reply truncated at the token cap is
+    # indistinguishable, downstream, from a model that emitted broken JSON.
+    # Keeping them here means every backend has to answer for them (see
+    # :meth:`_resolved_options`) instead of one backend silently ignoring a
+    # config key. ``enrichment.max_new_tokens`` sat unread in
+    # configs/default.yaml for exactly that reason.
+
+    def _resolved_options(self, kwargs: dict[str, Any]) -> "GenOptions":
+        """Per-call overrides win over the client-wide defaults.
+
+        Pops the keys out of ``kwargs`` so a backend can pass whatever is left
+        straight to its own API without leaking these through twice.
+        """
+        return GenOptions(
+            max_new_tokens=kwargs.pop("max_new_tokens", self.max_new_tokens),
+            json_mode=bool(kwargs.pop("json_mode", self.json_mode)),
+            json_schema=kwargs.pop("json_schema", self.json_schema),
+        )
 
     @abstractmethod
     def _complete(self, prompt: str, system: Optional[str], **kwargs: Any) -> tuple[str, TokenUsage]:
@@ -272,7 +322,16 @@ class OllamaClient(LLMClient):
 
     Uses ``urllib`` rather than ``requests`` to keep the dependency surface at
     stdlib + networkx.
+
+    ``last_stop_reason`` / ``last_truncated`` record why the most recent reply
+    ended. They are per-client (not per-call) on purpose: the enrichment
+    driver gives every worker thread its own client, so there is no sharing to
+    race over, and the one caller that needs the fact reads it immediately
+    after ``generate()`` returns.
     """
+
+    last_stop_reason: str = ""
+    last_truncated: bool = False
 
     def __init__(
         self,
@@ -289,12 +348,27 @@ class OllamaClient(LLMClient):
         self.timeout_s = timeout_s
 
     def _complete(self, prompt: str, system: Optional[str], **kwargs: Any) -> tuple[str, TokenUsage]:
+        opts = self._resolved_options(kwargs)
+        # Ollama reads sampling/length settings from a nested "options" object,
+        # never from the top level -- a num_predict or temperature set beside
+        # "model" is accepted by the API and silently ignored.
+        options: dict[str, Any] = {"temperature": kwargs.pop("temperature", self.temperature)}
+        if opts.max_new_tokens is not None:
+            options["num_predict"] = int(opts.max_new_tokens)
+
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": kwargs.pop("temperature", self.temperature)},
+            "options": options,
         }
+        # "format" takes either the string "json" or a whole JSON Schema. Both
+        # are constrained decoding; the schema also pins the shape, which is
+        # the difference between twelve proposals and one. See GenOptions.
+        if opts.json_schema is not None:
+            payload["format"] = opts.json_schema
+        elif opts.json_mode:
+            payload["format"] = "json"
         if system:
             payload["system"] = system
         payload.update(kwargs)
@@ -315,7 +389,14 @@ class OllamaClient(LLMClient):
             prompt=int(body.get("prompt_eval_count", 0)),
             completion=int(body.get("eval_count", 0)),
         )
-        return body.get("response", ""), usage
+        text = body.get("response", "")
+        # "length" means the reply stopped because it ran out of token budget,
+        # not because the model finished. Recorded on the call, so a downstream
+        # JSON parse failure can be attributed to truncation instead of being
+        # blamed on the model's formatting.
+        self.last_stop_reason = str(body.get("done_reason") or "")
+        self.last_truncated = self.last_stop_reason == "length"
+        return text, usage
 
 
 class StubClient(LLMClient):
@@ -339,8 +420,13 @@ class StubClient(LLMClient):
         self.fixed_usage = fixed_usage or TokenUsage(prompt=10, completion=5)
         self.fail_times = fail_times
         self.prompts: list[str] = []
+        self.option_calls: list[GenOptions] = []
+        """The resolved :class:`GenOptions` per call -- lets a test assert that
+        a config value actually reaches the backend, which is the failure mode
+        ``enrichment.max_new_tokens`` had."""
 
     def _complete(self, prompt: str, system: Optional[str], **kwargs: Any) -> tuple[str, TokenUsage]:
+        self.option_calls.append(self._resolved_options(kwargs))
         self.prompts.append(prompt)
         if self.fail_times > 0:
             self.fail_times -= 1

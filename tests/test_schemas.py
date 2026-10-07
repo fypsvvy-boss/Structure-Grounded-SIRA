@@ -7,12 +7,15 @@ carrying a structural ID) will not fail until Module 4 tries to compute a
 rejection rate from it in week 11.
 """
 
+import json
+
 import pytest
 
 from sira_cti.common import (
     EnrichmentRecord,
     ProposedTerm,
     RejectReason,
+    RejectStage,
     Source,
     TermKind,
     TokenUsage,
@@ -243,3 +246,114 @@ def test_v1_0_0_records_without_repaired_from_id_load_cleanly():
 def test_token_usage_adds():
     total = TokenUsage(10, 5) + TokenUsage(1, 2)
     assert (total.prompt, total.completion, total.total) == (11, 7, 18)
+
+
+# -- schema 1.2.0 additions ---------------------------------------------------------
+#
+# Every new field defaults to "not measured", so the test that matters most is
+# the backward-compatibility one: Module 3 and Module 4 are reading records
+# written before any of this existed.
+
+
+def test_v1_1_0_records_without_the_new_fields_load_cleanly(tmp_path):
+    old = {
+        "doc_id": "CVE-2024-0001",
+        "source": "cve",
+        "original_text": "a buffer overflow",
+        "proposed_terms": [
+            {
+                "term": "T1110",
+                "kind": "structural",
+                "structural_id": "T1110",
+                "graph_validated": True,
+                "doc_freq": 7,
+                "accepted": True,
+                "reject_reason": None,
+                "repaired_from_id": None,
+            }
+        ],
+        "llm_calls": 1,
+        "tokens": {"prompt": 10, "completion": 5},
+        "latency_ms": 100,
+        "model": "qwen2.5:7b",
+        "schema_version": "1.1.0",
+    }
+    path = tmp_path / "old.jsonl"
+    path.write_text(json.dumps(old) + "\n")
+    rec = next(read_jsonl(path))
+    term = rec.proposed_terms[0]
+    assert term.claimed_name is None
+    assert term.official_name is None
+    assert term.in_counting_run is False
+    assert term.graph_distance is None
+    assert term.rejected_at_stage is None
+    assert rec.schema_version == "1.1.0"    # not silently rewritten
+
+
+def test_a_name_mismatch_keeps_graph_validated_true():
+    # The id exists; the model just did not know what it was. Recording
+    # graph_validated=False would make this indistinguishable from a
+    # hallucination, which is the distinction the whole check exists to draw.
+    term = ProposedTerm.reject(
+        "CWE-79", TermKind.STRUCTURAL, RejectReason.NAME_MISMATCH,
+        structural_id="CWE-79", claimed_name="Spyware",
+        official_name="Improper Neutralization of Input During Web Page Generation",
+    )
+    assert term.graph_validated is True
+    assert term.rejected_at_stage is RejectStage.NAME
+
+
+def test_the_reject_stage_is_derived_from_the_reason_when_not_given():
+    for reason, stage in [
+        (RejectReason.NOT_IN_GRAPH, RejectStage.GRAPH),
+        (RejectReason.REVOKED, RejectStage.GRAPH),
+        (RejectReason.MALFORMED_ID, RejectStage.GRAPH),
+        (RejectReason.NAME_MISMATCH, RejectStage.NAME),
+        (RejectReason.TOO_COMMON, RejectStage.DF),
+        (RejectReason.NOT_IN_INDEX, RejectStage.DF),
+        (RejectReason.LLM_JSON_ERROR, RejectStage.PARSE),
+    ]:
+        term = ProposedTerm.reject("x", TermKind.COLLOQUIAL, reason)
+        assert term.rejected_at_stage is stage, reason
+
+
+def test_an_accepted_term_cannot_carry_a_reject_stage():
+    with pytest.raises(ValueError):
+        ProposedTerm(
+            term="x", kind=TermKind.COLLOQUIAL, accepted=True,
+            rejected_at_stage=RejectStage.DF,
+        )
+
+
+def test_a_negative_graph_distance_is_rejected():
+    with pytest.raises(ValueError):
+        ProposedTerm(term="x", kind=TermKind.COLLOQUIAL, accepted=True, graph_distance=-1)
+
+
+def test_the_new_fields_survive_a_json_round_trip():
+    term = ProposedTerm.accept(
+        "T1110.001", TermKind.STRUCTURAL, structural_id="T1110.001",
+        claimed_name="Password Guessing", official_name="Password Guessing",
+    )
+    term.in_counting_run = True
+    term.graph_distance = 2
+    rec = EnrichmentRecord(
+        doc_id="T1110", source=Source.ATTACK, original_text="x", proposed_terms=[term]
+    )
+    back = EnrichmentRecord.from_json(rec.to_json()).proposed_terms[0]
+    assert back.claimed_name == "Password Guessing"
+    assert back.official_name == "Password Guessing"
+    assert back.in_counting_run is True
+    assert back.graph_distance == 2
+
+
+def test_a_recorded_parse_failure_can_never_reach_the_index():
+    term = ProposedTerm.reject(
+        "[{broken", TermKind.COLLOQUIAL, RejectReason.LLM_JSON_ERROR, stage=RejectStage.PARSE
+    )
+    rec = EnrichmentRecord(
+        doc_id="CAPEC-587", source=Source.CAPEC, original_text="x", proposed_terms=[term]
+    )
+    assert rec.accepted_terms == []
+    assert rec.expansion_query() == ""
+    assert rec.rejected_terms == [term]      # still in the RQ4 dataset

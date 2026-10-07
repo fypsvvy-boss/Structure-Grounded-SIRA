@@ -13,7 +13,14 @@ import json
 import pytest
 from helpers import FakeDFLookup, build_fixture_graph
 
-from sira_cti.common import RejectReason, Source, StubClient, TermKind, read_jsonl
+from sira_cti.common import (
+    RejectReason,
+    RejectStage,
+    Source,
+    StubClient,
+    TermKind,
+    read_jsonl,
+)
 from sira_cti.enrichment.corpus_side import (
     MalformedReplyError,
     propose_terms,
@@ -531,3 +538,366 @@ def test_prompt_does_not_give_the_model_the_documents_own_id():
     assert "CWE-1321" not in prompt
     assert "1321" not in prompt
     assert "Prototype Pollution" in prompt
+
+
+# == name-ID consistency: the new stage 2 ============================================
+#
+# The finding that motivates all of this: on 2026-10-07 qwen2.5:14b proposed
+# CWE-73 through CWE-81 for CWE-512 "Spyware" and the graph accepted all nine,
+# because each id exists. Existence is nearly free in a dense integer
+# namespace. These tests cover the check that is not.
+
+
+def test_a_structural_proposal_can_carry_the_name_the_model_claims():
+    client = _client([{"term": "T1110.001", "kind": "structural", "name": "Password Guessing"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].accepted
+    assert terms[0].claimed_name == "Password Guessing"
+    assert terms[0].official_name == "Password Guessing"
+
+
+def test_a_real_id_with_the_wrong_claimed_name_is_rejected_as_name_mismatch():
+    client = _client([{"term": "T1110.001", "kind": "structural", "name": "Spyware"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].accepted is False
+    assert terms[0].reject_reason is RejectReason.NAME_MISMATCH
+    assert terms[0].rejected_at_stage is RejectStage.NAME
+    # It passed the graph. Saying otherwise would merge this with hallucination.
+    assert terms[0].graph_validated is True
+    assert terms[0].claimed_name == "Spyware"
+    assert terms[0].official_name == "Password Guessing"
+
+
+def test_a_structural_proposal_with_no_claimed_name_is_a_name_mismatch():
+    # Not a parse error: the document is kept, the proposal is rejected with a
+    # reason, and the whole thing stays in the RQ4 dataset.
+    client = _client([{"term": "T1110.001", "kind": "structural"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].reject_reason is RejectReason.NAME_MISMATCH
+    assert terms[0].claimed_name is None
+
+
+def test_the_name_check_is_off_by_default_so_corpus_v3_stays_reproducible():
+    client = _client([{"term": "T1110.001", "kind": "structural", "name": "Spyware"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+    )
+    assert terms[0].accepted is True
+    assert terms[0].claimed_name == "Spyware"   # recorded, just not adjudicated
+
+
+def test_a_hallucinated_id_fails_at_the_graph_stage_not_the_name_stage():
+    # Stage order matters: an id that does not exist has no official title, so
+    # checking the name first would report every hallucination as a name
+    # mismatch and merge the two most distinct RQ4 findings.
+    client = _client([{"term": "T9999", "kind": "structural", "name": "Totally Real"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].reject_reason is RejectReason.NOT_IN_GRAPH
+    assert terms[0].rejected_at_stage is RejectStage.GRAPH
+    assert terms[0].official_name is None
+
+
+def test_the_name_check_runs_before_the_df_gate():
+    client = _client([{"term": "T1110.001", "kind": "structural", "name": "Spyware"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(),
+        _df(total_docs=100, **{"t1110.001": 99}),       # also wildly too common
+        max_terms=12, df_max_ratio=0.1, name_match_min_overlap=0.5,
+    )
+    assert terms[0].reject_reason is RejectReason.NAME_MISMATCH
+    assert terms[0].doc_freq is None      # never reached the DF lookup
+
+
+def test_the_name_survives_a_too_common_rejection():
+    client = _client([{"term": "T1110.001", "kind": "structural", "name": "Password Guessing"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(),
+        _df(total_docs=100, **{"t1110.001": 99}),
+        max_terms=12, df_max_ratio=0.1, name_match_min_overlap=0.5,
+    )
+    assert terms[0].reject_reason is RejectReason.TOO_COMMON
+    assert terms[0].claimed_name == "Password Guessing"
+    assert terms[0].official_name == "Password Guessing"
+
+
+def test_id_is_accepted_as_a_synonym_for_term():
+    # A model told to emit an identifier and a title writes {"id", "name"}
+    # often enough that rejecting the document would bias the loss towards
+    # exactly the structural proposals this experiment is about.
+    client = _client([{"id": "T1110.001", "kind": "structural", "name": "Password Guessing"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].accepted
+    assert terms[0].term == "T1110.001"
+
+
+def test_a_name_on_a_non_structural_term_is_not_recorded():
+    client = _client([{"term": "brute force login", "kind": "colloquial", "name": "whatever"}])
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].accepted
+    assert terms[0].claimed_name is None
+
+
+# == counting-run detection: measurement only ========================================
+
+
+def test_three_consecutive_ids_are_flagged_as_a_counting_run():
+    g = build_fixture_graph()
+    client = _client([
+        {"term": "CWE-307", "kind": "structural", "name": "Improper Restriction of Excessive Authentication Attempts"},
+        {"term": "CWE-308", "kind": "structural", "name": "Whatever"},
+        {"term": "CWE-309", "kind": "structural", "name": "Whatever"},
+    ])
+    terms = propose_terms(_doc(), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert [t.in_counting_run for t in terms] == [True, True, True]
+
+
+def test_two_consecutive_ids_are_not_a_counting_run():
+    # Real sibling sub-techniques come in short consecutive pairs. Flagging
+    # those would make the measurement useless.
+    g = build_fixture_graph()
+    client = _client([
+        {"term": "T1110.001", "kind": "structural", "name": "Password Guessing"},
+        {"term": "T1110.002", "kind": "structural", "name": "Password Spraying"},
+    ])
+    terms = propose_terms(_doc(), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert [t.in_counting_run for t in terms] == [False, False]
+
+
+def test_a_counting_run_flag_never_changes_the_verdict():
+    # The whole point: this is measurement. CWE-307 is valid and must stay
+    # accepted even though it sits in a run.
+    g = build_fixture_graph()
+    client = _client([
+        {"term": "CWE-307", "kind": "structural", "name": "Improper Restriction of Excessive Authentication Attempts"},
+        {"term": "CWE-308", "kind": "structural", "name": "x"},
+        {"term": "CWE-309", "kind": "structural", "name": "x"},
+    ])
+    terms = propose_terms(_doc(), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    accepted = {t.structural_id for t in terms if t.accepted}
+    assert "CWE-307" in accepted
+    assert terms[0].in_counting_run is True
+
+
+def test_rejected_ids_are_part_of_the_run_they_belong_to():
+    # The invented tail (T1056.005+) is the most informative part of a run.
+    # Dropping rejects would show every run stopping where the graph caught it.
+    g = build_fixture_graph()
+    client = _client([
+        {"term": "T1110.001", "kind": "structural", "name": "Password Guessing"},
+        {"term": "T1110.002", "kind": "structural", "name": "Password Spraying"},
+        {"term": "T1110.003", "kind": "structural", "name": "Nope"},   # not in the fixture
+    ])
+    terms = propose_terms(_doc(), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert all(t.in_counting_run for t in terms)
+    assert terms[2].accepted is False
+
+
+def test_sub_techniques_of_different_parents_are_not_neighbours():
+    # T1110.001 and T1547.001 share a number but belong to different series.
+    g = build_fixture_graph()
+    client = _client([
+        {"term": "T1110.001", "kind": "structural", "name": "Password Guessing"},
+        {"term": "T1547.004", "kind": "structural", "name": "Winlogon Helper DLL"},
+    ])
+    terms = propose_terms(_doc(), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert [t.in_counting_run for t in terms] == [False, False]
+
+
+def test_non_structural_terms_are_never_in_a_counting_run():
+    g = build_fixture_graph()
+    client = _client([{"term": f"phrase {i}", "kind": "colloquial"} for i in range(5)])
+    terms = propose_terms(_doc(), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert not any(t.in_counting_run for t in terms)
+
+
+# == ontology distance: reported, never filtered on ==================================
+
+
+def test_graph_distance_is_measured_from_the_documents_own_node():
+    g = build_fixture_graph()
+    client = _client([
+        {"term": "T1110.001", "kind": "structural", "name": "Password Guessing"},
+        {"term": "brute force login", "kind": "colloquial"},
+    ])
+    terms = propose_terms(
+        _doc(doc_id="T1110"), client, g, _df(), max_terms=12, df_max_ratio=0.5
+    )
+    assert terms[0].graph_distance == 1          # sub-technique of the document
+    assert terms[1].graph_distance is None       # not a structural term
+
+
+def test_graph_distance_is_zero_for_the_documents_own_id():
+    g = build_fixture_graph()
+    client = _client([{"term": "T1110", "kind": "structural", "name": "Brute Force"}])
+    terms = propose_terms(_doc(doc_id="T1110"), client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert terms[0].graph_distance == 0
+
+
+def test_graph_distance_is_none_for_a_document_that_is_not_an_ontology_node():
+    # Every CVE. "Not measurable" must not be readable as "unrelated".
+    g = build_fixture_graph()
+    client = _client([{"term": "T1110.001", "kind": "structural", "name": "Password Guessing"}])
+    doc = CorpusDocument(
+        doc_id="CVE-2024-0001", source=Source.CVE, title="x", text="a buffer overflow"
+    )
+    terms = propose_terms(doc, client, g, _df(), max_terms=12, df_max_ratio=0.5)
+    assert terms[0].graph_distance is None
+    assert terms[0].accepted is True             # distance never vetoes
+
+
+def test_a_far_away_id_is_still_accepted():
+    # Enrichment exists to add links the entry's own data lacks, so the
+    # distant ids include the ones that would justify the method. Filtering on
+    # distance would reject exactly those.
+    g = build_fixture_graph()
+    client = _client([{"term": "CWE-620", "kind": "structural", "name": "Unverified Password Change"}])
+    terms = propose_terms(
+        _doc(doc_id="T1110"), client, g, _df(), max_terms=12, df_max_ratio=0.5,
+        name_match_min_overlap=0.5,
+    )
+    assert terms[0].accepted is True
+
+
+# == an unparseable reply, recorded rather than retried forever ======================
+#
+# CAPEC-587 broke the 2026-10-07 14B run: the model emitted an array with one
+# element's opening brace missing. At temperature 0 the identical prompt
+# returns the identical reply, so leaving the document unwritten meant it could
+# never be finished and the run could never reach "all done".
+
+
+def test_a_parse_failure_is_retried_with_a_nudge():
+    replies = ["not json at all", _reply([{"term": "brute force login", "kind": "colloquial"}])]
+    seen: list[str] = []
+
+    def responder(prompt: str) -> str:
+        seen.append(prompt)
+        return replies[min(len(seen) - 1, len(replies) - 1)]
+
+    client = StubClient(responder=responder)
+    terms = propose_terms(
+        _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+        json_retries=1,
+    )
+    assert [t.term for t in terms] == ["brute force login"]
+    # The retry has to change the prompt. A bare retry at temperature 0 would
+    # return the same bytes, so it could only ever fail again.
+    assert seen[0] != seen[1]
+    assert "could not be parsed" in seen[1]
+
+
+def test_a_parse_failure_that_survives_the_nudge_still_raises():
+    client = StubClient(responder=lambda _p: "still not json")
+    with pytest.raises(MalformedReplyError) as excinfo:
+        propose_terms(
+            _doc(), client, build_fixture_graph(), _df(), max_terms=12, df_max_ratio=0.5,
+            json_retries=1,
+        )
+    assert excinfo.value.raw == "still not json"   # the evidence, kept
+
+
+def test_an_unparseable_document_can_be_recorded_as_a_permanent_failure(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    summary = run_corpus_enrichment(
+        [_doc("T1110")], client_factory=lambda: StubClient(responder=lambda _p: "nope"),
+        graph=build_fixture_graph(), df_lookup=_df(),
+        output_path=out, max_terms=12, df_max_ratio=0.9,
+        record_json_failures=True,
+    )
+    assert summary.json_failures == 1
+    assert summary.failed == 0          # it is finished, not outstanding
+    assert summary.processed == 1
+
+    rec = next(read_jsonl(out))
+    assert rec.doc_id == "T1110"
+    assert len(rec.rejected_terms) == 1
+    assert rec.rejected_terms[0].reject_reason is RejectReason.LLM_JSON_ERROR
+    assert rec.rejected_terms[0].rejected_at_stage is RejectStage.PARSE
+    assert rec.accepted_terms == []     # nothing can reach the index from it
+    assert "nope" in rec.rejected_terms[0].term    # the raw reply is the evidence
+
+
+def test_a_recorded_failure_lets_a_resume_reach_all_done(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_doc("T1110"), _doc("T1547", text="Boot or Logon Autostart Execution.")]
+
+    def factory():
+        return StubClient(
+            responder=lambda p: "nope" if "Brute Force" in p else _reply(
+                [{"term": "autostart", "kind": "colloquial"}]
+            )
+        )
+
+    kwargs = dict(
+        client_factory=factory, graph=build_fixture_graph(), df_lookup=_df(),
+        output_path=out, max_terms=12, df_max_ratio=0.9, record_json_failures=True,
+    )
+    run_corpus_enrichment(docs, **kwargs)
+    again = run_corpus_enrichment(docs, **kwargs)
+    assert again.already_done == 2
+    assert again.processed == 0          # nothing left to retry
+
+
+def test_the_raw_unparseable_reply_is_saved_in_full_beside_the_run(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    long_reply = "[" + "x" * 500
+    run_corpus_enrichment(
+        [_doc("T1110")], client_factory=lambda: StubClient(responder=lambda _p: long_reply),
+        graph=build_fixture_graph(), df_lookup=_df(),
+        output_path=out, max_terms=12, df_max_ratio=0.9, record_json_failures=True,
+    )
+    raw_path = out.with_suffix(out.suffix + ".raw_failures.jsonl")
+    saved = json.loads(raw_path.read_text().strip())
+    assert saved["doc_id"] == "T1110"
+    assert saved["raw"] == long_reply            # not the 200-char term snippet
+    assert saved["raw_chars"] == len(long_reply)
+    assert saved["truncated_by_token_cap"] is False
+
+
+def test_recording_failures_is_off_by_default(tmp_path):
+    # A transient failure (dropped connection, model still loading) should be
+    # retried next run, not written off. Only determinism justifies writing it.
+    out = tmp_path / "enrichment.jsonl"
+    summary = run_corpus_enrichment(
+        [_doc("T1110")], client_factory=lambda: StubClient(responder=lambda _p: "nope"),
+        graph=build_fixture_graph(), df_lookup=_df(),
+        output_path=out, max_terms=12, df_max_ratio=0.9,
+    )
+    assert summary.json_failures == 1
+    assert summary.failed == 1
+    assert not out.exists()
+
+
+def test_the_manifest_records_which_gates_were_on(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_doc("T1110")],
+        client_factory=lambda: _client([{"term": "brute force login", "kind": "colloquial"}]),
+        graph=build_fixture_graph(), df_lookup=_df(),
+        output_path=out, max_terms=12, df_max_ratio=0.9,
+        name_match_min_overlap=0.5, json_retries=1, record_json_failures=True,
+        max_new_tokens=512, json_mode="schema",
+    )
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["gates"]["name_match_min_overlap"] == 0.5
+    assert manifest["gates"]["max_new_tokens"] == 512
+    assert manifest["gates"]["json_mode"] == "schema"
+    assert manifest["gates"]["record_json_failures"] is True

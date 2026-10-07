@@ -70,7 +70,38 @@ base index built fine.
 - **Determinism:** Ollama takes `temperature`/`seed` under an `options` object in
   the request body, not at top level. If reproducibility matters, confirm the
   wrapper in `common/llm.py` actually nests them there — easy to set and have
-  silently ignored.
+  silently ignored. Same trap for the reply-length cap: it is
+  `options.num_predict`, and `max_new_tokens` set beside `"model"` is accepted
+  and ignored. `common/llm.py` nests both (added 2026-10-07; before that
+  `enrichment.max_new_tokens` was read by nothing at all).
+
+### ⚠️ `format: "json"` is not the JSON mode you want (2026-10-07)
+
+Ollama's `format` field takes either the string `"json"` or a whole JSON
+Schema. They behave very differently, measured on `CAPEC-587` with
+`qwen2.5:14b`:
+
+| `format` | result |
+|---|---|
+| absent | one array element's opening brace missing — identical on every retry at temperature 0 |
+| `"json"` | valid JSON, but a single **object**: one proposal where twelve were asked for |
+| the reply schema | 12 proposals, both models, first attempt |
+
+Plain `"json"` only promises *valid* JSON, and one object is valid JSON. It
+biases the model towards `{...}` and quietly guts a run rather than failing it.
+Send the schema (`prompts/corpus_side.py:REPLY_SCHEMA`, selected by
+`enrichment.json_mode: schema`). Structured outputs need Ollama 0.5 or later;
+this machine runs **0.33.2**, which is a later release than 0.5 (0.5 → 0.6 →
+… → 0.33), so it is supported. Read those version numbers as semver, not
+decimals.
+
+**It is not free.** Grammar-constrained sampling costs roughly what tripling
+the model size costs: `qwen2.5:7b` generates ~220 completion tokens in ~50s
+under the schema, against ~17s/document unconstrained. Budget ~35 min for a
+40-document 7B run and well over an hour for 14B. If that becomes the
+bottleneck, the cheaper arrangement is unconstrained on the first attempt and
+schema-constrained only on the retry — the unconstrained path parsed 39 of 40
+documents, so the grammar would run about once per run instead of forty times.
 - Config model string must be exactly `qwen2.5:7b` (not `qwen2.5`, which resolves
   to a different default tag).
 
@@ -78,8 +109,16 @@ Model policy: open-weight (Qwen2.5-7B) for all development; a frontier/paid API
 model is reserved for the **final benchmark run only** (deliberate cost control).
 
 `qwen2.5:14b` is also pulled (9.0 GB) for the model-scale comparison. On this
-16 GB machine it runs at roughly **46s/document** versus the 7B's ~17s, so a
-40-document run takes about 30 minutes. Select it per run with
+16 GB machine it runs at roughly **46s/document** versus the 7B's ~17s
+(both unconstrained), so a 40-document run takes about 30 minutes. Add the
+schema-decoding multiplier above on top of that.
+
+**Don't run two models at once.** 7B (5 GB) plus 14B (9 GB) exceeds 16 GB, and
+Ollama will swap instead of answering. Run them in sequence; both runs are
+resumable, so a sequence that gets interrupted picks up where it stopped.
+A third, larger model is not an option on this machine: `qwen2.5:32b` at
+4-bit is ~20 GB of weights, so it cannot be held in 16 GB at all
+(`docs/04_OPEN_QUESTIONS.md`, model-scale note). Select it per run with
 `--model qwen2.5:14b` rather than editing the config, so the config hash stays
 comparable across runs; the manifest records the model that actually ran.
 
@@ -100,6 +139,10 @@ Order matters — the pipeline enforces it with hard errors, by design:
 
 # 2b. (optional, no LLM) how many accepted terms just repeat their own document
 .venv/bin/python scripts/measure_redundancy.py indexes/enrichment/corpus_stratified.jsonl
+
+# 2c. (optional, no LLM) per-run summary table; pass several files to compare models
+.venv/bin/python scripts/report_enrichment.py indexes/enrichment/corpus_stratified_v4_7b.jsonl \
+                                              indexes/enrichment/corpus_stratified_v4_14b.jsonl
 
 # 3. Enriched index (needs the enrichment JSONL from step 2)
 .venv/bin/python scripts/build_index.py --stage enriched --config configs/default.yaml

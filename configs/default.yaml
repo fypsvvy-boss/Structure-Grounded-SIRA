@@ -18,7 +18,25 @@ enrichment:
   # prompts/corpus_side.py:PROMPT_VERSION directly, so the manifest can't claim a
   # version the prompt doesn't have.
   concurrency: 2                  # Ollama is local -- keep modest by default
-  max_new_tokens: 512
+  max_new_tokens: 512     # cap on reply length; reaches Ollama as options.num_predict
+  # Constrained decoding. "schema" sends prompts/corpus_side.py:REPLY_SCHEMA as
+  # Ollama's "format", which is the only one of the three that actually fixed
+  # CAPEC-587: unconstrained dropped an opening brace mid-array, and plain
+  # "json" made qwen2.5:14b answer with a single object instead of an array of
+  # twelve. Needs Ollama >= 0.5 (structured outputs); "json" is the fallback.
+  json_mode: schema       # schema | json | off
+  json_retries: 1         # retry a parse failure once, with an explicit nudge
+  record_json_failures: true  # then write the doc as reject_reason=llm_json_error
+                              # rather than leaving it to be retried forever at
+                              # temperature 0 (see docs/04_OPEN_QUESTIONS.md q9)
+
+  # Name-ID consistency (schema 1.2.0). The model states the title it thinks a
+  # structural id has; the graph compares that to MITRE's. Scored as an overlap
+  # coefficient over content words, so a short correct answer ("Cross-site
+  # Scripting") matches a long official title. null disables the check and
+  # reproduces corpus-v3 behaviour exactly, which is how the before/after
+  # comparison is run without editing this file.
+  name_match_min_overlap: 0.5
 
 graph:
   # Pinned to ATT&CK v17.1 (mitre-attack/attack-stix-data), the last release

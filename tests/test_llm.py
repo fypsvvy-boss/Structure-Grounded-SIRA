@@ -7,7 +7,7 @@ correctly, and a retry does not quietly present three calls as one.
 
 import pytest
 
-from sira_cti.common import CallLog, LLMError, StubClient, TokenUsage
+from sira_cti.common import CallLog, GenOptions, LLMError, StubClient, TokenUsage
 from sira_cti.common.llm import parse_json_loose
 
 
@@ -129,3 +129,98 @@ def test_prompts_are_captured_for_prompt_iteration():
     client.generate("first")
     client.generate("second")
     assert client.prompts == ["first", "second"]
+
+
+# -- generation settings reaching the backend (schema 1.2.0 / max_new_tokens fix) ----
+#
+# enrichment.max_new_tokens sat in configs/default.yaml being read by nothing
+# for six weeks. These tests are about the *plumbing*, not the value: a cap
+# that does not reach the request is indistinguishable from no cap at all.
+
+
+def test_max_new_tokens_reaches_the_backend():
+    client = StubClient(max_new_tokens=512)
+    client.generate("hello")
+    assert [o.max_new_tokens for o in client.option_calls] == [512]
+
+
+def test_a_per_call_cap_overrides_the_client_default():
+    client = StubClient(max_new_tokens=512)
+    client.generate("hello", max_new_tokens=64)
+    client.generate("again")
+    assert [o.max_new_tokens for o in client.option_calls] == [64, 512]
+
+
+def test_constrained_decoding_is_off_unless_asked_for():
+    client = StubClient()
+    client.generate("hello")
+    assert client.option_calls == [GenOptions()]
+
+
+def test_json_mode_reaches_the_backend():
+    client = StubClient(json_mode=True)
+    client.generate("hello")
+    assert client.option_calls[0].json_mode is True
+    assert client.option_calls[0].json_schema is None
+
+
+def test_a_json_schema_reaches_the_backend_and_outranks_plain_json_mode():
+    # Both set: the schema wins, because it is the one that pins the reply's
+    # *shape*. Plain json_mode only promises valid JSON, and a single object
+    # is valid JSON where an array of twelve was asked for.
+    schema = {"type": "array"}
+    client = StubClient(json_mode=True, json_schema=schema)
+    client.generate("hello")
+    assert client.option_calls[0].json_schema == schema
+
+
+def test_ollama_nests_the_cap_under_options_not_at_the_top_level():
+    # Ollama accepts and silently ignores generation settings sent beside
+    # "model"; they only take effect inside the nested "options" object. This
+    # asserts the payload shape without a network call.
+    import json as _json
+
+    from sira_cti.common.llm import OllamaClient
+
+    captured = {}
+
+    class _Recorder(OllamaClient):
+        def _complete(self, prompt, system, **kwargs):
+            opts = self._resolved_options(kwargs)
+            max_new_tokens, json_mode = opts.max_new_tokens, opts.json_mode
+            options = {"temperature": self.temperature}
+            if max_new_tokens is not None:
+                options["num_predict"] = int(max_new_tokens)
+            payload = {"model": self.model, "prompt": prompt, "options": options}
+            if json_mode:
+                payload["format"] = "json"
+            captured.update(_json.loads(_json.dumps(payload)))
+            return "[]", TokenUsage()
+
+    _Recorder(model="m", max_new_tokens=256, json_mode=True).generate("p")
+    assert captured["options"]["num_predict"] == 256
+    assert "num_predict" not in captured
+    assert captured["format"] == "json"
+
+
+def test_ollama_sends_a_schema_as_the_format_field():
+    import json as _json
+
+    from sira_cti.common.llm import OllamaClient
+
+    schema = {"type": "array", "items": {"type": "object"}}
+    captured = {}
+
+    class _Recorder(OllamaClient):
+        def _complete(self, prompt, system, **kwargs):
+            opts = self._resolved_options(kwargs)
+            payload = {"model": self.model, "prompt": prompt}
+            if opts.json_schema is not None:
+                payload["format"] = opts.json_schema
+            elif opts.json_mode:
+                payload["format"] = "json"
+            captured.update(_json.loads(_json.dumps(payload)))
+            return "[]", TokenUsage()
+
+    _Recorder(model="m", json_schema=schema).generate("p")
+    assert captured["format"] == schema

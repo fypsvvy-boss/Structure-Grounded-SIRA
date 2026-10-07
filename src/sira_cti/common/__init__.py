@@ -3,13 +3,23 @@ from .schemas import (
     EnrichmentRecord,
     ProposedTerm,
     RejectReason,
+    RejectStage,
     Source,
     TermKind,
     TokenUsage,
     read_jsonl,
     write_jsonl,
 )
-from .llm import CallLog, CallRecord, LLMClient, LLMError, OllamaClient, Scope, StubClient
+from .llm import (
+    CallLog,
+    CallRecord,
+    GenOptions,
+    LLMClient,
+    LLMError,
+    OllamaClient,
+    Scope,
+    StubClient,
+)
 from .repro import config_hash, load_config
 
 __all__ = [
@@ -17,6 +27,7 @@ __all__ = [
     "EnrichmentRecord",
     "ProposedTerm",
     "RejectReason",
+    "RejectStage",
     "Source",
     "TermKind",
     "TokenUsage",
@@ -24,6 +35,7 @@ __all__ = [
     "write_jsonl",
     "CallLog",
     "CallRecord",
+    "GenOptions",
     "LLMClient",
     "LLMError",
     "OllamaClient",

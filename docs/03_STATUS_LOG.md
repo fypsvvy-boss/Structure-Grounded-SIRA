@@ -8,6 +8,20 @@
 
 ## Current headline
 
+**2026-10-07 (later): the name-ID consistency check — the adaptation that makes
+SIRA's grounding transfer to CTI.** Asking the model to state what each
+identifier *is*, and checking that against MITRE's title, cut structural
+acceptance on `qwen2.5:14b` from **109/125 (87%) to 56/157 (36%)** on the same
+40 documents. It kills counting runs almost entirely: ids flagged as sequential
+enumeration went from 33 of 38 accepted (87%) to **7 of 51 (14%)**. The finding
+to write up: *an existence check is sufficient grounding for a named category
+namespace like Wikipedia's and insufficient for a dense integer namespace like
+MITRE's* — CWE packs ~940 active entries into 1..1425, so "does this id exist"
+is nearly free, and a model that counts upwards passes it. Also: schema-
+constrained decoding fixed `CAPEC-587`, so both runs completed 40/40 with zero
+parse failures. Full numbers in the log entry below; sign-off request in
+`docs/proposals/name-id-consistency.md`.
+
 **2026-10-07: `qwen2.5:14b` on the same 40 documents answers "prompt or model" —
 it is the model, but not in the way we wanted.** Structural proposals went from
 14 to 125 and the graph gate finally rejected something it never could before
@@ -71,6 +85,179 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Name-ID consistency, counting-run detection, ontology distance (2026-10-07, later)
+
+Schema 1.2.0 (awaiting four-owner sign-off —
+`docs/proposals/name-id-consistency.md`). Prompt `corpus-v4`. Both models
+re-run on the same seed-42 40 documents, same config hash, `--model` only.
+
+#### The table
+
+| | 7B v3 | 7B v4 | 14B v3 | 14B v4 |
+|---|---|---|---|---|
+| terms proposed | 419 | 442 | 468 | 480 |
+| terms accepted | 210 | 205 | 248 | 177 |
+| **structural proposed** | 14 | 14 | 125 | **157** |
+| **structural accepted** | 12 (86%) | 6 (43%) | 109 (87%) | **56 (36%)** |
+| rejected at `parse` | 0 | 0 | 1 doc | 0 |
+| rejected at `graph` | 2 | 4 | 16 | 32 |
+| rejected at `name` | n/a | 4 | n/a | **69** |
+| rejected at `df` | 207 | 229 | 204 | 202 |
+| copied from the entry | 13 (93%) | 11 (79%) | 42 (34%) | 42 (27%) |
+| generated | 1 (7%) | 3 (21%) | 83 (66%) | 115 (73%) |
+| in a counting run | 0 | 0 | 38 (30%) | 51 (32%) |
+| ...of those, accepted | 0 | 0 | **33 (87%)** | **7 (14%)** |
+
+Raw counts throughout; n=40 documents, so read the percentages as orientation
+only. `graph` splits for 14B v4: `deprecated` 15, `not_in_graph` 8, `revoked` 5,
+`malformed_id` 4.
+
+#### What the name check actually caught
+
+Four on the 7B, 69 on the 14B. The cleanest one is the case open question 8 was
+opened about:
+
+```
+CWE-835 "Infinite Loop" entry -> proposed CWE-362
+   model claimed : "Loop with Unreachable Exit Condition ('Infinite Loop')"
+   MITRE's title : "Concurrent Execution using Shared Resource ... ('Race Condition')"
+```
+
+The model wrote the **document's own title** next to a different number.
+`corpus-v3` accepted that, because `CWE-362` exists. Also caught on the 7B:
+`CWE-29` and `CWE-1230` both claimed CWE-119's title, `CWE-173` claimed
+CWE-20's.
+
+#### Two escapes, and what they say about the metric
+
+On the 7B the check let two through, and both are the same failure:
+
+```
+CWE-74 claimed "...SQL Command ('SQL Injection')"
+       official "...Downstream Component ('Injection')"       overlap 0.67  PASSED
+CWE-89 claimed "...OS Command ('OS Command Injection')"
+       official "...SQL Command ('SQL Injection')"            overlap 0.83  PASSED
+```
+
+Off by one *inside the injection family*, where CWE's titles are near-identical
+sentences — CWE-78's and CWE-89's real titles score **0.83 against each
+other**. The four it caught were cross-family confusions, scoring 0.00-0.20.
+**So the claim is: this catches cross-family confusions and misses
+within-family neighbours.** Two candidate fixes were measured offline against
+the saved records (no model calls — `claimed_name`/`official_name` are stored,
+which is turning out to be the most useful property of 1.2.0):
+
+- **rarity-weighting the title words (IDF): does not work.** Zero verdicts
+  change; the injection family shares its rare words too.
+- **the parenthesised short name with a symmetric score: works.** 0.50 and 0.25
+  for the two escapes, 1.00 for a correct answer. Needs a *loader* change —
+  `node.aliases` is empty for every CWE today.
+
+Not implemented: changing the scorer mid-experiment would make this table
+incomparable. Written up as the next iteration.
+
+#### The cost side, which needs a decision
+
+**33 of the 69 name-mismatch rejections on the 14B are within 2 hops of the
+document.** So the check does discard structurally plausible ids. Whether that
+is a loss depends on what the proposal was:
+
+```
+CAPEC-24 -> CWE-119, 1 hop, claimed "Integer Overflow or Wraparound"
+            (CWE-119 genuinely is relevant; the title belongs to CWE-190)
+CWE-1162 -> CWE-772, 1 hop, claimed "Dangling Pointer"
+            (CWE-1162 is a CERT *category*; its members are all 1 hop, and the
+             model sprayed six of them with titles belonging to other entries)
+```
+
+For a retrieval index the id is what gets indexed, so a right-id-wrong-title
+proposal would still have helped recall. For RQ1's claim about *grounding*, it
+is not evidence of grounding — the model demonstrably did not know what the id
+was, so proximity was a lucky draw from the right neighbourhood. **This is the
+sharpest thing to put to the supervisor.**
+
+#### Distance distribution (14B v4, accepted structural ids)
+
+```
+0 hops  5     (the entry's own id)
+1 hop  10
+2 hops  7
+3 hops  4
+4 hops  7
+5 hops  2
+none   21     (CVE documents and unreachable nodes -- NOT "unrelated")
+```
+
+#### Counting runs: distance rescues one the flag condemns
+
+Re-running the detector over the 14B v3 output and adding distance:
+
+```
+CWE-512  Spyware                 -> CWE-73 .. CWE-81    all 4 hops   enumeration
+T1003.006 DCSync                 -> T1113/4/5           all 4 hops   enumeration
+CWE-1169 SEI CERT C Concurrency  -> CWE-481 .. CWE-486  3-4 hops     enumeration
+T1056.001 Keylogging             -> .002/.003/.004      2 hops       real siblings
+CAPEC-24 Filter Failure thru...  -> CWE-118/119/120     all 1 hop    GENUINE
+T1430.001 Remote Device Mgmt     -> C0023 .. C0026      unreachable  campaign ids
+```
+
+`CAPEC-24` is why neither flag becomes a gate: three consecutive CWE numbers,
+but they are the buffer-bounds weaknesses that attack pattern really maps to.
+MITRE numbered related weaknesses sequentially, so "consecutive" and "actually
+related" are **correlated** in CWE. Counting run **and** distance >= 3 is the
+enumeration signature; either alone gives the wrong answer.
+
+Direct answer to "how many of the earlier counting ids does the name check now
+reject": of the 38 flagged in the v3 14B run, only 12 were proposed again at
+all (constrained decoding plus the name requirement changed the distribution) —
+the name check rejected 5, the graph rejected 5 as non-existent, 2 were
+accepted. The informative version is the before/after on the flag itself: **33
+of 38 accepted under existence-only, 7 of 51 under existence+name.**
+
+#### CAPEC-587: not truncation, and `format: "json"` was the wrong fix
+
+Re-ran that one document with the raw completion logged: 245 completion tokens,
+no cap in force, Ollama's own `done_reason` = `stop`, reply ending in a
+well-formed `]`. One array element was missing its opening brace. Not length.
+
+| `format` sent | result |
+|---|---|
+| absent | brace missing, identical on every retry at temperature 0 |
+| `"json"` | valid JSON, but a **single object** — one proposal where twelve were asked for |
+| the reply schema | 12 proposals, both models, first attempt |
+
+Plain `format: "json"` would have quietly gutted every run instead of failing
+one document. Enrichment now sends `REPLY_SCHEMA`. Both v4 runs finished 40/40
+with **zero** parse failures and no `.failures.jsonl` sidecar at all.
+
+Cost: grammar-constrained sampling is ~3x slower (7B ~50s/document against
+~17s). If that bites, run unconstrained first and fall back to the schema only
+on a parse failure.
+
+`enrichment.max_new_tokens` also now does something — it had been read by
+nothing since it was added, and every reply was generated unbounded. It reaches
+Ollama as `options.num_predict`.
+
+#### Code
+
+- `common/llm.py`: `max_new_tokens`, `json_mode`, `json_schema` on the
+  `LLMClient` base class; `GenOptions`; `last_stop_reason`/`last_truncated` on
+  `OllamaClient`; `StubClient.option_calls` so a test can prove a config value
+  reached the backend.
+- `common/schemas.py`: 1.2.0 — `NAME_MISMATCH`, `LLM_JSON_ERROR`,
+  `RejectStage`, and `claimed_name`/`official_name`/`rejected_at_stage`/
+  `in_counting_run`/`graph_distance` on `ProposedTerm`.
+- `graph/ontology.py`: `check_name()`, `NameCheck`, `name_tokens`,
+  `name_overlap`, `distance()` with a cached undirected projection.
+- `enrichment/corpus_side.py`: name stage, `Proposal` type (accepts `"id"` as a
+  synonym for `"term"`), nudged JSON retry, `record_json_failures`,
+  `flag_counting_runs()`, `annotate_graph_distance()`, `gates` in the manifest.
+- `prompts/corpus_side.py`: `corpus-v4`, `REPLY_SCHEMA`, `JSON_RETRY_NUDGE`.
+- `scripts/enrich_corpus.py`: `--no-name-check`, `--name-overlap`.
+- `scripts/report_enrichment.py`: new, read-only per-run table and
+  `--counting-ids-from`.
+- **224 tests pass** (was 170; +54). Offline throughout.
 
 ### `qwen2.5:14b` on the same 40 documents (2026-10-07)
 Command (new `--model` flag, so the config is untouched and the manifest records
@@ -567,24 +754,63 @@ Reading of this run:
       prompt `corpus-v3`; whether entries are searchable by their own id is
       handed to Module 3 (next item). Reasoning in the proposal. Confirmed by
       re-running the 40-document sample: own-id copies 9 -> 0.
-- [ ] **Question 8 — now the top item.** Confirmed at 14B: a third of
-      non-copied ids are sequential enumeration, and the existence check accepts
-      them (`CWE-512` Spyware -> `CWE-73`..`81`). Next step: a relatedness
-      measure (graph distance to the entry, or to the ids it cites) reported
-      beside validity — no contract change needed. Then decide whether to gate
-      on it. Take the numbers to the supervisor: an existence-only check may be
-      the wrong definition of grounding for a hierarchical ontology.
+- [x] **Question 8, first half — the name-ID consistency check.** Done
+      2026-10-07. The model must state what each id *is*; the graph checks that
+      against MITRE's title. 14B structural acceptance 109/125 (87%) ->
+      56/157 (36%); accepted counting-run ids 33/38 -> 7/51. `graph_distance`
+      and `in_counting_run` recorded per proposal, neither gated —
+      `docs/proposals/name-id-consistency.md`.
+- [ ] **Question 8, second half — relevance, not just identity.** Still open
+      and now the top research item. The name check cannot catch `CWE-79` with
+      its *correct* title proposed for a spyware entry. The number to take to
+      the supervisor: **33 of 69 name-mismatch rejections are within 2 hops of
+      the document**, so the check discards structurally plausible ids — a loss
+      for recall, not a loss for a grounding claim, and which framing the
+      project uses is a supervisor call. A distance gate is **not** the answer:
+      `CAPEC-24 -> CWE-118/119/120` is three consecutive numbers (counting-run
+      flag) at one hop (genuine mapping), and MITRE numbered related weaknesses
+      sequentially, so the two signals are correlated. Counting run **and**
+      distance >= 3 is the enumeration signature.
+- [ ] **Name check, next iteration (measured, not yet built).** It catches
+      cross-family confusions and misses within-family neighbours: `CWE-74`
+      claimed with CWE-89's title scores 0.67 and passes, because CWE-78's and
+      CWE-89's real titles score 0.83 against *each other*. Two fixes tested
+      offline against the saved records, no model calls needed: IDF-weighting
+      the title words changes **zero** verdicts; the **parenthesised short name
+      with a symmetric score** gives 0.50/0.25 for the two escapes and 1.00 for
+      a correct answer. That needs a *loader* change — `node.aliases` is empty
+      for every CWE, so the short names and `Alternate_Terms` are never loaded.
+      Do the loader change, re-score the saved runs offline to confirm, then
+      decide about re-running.
+- [ ] **Get four-owner sign-off for schema 1.2.0** —
+      `docs/proposals/name-id-consistency.md`. Two new `RejectReason` values,
+      `RejectStage`, five optional `ProposedTerm` fields. All additive and a
+      1.1.0 record still loads, but new enum values reach Module 4's switch.
+      Bundle with the question-7 proposal, which is also still waiting.
 - [x] **Run the same 40 documents with `qwen2.5:14b`.** — Done 2026-10-07,
       `corpus_stratified_v3_14b.jsonl`. "Prompt or model" = model. See that log
       entry; it reframed question 8.
-- [ ] **A deterministically malformed reply can never be resumed past.**
-      `CAPEC-587` failed JSON parsing in the 14B run; at temperature 0 every
-      retry reproduces it, so that document can never complete. Options: a retry
-      with a nudged temperature/seed for parse failures only, a repair pass, or
-      an explicit skip-list so a run can reach "all documents done".
-- [ ] `enrichment.max_new_tokens: 512` is dead config — nothing reads it and
-      `OllamaClient` sends only `temperature`. Wire it to Ollama's `num_predict`
-      or delete the key.
+- [x] **A deterministically malformed reply can never be resumed past.** Fixed
+      2026-10-07 three ways: schema-constrained decoding (which was the actual
+      cure — `CAPEC-587` now completes on both models), a nudged retry, and
+      `reject_reason=llm_json_error` as the backstop so a resume can reach "all
+      done". Diagnosed first: it was **not** truncation. `04_OPEN_QUESTIONS.md`
+      q9. Note plain `format: "json"` is the wrong fix and looks like the right
+      one — it makes qwen2.5:14b answer with a single object.
+- [x] `enrichment.max_new_tokens: 512` was dead config. Fixed 2026-10-07 — it
+      reaches Ollama as `options.num_predict` through the wrapper, and
+      `StubClient.option_calls` lets a test prove it got there.
+- [ ] **Decide whether schema decoding is worth 3x the run time.** It is on by
+      default (`enrichment.json_mode: schema`) and it fixed the one
+      unfinishable document, but grammar-constrained sampling took the 7B from
+      ~17s to ~50s per document. The cheaper arrangement is unconstrained
+      first, schema only on a parse failure — the unconstrained path parsed 39
+      of 40, so the grammar would run about once per run instead of forty times.
+- [ ] **Third model (`04_OPEN_QUESTIONS.md` q10).** A 32B will not fit in 16 GiB
+      (~20 GB of weights at 4-bit). Needs the frontier API: ~$0.25 for the
+      40-document sample, ~$9-35 for the full corpus, from measured token
+      counts. Module 1 recommends spending it on the sample; it breaks the
+      open-weight-only development policy, so it is a team call.
 - [ ] **Before the next default-path run:** `index.enrichment_path` still points
       at the `corpus-v1` file `corpus.jsonl`. Either implement question 2's
       version guard, or always pass `--output`.
@@ -598,8 +824,17 @@ Reading of this run:
       table is in the log entry above.
 - [ ] Make the kind-mislabel rate observable (runtime counter or sidecar log).
 - [ ] Fix prompt-versioning-vs-resume composition (`04_OPEN_QUESTIONS.md` q2).
-- [ ] Decide `04_OPEN_QUESTIONS.md` q6 (CVE identifiers as structural) — now
-      confirmed live, it is the only remaining `malformed_id` in the run.
+- [ ] Decide `04_OPEN_QUESTIONS.md` q6 (CVE identifiers as structural) — still
+      live: `CVE-2024-34359` was proposed as structural in the 7B v4 run.
+- [ ] **New RQ4 surface worth mining: a `malformed_id` with a *correct* name.**
+      Two of the three 7B `malformed_id` rejections carry a real title —
+      `"Supply Chain Compromise: Software Dependencies and Development Tools"`
+      is a genuine ATT&CK technique name attached to the garbage id
+      `"att&ck supply chain"`. The model knew the concept and botched the
+      identifier. `OntologyGraph`'s name index could repair these rather than
+      reject them; `graph.resolve(name)` already does exact-name lookup. That
+      is a different failure from a hallucination and is currently booked as
+      the same thing.
 - [x] ~~(Low priority) `build_base.py` subprocess should use `sys.executable`.~~
       — **Not a bug, corrected 2026-09-15:** `build_base.py` has invoked the
       indexer as `sys.executable -m pyserini.index.lucene` since its first commit

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from ...index.corpus import CorpusDocument
 
-PROMPT_VERSION = "corpus-v3"
+PROMPT_VERSION = "corpus-v4"
 """Version history (``corpus-v2`` was a reverted experiment, see
 ``docs/experiments/prompt-corpus-v2.md``, so its name is not reused):
 
@@ -30,6 +30,20 @@ PROMPT_VERSION = "corpus-v3"
   retrieval decision for Module 3, not something to get by asking the LLM to
   copy it. Decision 2 in ``docs/proposals/already-in-document-gate.md``.
   (A CVE's id is still visible: ``corpus_kb`` puts it in the CVE's title.)
+* ``corpus-v4`` -- v3 plus a required ``"name"`` on every structural
+  proposal: the model must state the official title it believes the id has.
+  The 2026-10-07 qwen2.5:14b run showed the graph's existence check passing
+  runs of consecutive ids (CWE-512 "Spyware" -> CWE-73..81, all nine
+  accepted), because on a dense integer namespace "does this id exist" is
+  almost always yes. The claimed title is the evidence an existence check
+  cannot ask for. See ``docs/proposals/name-id-consistency.md``.
+
+  **Deliberately neutral wording.** The prompt asks for the title as one more
+  field to fill in; it does not warn that the title will be checked, or that a
+  wrong one loses the proposal. Warning the model would change how freely it
+  proposes ids, which is the thing RQ4 is trying to measure -- the gate would
+  then be reporting its own deterrent effect rather than the model's
+  unprompted error rate.
 """
 
 _KIND_GUIDE = """\
@@ -52,22 +66,78 @@ Every proposed term has a "kind":
 {_KIND_GUIDE}
 
 Reply with ONLY a JSON array, no prose before or after it. Each element is an \
-object with exactly two keys: "term" (string) and "kind" (one of the five \
-values above). If you have nothing to add, reply with an empty array: []
+object with the keys "term" (string) and "kind" (one of the five values \
+above). When "kind" is "structural", add a third key "name": the official \
+title that identifier has in its catalogue. If you have nothing to add, \
+reply with an empty array: []
 
 Example reply:
 [
   {{"term": "password spraying", "kind": "colloquial"}},
-  {{"term": "T1110.003", "kind": "structural"}},
+  {{"term": "T1110.003", "kind": "structural", "name": "Password Spraying"}},
   {{"term": "account lockout", "kind": "symptom"}}
 ]"""
 
 
-def build_prompt(doc: CorpusDocument, *, max_terms: int) -> str:
+REPLY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "term": {"type": "string"},
+            "kind": {
+                "type": "string",
+                "enum": ["colloquial", "symptom", "product", "misspelling", "structural"],
+            },
+            "name": {"type": "string"},
+        },
+        "required": ["term", "kind"],
+    },
+}
+"""The reply shape, as a JSON Schema for constrained decoding.
+
+Lives beside the prompt because it *is* the prompt's last paragraph, stated
+again in a form the decoder can enforce. Two settings were measured on
+CAPEC-587, the one document the 14B run could never finish:
+
+======================  =============================================
+unconstrained           a valid-looking array with one element's
+                        opening brace missing -- identical on every
+                        retry at temperature 0
+``format: "json"``      valid JSON, but a single **object**: one
+                        proposal where twelve were asked for
+this schema             twelve proposals, both models, first attempt
+======================  =============================================
+
+``name`` is deliberately **not** in ``required``. A model that cannot name an
+id should be able to leave the field out and have that recorded as a name
+mismatch; forcing the key would make it invent a title to satisfy the
+grammar, turning "I don't know" into a hallucination the pipeline then books
+against the model.
+"""
+
+JSON_RETRY_NUDGE = """
+
+Your previous reply could not be parsed as JSON. Reply again with ONLY the \
+JSON array -- no prose, no code fence, no trailing comma, and an opening \
+brace on every element."""
+"""Appended to the user turn for one retry after a parse failure.
+
+At temperature 0 the same prompt returns the same reply byte for byte, so a
+bare retry is guaranteed to fail identically -- the prompt has to change for
+the second attempt to mean anything. Which also means the retry is not a
+clean second sample of the same distribution, so a document rescued by a
+nudge is counted separately in the run report rather than silently folded in
+with the documents that parsed first time.
+"""
+
+
+def build_prompt(doc: CorpusDocument, *, max_terms: int, nudge: bool = False) -> str:
     """The user turn for one document. ``SYSTEM_PROMPT`` carries the fixed
     instructions; this carries the one thing that varies per call."""
     return (
         f"Catalogue entry ({doc.source.value}):\n"
         f"{doc.text}\n\n"
         f"Propose at most {max_terms} terms."
+        + (JSON_RETRY_NUDGE if nudge else "")
     )

@@ -12,7 +12,7 @@ Branch: `module-1/corpus-enrichment` (main untouched).
 ### A. Corpus-side enrichment
 `src/sira_cti/enrichment/corpus_side.py` + `src/sira_cti/enrichment/prompts/corpus_side.py`
 
-Per-document pipeline:
+Per-document pipeline (stage names match `RejectStage` in the contract):
 1. `client.generate()` (via the instrumented wrapper — never a direct model call)
 2. `parse_json_loose()` — **reused from `llm.py`, not reimplemented.** (There was
    previously a greedy-bracket bug in a loose JSON parser that turned object
@@ -23,9 +23,71 @@ Per-document pipeline:
    doc is **not written**. Resuming retries it, rather than a fake
    empty-proposals record ever contaminating the JSONL.
 4. **Kind routing** (`_route_kind`) — added 2026-08-20, see below.
-5. `graph.validate()` for structural terms (against the real ontology graph).
-6. DF `too_common` gate — **structural identifiers are scored on their rarest
-   analyzed token, everything else on its most common one**, see below.
+5. **stage `graph`** — `graph.validate()` for structural terms (against the real
+   ontology graph): does this id exist, and is it current?
+6. **stage `name`** — `graph.check_name()`: does the title the model claimed for
+   that id match MITRE's? Added 2026-10-07, see below.
+7. **stage `df`** — `too_common` gate; **structural identifiers are scored on
+   their rarest analyzed token, everything else on its most common one**, see
+   below.
+8. Measurement-only annotation of the whole document's proposals at once:
+   `in_counting_run` and `graph_distance`. Runs *after* adjudication, so
+   nothing it records can influence a verdict.
+
+#### Name-ID consistency (step 6) — added 2026-10-07
+
+Prompt `corpus-v4` requires a `"name"` on every structural proposal: the model
+must state the official title it believes the id has. `check_name()` compares
+that claim to the node's name and aliases on content words, using the overlap
+coefficient against the *shorter* title (so "Cross-site Scripting" matches
+CWE-79's full formal name), with the threshold in
+`enrichment.name_match_min_overlap` (default 0.5). Mismatch →
+`RejectReason.NAME_MISMATCH`.
+
+Why this exists at all: SIRA grounds against Wikipedia categories, whose ids
+*are* their names, so existence and meaning are one check. MITRE ids are
+integers in a dense namespace — ~940 active CWEs inside 1..1425 — so existence
+is nearly free and a model that counts upwards passes. `qwen2.5:14b` proposed
+`CWE-73`..`CWE-81` for CWE-512 "Spyware" and the graph accepted all nine. Full
+reasoning, measurements and the four-owner decision request:
+`docs/proposals/name-id-consistency.md`; background in
+`04_OPEN_QUESTIONS.md` question 8.
+
+Three properties worth knowing:
+
+- **Stage order is existence → name, and is not interchangeable.** A
+  non-existent id has no official title, so checking names first would report
+  every hallucination as a name mismatch and merge the two most distinct RQ4
+  findings.
+- **A `NAME_MISMATCH` term keeps `graph_validated=True`.** That is the finding,
+  stated accurately: the id exists and the model still did not know what it was.
+- **A missing `"name"` is a mismatch, not a parse error.** No claim is not
+  evidence of knowledge, and passing it would restore existence-only behaviour
+  on exactly the least confident proposals. The document is still written and
+  the proposal still carries a reason, so it stays in the RQ4 dataset.
+
+`name_match_min_overlap: null` (or `--no-name-check`) disables the stage and
+reproduces `corpus-v3` adjudication exactly — that is the existence-only
+ablation.
+
+#### Measured, never gated (step 8)
+
+- **`in_counting_run`** — true when an id sits in a run of ≥3 consecutive
+  numbers from the same series inside one document's proposals. Threshold is 3
+  because 2 is ordinary (`T1110.001`/`.002` are real siblings). Sub-techniques
+  key on their parent, so `T1110.001` and `T1547.001` are not mistaken for
+  neighbours. Rejected proposals are included on purpose: the invented tail of
+  a run is its most informative part.
+- **`graph_distance`** — hops from the document's own ontology node to the
+  proposed id, over hierarchy *and* cross-catalogue mapping edges, direction
+  ignored (a `maps_to` edge is recorded by whichever catalogue happened to
+  write it down, so a directed distance would measure editorial accident).
+  `None` when either end is not a graph node — which is **every CVE**, so
+  "not measurable" must never be read as "unrelated".
+
+Neither changes accept/reject, deliberately: enrichment exists to add the links
+an entry's own data lacks, so the distant ids contain both the worst guesses
+and the genuinely novel connections, and distance alone cannot separate them.
 
 #### Kind routing (step 4)
 
@@ -115,6 +177,19 @@ Added 2026-09-15:
 - **`enrich_corpus.py --model NAME`** (2026-10-07) — overrides `llm.model` for one
   run without editing the config (so the config hash stays comparable); the
   manifest records the model that actually ran.
+- **`enrich_corpus.py --no-name-check` / `--name-overlap F`** (2026-10-07) — turn
+  the name-ID consistency stage off, or move its threshold, for one run.
+  `--no-name-check` is the existence-only ablation.
+- **`scripts/report_enrichment.py`** (2026-10-07) — read-only per-run summary
+  table: proposed/accepted, rejections by reason *and* by stage, structural ids
+  split by where they could have been copied from, counting-run count, and the
+  `graph_distance` distribution of accepted ids. Takes several JSONLs to compare
+  models side by side, and `--counting-ids-from OLD.jsonl` to ask what a newer
+  run did with the ids an older one proposed in counting runs. It recomputes
+  `in_counting_run` rather than reading it, so it works on pre-1.2.0 files too.
+- The manifest now carries a **`gates`** block (which checks were on, the
+  decoding mode, the token cap), because `--model` and `--name-overlap` mean the
+  config hash alone no longer identifies a run.
 - **Per-source summary** — `summarize_by_source()` in `corpus_side.py`, printed at
   the end of every run: counts per source document type, including which
   catalogue each structural proposal belongs to.
@@ -127,7 +202,11 @@ Added 2026-09-15:
   approved and they move into `corpus_side.py` with tests.
 
 ### Tests
-170 tests pass (+10 on 2026-09-15: 7 `sample_corpus`, 1 sampling manifest,
+**224 tests pass** (+54 on 2026-10-07: 6 LLM-wrapper generation settings,
+13 name-check and distance cases on the graph, 24 pipeline cases for the name
+stage / counting runs / distance / recorded parse failures, 7 schema 1.2.0
+cases including the 1.1.0 backward-compatibility load, plus the manifest
+`gates` check). 170 before that (+10 on 2026-09-15: 7 `sample_corpus`, 1 sampling manifest,
 1 `summarize_by_source`, 1 "prompt carries no doc id"; four existing tests now
 key their fake model replies on document text instead of the id). 160 before that (was 145 before the 2026-08-20 gate fixes: +5 `is_id_shaped`,
 +7 kind-routing and structural-DF cases, +3 real-Lucene combine/tokenization
@@ -154,18 +233,43 @@ Modules 1 & 2 emit this; Module 3 consumes it; Module 4 audits it.
       "graph_validated": true,          // null if kind != "structural"
       "doc_freq": 412,
       "accepted": true,
-      "reject_reason": null             // see RejectReason values below
+      "reject_reason": null,            // see RejectReason values below
+      "repaired_from_id": null,
+
+      // --- schema 1.2.0, all optional, all default to "not measured" ---
+      "claimed_name": null,             // the title the model said this id has
+      "official_name": null,            // MITRE's title for it
+      "rejected_at_stage": null,        // parse | graph | name | df
+      "in_counting_run": false,         // measurement only, never a verdict
+      "graph_distance": null            // hops from the document's own node
     }
   ],
   "llm_calls": 1,
   "tokens": { "prompt": 812, "completion": 143 },
   "latency_ms": 1904,
-  "model": "qwen2.5:7b"
+  "model": "qwen2.5:7b",
+  "schema_version": "1.2.0"
 }
 ```
 
 `RejectReason` values: `not_in_graph`, `too_common`, `not_in_index`,
-`deprecated`, `revoked`, `malformed_id`.
+`deprecated`, `revoked`, `malformed_id`, and (1.2.0) `name_mismatch`,
+`llm_json_error`.
+
+**Schema 1.2.0 (2026-10-07) is awaiting four-owner sign-off** —
+`docs/proposals/name-id-consistency.md`. Every addition is backward
+compatible (a 1.1.0 record loads unchanged; there is a test for it), but new
+enum values still reach Module 4's `RejectReason` switch, so it is a contract
+change either way. Two states worth flagging to downstream readers:
+
+- `graph_validated=True` on a **rejected** term is now normal and meaningful
+  (name mismatch). Code that read `graph_validated` as a proxy for `accepted`
+  is now wrong.
+- a document whose reply never parsed is written with one rejected term
+  carrying `reject_reason=llm_json_error` and the raw reply as its `term`. It
+  inflates "terms proposed" by one per failed document; exclude it by reason if
+  your denominator needs to be real proposals. It can never reach the index —
+  `accepted=False`, and the index build reads accepted terms only.
 
 **Every rejected term is kept with its `reject_reason` — the rejection log IS the
 RQ4 dataset.**
@@ -190,6 +294,19 @@ downstream reviewer to skim past.
 
 ---
 
+## `enrichment.max_new_tokens` was dead config until 2026-10-07
+
+It sat in `configs/default.yaml` being read by nothing: every reply was
+generated unbounded. It now reaches Ollama as `options.num_predict` through
+`common/llm.py`, which also grew `json_mode`/`json_schema` for constrained
+decoding. Both live on the `LLMClient` base class rather than on one backend,
+so a backend has to actively answer for them instead of silently ignoring a
+config key — which is exactly how the cap went unread for six weeks.
+`StubClient` records the resolved settings per call (`option_calls`), so a test
+can assert that a config value actually reached the backend.
+
+---
+
 ## Config bug fixed in passing
 
 `configs/default.yaml` had two top-level `enrichment:` blocks — PyYAML silently
@@ -208,9 +325,22 @@ The script reads it straight from `prompts/corpus_side.py` (since 2026-09-15 —
 it used to come from a config key that could drift out of step).
 
 Versions: `corpus-v1` (original); `corpus-v2` (stronger "don't restate"
-wording — reverted, `docs/experiments/prompt-corpus-v2.md`); **`corpus-v3`
-(live)** — v1 with the document's own id removed from the user-turn header, so
-the model can't copy an entry's id back as a "proposal". History and reasoning
-are in the `PROMPT_VERSION` docstring and the question-7 proposal.
+wording — reverted, `docs/experiments/prompt-corpus-v2.md`); `corpus-v3` — v1
+with the document's own id removed from the user-turn header, so the model
+can't copy an entry's id back as a "proposal"; **`corpus-v4` (live)** — v3 plus
+a required `"name"` on every structural proposal. History and reasoning are in
+the `PROMPT_VERSION` docstring and the two proposals under `docs/proposals/`.
+
+v4's wording is **deliberately neutral**: it asks for the title as one more
+field to fill in and does not warn that the title will be checked. Warning the
+model would change how freely it proposes ids, and the gate would then be
+measuring its own deterrent effect rather than the model's unprompted error
+rate — which is what RQ4 is for.
+
+`REPLY_SCHEMA` lives beside the prompt because it *is* the prompt's last
+paragraph restated for a decoder to enforce. `name` is deliberately not in its
+`required` list: a model that cannot name an id should be able to omit the
+field and have that recorded as a mismatch, rather than being forced by the
+grammar to invent a title.
 **Known limitation — see `04_OPEN_QUESTIONS.md`:** this doesn't compose with
 resumability (resume can mix records from two prompt versions under one manifest).

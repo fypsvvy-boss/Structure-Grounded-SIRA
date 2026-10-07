@@ -453,7 +453,29 @@ which is question 8.
 
 ---
 
-## 8. (Opened 2026-09-15 — **HIGHEST**, confirmed at scale 2026-10-07) The graph gate accepts identifiers that are real but irrelevant
+## 8. (Opened 2026-09-15 — **PARTLY ANSWERED 2026-10-07**) The graph gate accepts identifiers that are real but irrelevant
+
+> **Update, 2026-10-07.** Half of this is now addressed and shipped behind a
+> config switch: a **name-ID consistency check** (`docs/proposals/name-id-consistency.md`).
+> Asking the model to state what each id *is* and checking that against MITRE's
+> title cut structural acceptance on the 14B from 109/125 (87%) to 56/157 (36%),
+> and cut accepted counting-run ids from 33/38 to 7/51. It catches the
+> motivating case directly: `CWE-835` -> `CWE-362` with the model reciting
+> CWE-835's own title.
+>
+> **What remains open is the other half**, and it is the harder half: the name
+> check asks whether the model knows what an id *is*, not whether that id is
+> *relevant to this document*. `CWE-79` proposed for a spyware entry **with its
+> correct title** passes both gates. `graph_distance` is now recorded per
+> proposal to inform that decision, and is deliberately not a gate — see below
+> for why the `CAPEC-24` case makes a distance gate unsafe.
+>
+> One number that needs a human call: **33 of the 69 name-mismatch rejections
+> are within 2 hops of the document**, so the check discards structurally
+> plausible ids. For retrieval the id is what gets indexed, so those would have
+> helped recall; for RQ1's claim about grounding they are not evidence of
+> grounding, since the model did not know what it had proposed. Which of those
+> two framings the project uses is a supervisor question, not a Module 1 one.
 
 **What happened.** In the `corpus-v3` stratified run, the model made its first
 two structural proposals that were not copied from the entry or the prompt:
@@ -521,6 +543,49 @@ rate" rose with model size while proposal *quality* fell. A validity rate that
 goes up when the model starts enumerating is not measuring grounding; reporting
 it without a relatedness measure alongside would be misleading.
 
+### Measured 2026-10-07: distance does separate enumeration from real siblings
+
+`graph_distance` (schema 1.2.0) is now recorded per proposal: hops from the
+document's own ontology node to the proposed id, over hierarchy *and*
+cross-catalogue mapping edges, direction ignored. Applied to the seven counting
+runs the 14B produced, it splits them cleanly — and in doing so it rescues one
+run that the counting-run flag wrongly accuses:
+
+```
+  CWE-512  Spyware                 -> CWE-73 .. CWE-81    all dist=4   enumeration
+  T1003.006 DCSync                 -> T1113, T1114, T1115 all dist=4   enumeration
+  CWE-1169 SEI CERT C Concurrency  -> CWE-481 .. CWE-486  dist=3-4     enumeration
+  CWE-940  Improper Verification   -> CWE-346             dist=1       genuine sibling
+                                      CWE-347 .. CWE-349  dist=3       then drifts
+  T1056.001 Keylogging             -> T1056.002/.003/.004 dist=2       genuine siblings
+                                      T1056.005 .. .009   not in graph  ran off the end
+  CAPEC-24 Filter Failure thru...  -> CWE-118, CWE-119,
+                                      CWE-120             all dist=1   GENUINE
+  T1430.001 Remote Device Mgmt     -> C0023 .. C0026       unreachable  campaign ids
+```
+
+**`CAPEC-24` is the important row.** Three consecutive CWE numbers, so the
+counting-run detector flags it — but `CAPEC-24` is "Filter Failure through
+Buffer Overflow" and `CWE-118`/`119`/`120` are the buffer-bounds weaknesses it
+genuinely maps to, one hop away. MITRE assigned related CWE numbers
+sequentially, so consecutive numbering and real sibling-hood are **correlated**
+in CWE. Neither signal is sufficient alone:
+
+- the counting-run flag alone over-accuses (it would condemn `CAPEC-24`);
+- distance alone under-accuses (`CWE-940 -> CWE-346` is one hop and fine, while
+  `CWE-347..349` are three hops and were dragged along by the counting).
+
+**Counting run _and_ distance >= 3 is the enumeration signature.** That is the
+pair to report, and it is a direct argument for keeping both as measurements
+rather than promoting either to a gate: a gate on the flag alone would reject
+correct cross-catalogue mappings, which are precisely the links corpus-side
+enrichment exists to add.
+
+One oddity worth knowing: ATT&CK campaign nodes (`C00xx`) come out of the
+loader with no edges at all, so their distance is `None` rather than large.
+`None` means "cannot be placed", never "unrelated" — do not let the two blur in
+a table.
+
 **Revised recommendation: option 1 now, option 2 seriously considered.**
 Measure relatedness (graph distance from the proposed id to an anchor — the
 entry itself, or the ids it cites) and report it next to validity; that needs no
@@ -531,3 +596,138 @@ should *not* punish real siblings: `T1056.001 -> T1056.002` is a legitimate
 neighbour, while `CWE-512 -> CWE-79` is nine hops of nothing. Worth putting to
 the supervisor with these numbers: an existence-only check may simply be the
 wrong definition of "grounding" for a hierarchical ontology.
+
+---
+
+## 9. ~~A document whose reply won't parse can never be finished~~ RESOLVED 2026-10-07
+
+**Decision: constrain decoding with the reply schema; keep a nudged retry and,
+after that, write the document off as `reject_reason=llm_json_error`.**
+Implemented. The contract change rides in
+`docs/proposals/name-id-consistency.md`.
+
+### What was wrong
+
+`CAPEC-587` broke the 2026-10-07 `qwen2.5:14b` run — 39 of 40 documents
+finished. By design, a document whose reply doesn't parse is **not** written,
+so a resume retries it. That is right for a transient failure (a dropped
+connection, a model still loading). It is wrong for a deterministic one: at
+`temperature=0` the same prompt returns the same bytes forever, so that
+document could never be completed and the run could never report "all done".
+
+### It was not truncation
+
+Worth checking before assuming the token cap, because the config had a cap in
+it that nothing was reading. Re-running that one document and logging the raw
+completion:
+
+```
+no cap, no json mode   245 completion tokens, 724 chars, done_reason="stop"
+cap 512, no json mode  245 completion tokens, 724 chars, done_reason="stop"
+```
+
+Identical, well under 512, and Ollama's own stop reason is `stop`, not
+`length`. The reply even ends with a well-formed `]`. The actual defect is one
+element's opening brace missing mid-array:
+
+```
+  {"term": "same origin policy bypass", "kind": "colloquial"},
+   "frame busting evasion", "kind": "colloquial"},        <- no {"term":
+```
+
+A formatting slip, not a length problem. `parse_json_loose` cannot repair it
+and should not try — a parser that guesses at broken replies is how an earlier
+bug turned object replies into empty arrays and made parse failures look like
+"the model proposed nothing".
+
+### The fix, and the two things that looked like the fix
+
+| `format` sent to Ollama | result on CAPEC-587 |
+|---|---|
+| absent | brace missing; identical on every retry |
+| `"json"` | valid JSON, but a **single object** — one proposal where twelve were asked for |
+| the reply schema | 12 proposals, both models, first attempt |
+
+**Plain `format: "json"` is the wrong tool and would have been the obvious
+choice.** It only promises *valid* JSON, and one object is valid JSON; it
+biases the model towards `{...}` and guts a run instead of failing it. Sending
+a JSON Schema (`prompts/corpus_side.py:REPLY_SCHEMA`, selected by
+`enrichment.json_mode: schema`) pins the shape as well.
+
+Cost: grammar-constrained sampling runs roughly 3x slower — `qwen2.5:7b` takes
+~50s/document under the schema against ~17s unconstrained. If that becomes the
+bottleneck, run unconstrained first and fall back to the schema only on a parse
+failure; the unconstrained path parsed 39 of 40 documents, so the grammar would
+run about once per run instead of forty times.
+
+### And a backstop, because decoding is not a guarantee
+
+`enrichment.json_retries: 1` retries once with an explicit nudge appended to
+the user turn — the prompt *has* to change, since an identical prompt at
+temperature 0 returns identical bytes, which also means the retry is not a
+clean second sample and is counted separately in the run report. If that also
+fails, `record_json_failures` writes the document with one rejected term
+carrying `reject_reason=llm_json_error` and the raw reply as its `term`, with
+the full reply in `<output>.raw_failures.jsonl`.
+
+Two deliberate choices there. The raw reply is the term, rather than a fixed
+placeholder, because *what the model actually emitted* is the evidence and a
+placeholder would make every parse failure identical in the RQ4 dataset. And
+recording failures is **off by default** in `run_corpus_enrichment` — only
+determinism justifies giving up on a document, so the caller has to say so.
+
+### Also fixed in passing: `enrichment.max_new_tokens` was read by nothing
+
+It sat in the config for six weeks while every reply was generated unbounded.
+It now reaches Ollama as `options.num_predict`. Ollama accepts and silently
+ignores generation settings sent at the top level of the request, which is the
+same trap `temperature`/`seed` have — see `01_ENVIRONMENT.md`.
+
+---
+
+## 10. (Opened 2026-10-07) Is the grounding effect a trend across model size, or two points?
+
+**Open. Needs a decision about spending money, so it is a supervisor question,
+not a Module 1 one.**
+
+We have two model sizes and they disagree in an awkward way: the 7B invents
+almost nothing and proposes almost nothing, the 14B proposes ten times as much
+and invents in a specific, structured way (counting runs). Two points cannot
+tell a trend from a quirk of one checkpoint. A third, larger model is the
+obvious next step, and it is **not possible on this machine**:
+
+| model | weights at 4-bit | fits in 16 GiB? |
+|---|---|---|
+| `qwen2.5:7b` | ~4.7 GB | yes |
+| `qwen2.5:14b` | ~9.0 GB | yes, tightly |
+| `qwen2.5:32b` | ~20 GB | **no** |
+
+A 3-bit 32B quantisation is ~16 GB, which still leaves nothing for the OS, and
+quantising harder to fit would confound "bigger model" with "more damaged
+model" — the opposite of a clean comparison. So the third point needs a
+frontier API, which this project reserves for the final benchmark run
+(`01_ENVIRONMENT.md`, model policy).
+
+**What it would cost**, measured from the actual token counts of the
+`corpus-v4` 7B run (834 prompt + 216 completion tokens per document, averaged
+over the sample):
+
+| scope | prompt tokens | completion tokens | at $0.80/$4 per M | at $3/$15 per M |
+|---|---|---|---|---|
+| the 40-document sample | 33k | 8.6k | ~$0.06 | ~$0.23 |
+| the full 6,044-document corpus | 5.0M | 1.3M | ~$9 | ~$35 |
+
+(Those two price columns are representative mid-tier and frontier rates —
+**check current list prices before quoting these to anyone**. The token counts
+are measured and will not change.)
+
+Time, not cost, is the real argument for the sample: an API run at
+concurrency 4–8 finishes 40 documents in a few minutes, against ~35 minutes
+locally for the 7B under schema decoding.
+
+**Module 1's recommendation:** spend the ~$0.25 on the 40-document sample now,
+on the same seed-42 documents, and keep the full-corpus run for the benchmark.
+The question "does an existence check get weaker as models get stronger" is
+load-bearing for the write-up, and answering it on two local checkpoints is
+answering it on one data point and a hunch. Needs sign-off because the model
+policy says development is open-weight only.

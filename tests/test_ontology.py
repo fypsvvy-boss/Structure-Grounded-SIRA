@@ -275,3 +275,129 @@ def test_membership_and_length():
     assert "T1110" in g
     assert "T9999" not in g
     assert len(g) == len(g.ids(active_only=False))
+
+
+# -- name-ID consistency (the CTI adaptation of SIRA's grounding) --------------------
+#
+# Wikipedia categories are named, so SIRA's existence check is also a meaning
+# check. MITRE ids are integers in a dense namespace, so existence alone is
+# nearly free. These tests pin the behaviour of the check that replaces it.
+
+
+def test_an_exactly_right_title_matches():
+    g = build_fixture_graph()
+    check = g.check_name("T1110.001", "Password Guessing")
+    assert check.matches
+    assert check.overlap == 1.0
+    assert check.official_name == "Password Guessing"
+
+
+def test_a_wrong_title_on_a_real_id_is_a_mismatch():
+    # The failure mode the check exists for: the id is real, the model does
+    # not know what it is. An existence check passes this.
+    g = build_fixture_graph()
+    check = g.check_name("T1110.001", "Spyware")
+    assert not check.matches
+    assert check.overlap == 0.0
+    assert check.official_name == "Password Guessing"
+
+
+def test_a_short_but_correct_title_matches_a_long_official_one():
+    # CWE titles are long and formal; analysts (and models) use the short name.
+    # Scoring this as a mismatch would reject correct answers.
+    g = build_fixture_graph()
+    check = g.check_name("CWE-307", "Excessive Authentication Attempts")
+    assert check.matches
+    assert check.official_name == "Improper Restriction of Excessive Authentication Attempts"
+
+
+def test_a_missing_title_is_a_mismatch_not_a_pass():
+    # No claim is not evidence of knowledge. Passing it would restore
+    # existence-only behaviour on exactly the least confident proposals.
+    g = build_fixture_graph()
+    for claimed in (None, "", "   "):
+        check = g.check_name("T1110.001", claimed)
+        assert not check.matches
+        assert check.claimed_name is None
+
+
+def test_catalogue_style_words_alone_do_not_make_a_match():
+    # Every second CWE title opens "Improper ..." / "Insufficient ...".
+    # Two unrelated weaknesses must not match on house style.
+    g = build_fixture_graph()
+    assert not g.check_name("CWE-307", "Improper Control of the Other Thing").matches
+
+
+def test_the_threshold_is_the_callers_choice():
+    g = build_fixture_graph()
+    # "guessing attacks": 1 of its 2 content words is in "Password Guessing".
+    assert g.check_name("T1110.001", "guessing attacks", min_overlap=0.5).matches
+    assert not g.check_name("T1110.001", "guessing attacks", min_overlap=0.9).matches
+
+
+def test_a_single_word_claim_scores_full_overlap_a_known_weakness():
+    # Pinning a limitation, not endorsing it. The overlap coefficient divides
+    # by the *shorter* title's length, which is what lets "Cross-site
+    # Scripting" match CWE-79's full official name -- and the same arithmetic
+    # lets a one-word claim pass on one shared word. The alternative (a
+    # minimum shared-token count) would reject genuinely one-word titles like
+    # CWE-512 "Spyware", so the check keeps the generous rule and the run
+    # report counts how many passes rest on a single word instead.
+    g = build_fixture_graph()
+    check = g.check_name("CWE-307", "authentication")
+    assert check.matches
+    assert check.overlap == 1.0
+
+
+def test_an_unknown_id_reports_no_official_name():
+    g = build_fixture_graph()
+    check = g.check_name("T9999", "Anything")
+    assert not check.matches
+    assert check.official_name is None
+
+
+def test_name_tokens_drops_punctuation_and_style_words():
+    from sira_cti.graph import name_tokens
+
+    assert name_tokens("Improper Neutralization of Input ('Cross-site Scripting')") == {
+        "neutralization",
+        "input",
+        "cross",
+        "site",
+        "scripting",
+    }
+
+
+# -- ontology distance (reported, never filtered on) ---------------------------------
+
+
+def test_distance_to_itself_is_zero():
+    assert build_fixture_graph().distance("T1110", "T1110") == 0
+
+
+def test_distance_follows_hierarchy_edges_ignoring_direction():
+    # T1110.001 --subtechnique-of--> T1110 is one hop either way round. A
+    # directed distance would be 1 one way and None the other, which would
+    # measure which catalogue wrote the edge down.
+    g = build_fixture_graph()
+    assert g.distance("T1110.001", "T1110") == 1
+    assert g.distance("T1110", "T1110.001") == 1
+
+
+def test_distance_crosses_catalogues_over_mapping_edges():
+    g = build_fixture_graph()
+    assert g.distance("CWE-307", "T1110.001") == g.distance("T1110.001", "CWE-307")
+    assert g.distance("T1110.001", "CWE-307") is not None
+
+
+def test_distance_is_none_when_either_end_is_not_an_ontology_node():
+    # Every CVE lands here: a corpus document with no entry in the ontology.
+    g = build_fixture_graph()
+    assert g.distance("CVE-2024-0001", "T1110") is None
+    assert g.distance("T1110", "CVE-2024-0001") is None
+
+
+def test_distance_respects_the_hop_cap():
+    g = build_fixture_graph()
+    assert g.distance("T1110.001", "CWE-307", max_hops=1) is None
+    assert g.distance("T1110.001", "CWE-307", max_hops=6) == 2

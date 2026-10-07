@@ -23,7 +23,8 @@ Those are different findings, and the distinction is free to record.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -32,7 +33,87 @@ import networkx as nx
 
 from ..common.schemas import RejectReason
 from .loaders import EdgeType, LoadResult, OntologyEdge, OntologyNode, Status, load_all
-from .normalize import Namespace, NodeType, ParsedID, parse_structural_id
+from .normalize import Namespace, ParsedID, parse_structural_id
+
+
+# -- name matching ------------------------------------------------------------------
+#
+# Why this exists at all: SIRA grounds proposed vocabulary against Wikipedia
+# categories, whose identifiers *are* their names ("Category:Phishing"), so an
+# existence check and a meaning check are the same check. MITRE identifiers are
+# integers in a dense namespace: CWE has ~940 active ids inside 1..1425, so a
+# model that writes "CWE-74, CWE-75, CWE-76" is right about existence three
+# times out of three while knowing nothing. Asking the model to state the title
+# it believes the id has, and comparing that to MITRE's, restores the half of
+# the check that the integer namespace took away.
+
+_NAME_STOPWORDS = frozenset(
+    """a an the of or and to in for with without via by on at from into
+    using use used improper improperly insufficient incorrect missing other""".split()
+)
+"""Dropped before comparing titles.
+
+The last row is not generic English: ``improper``/``insufficient``/
+``incorrect``/``missing`` open a large share of all CWE titles ("Improper
+Restriction of ...", "Improper Neutralization of ...", "Insufficient
+Control ..."). Leaving them in means two unrelated weaknesses share a token
+purely by catalogue style, which is precisely the false match this check
+exists to avoid.
+"""
+
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def name_tokens(text: str) -> set[str]:
+    """Lowercase content words of a title, punctuation and style words removed."""
+    if not text:
+        return set()
+    return {w for w in _WORD.findall(text.lower()) if w not in _NAME_STOPWORDS and len(w) > 1}
+
+
+def name_overlap(claimed: str, official: str) -> float:
+    """How much of the shorter title is contained in the longer one, 0.0-1.0.
+
+    The overlap coefficient (``|A n B| / min(|A|, |B|)``) rather than Jaccard,
+    because MITRE titles are long and formal while the name a model gives is
+    short and colloquial. CWE-79's official title is "Improper Neutralization
+    of Input During Web Page Generation ('Cross-site Scripting')"; a model
+    answering "Cross-site Scripting" is *right*, and Jaccard would score that
+    0.3 and call it a mismatch. The overlap coefficient scores it 1.0.
+
+    The cost of that choice is that a very short claimed name needs only one
+    shared word, so the floor of one token is enforced by the caller's
+    threshold, not here. Returns 0.0 when either side has no content words
+    left, which is why a blank claim can never pass.
+    """
+    a, b = name_tokens(claimed), name_tokens(official)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
+@dataclass
+class NameCheck:
+    """Whether the model's claim about an id's title survives comparison."""
+
+    matches: bool
+    claimed_name: Optional[str]
+    official_name: Optional[str]
+    overlap: float = 0.0
+    matched_against: str = ""
+    """Which of the node's labels scored best -- its primary name, or one of
+    its aliases (CWE "alternate terms", ATT&CK ``x_mitre_aliases``). Recorded
+    so a match on an alias is auditable rather than looking like a match on
+    the title."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "matches": self.matches,
+            "claimed_name": self.claimed_name,
+            "official_name": self.official_name,
+            "overlap": round(self.overlap, 3),
+            "matched_against": self.matched_against,
+        }
 
 
 class RevokedPolicy(str, Enum):
@@ -95,6 +176,7 @@ class OntologyGraph:
         self._name_index: dict[str, str] = {}      # lowercased name/alias -> node id
         self.warnings: list[str] = []
         self._dangling_edges: list[OntologyEdge] = []
+        self._undirected: Optional[nx.Graph] = None
 
     # -- construction -------------------------------------------------------------
 
@@ -137,6 +219,7 @@ class OntologyGraph:
             if len(node.description) <= len(existing.description):
                 return
         self._nodes[node.node_id] = node
+        self._undirected = None
         self.g.add_node(
             node.node_id,
             namespace=node.namespace.value,
@@ -156,6 +239,7 @@ class OntologyGraph:
             self._dangling_edges.append(edge)
             return
         self.g.add_edge(edge.src, edge.dst, key=edge.edge_type.value, edge_type=edge.edge_type.value)
+        self._undirected = None
 
     # -- lookup -------------------------------------------------------------------
 
@@ -256,6 +340,100 @@ class OntologyGraph:
             self.validate(t, allow_deprecated=allow_deprecated, revoked_policy=revoked_policy)
             for t in terms
         ]
+
+    # -- the name-consistency step (stage 2, after existence) ----------------------
+
+    def check_name(
+        self,
+        node_id: str,
+        claimed_name: Optional[str],
+        *,
+        min_overlap: float = 0.5,
+    ) -> NameCheck:
+        """Does the model's claimed title for ``node_id`` match MITRE's?
+
+        Runs *after* :meth:`validate` has already found the node, so it takes
+        a canonical id rather than a raw term. Scores the claim against the
+        node's primary name and every alias, and keeps the best.
+
+        A blank or missing claim is a mismatch, not a pass. The model was
+        asked what the id is; declining to answer is not evidence that it
+        knew. Scoring it as a pass would quietly restore the
+        existence-only behaviour this check replaces, on exactly the
+        proposals where the model was least sure.
+
+        An unknown ``node_id`` also returns ``matches=False`` with
+        ``official_name=None`` -- but the pipeline never reaches here for one,
+        because a non-existent id has already failed the graph stage.
+        """
+        node = self._nodes.get(node_id)
+        if node is None:
+            return NameCheck(matches=False, claimed_name=claimed_name, official_name=None)
+
+        official = node.name or ""
+        if not claimed_name or not claimed_name.strip():
+            return NameCheck(matches=False, claimed_name=None, official_name=official or None)
+
+        best, best_label = 0.0, official
+        for label in [official, *node.aliases]:
+            if not label:
+                continue
+            score = name_overlap(claimed_name, label)
+            if score > best:
+                best, best_label = score, label
+
+        return NameCheck(
+            matches=best >= min_overlap,
+            claimed_name=claimed_name.strip(),
+            official_name=official or None,
+            overlap=best,
+            matched_against=best_label,
+        )
+
+    # -- ontology distance (reported, never filtered on) ---------------------------
+
+    def distance(self, src_id: str, dst_id: str, *, max_hops: int = 6) -> Optional[int]:
+        """Shortest path in edges between two nodes, ignoring edge direction.
+
+        Undirected on purpose. The ontology's edges point whichever way the
+        source catalogue happened to record them -- CAPEC declares
+        ``CAPEC-49 maps_to T1110``, ATT&CK declares nothing back -- so a
+        directed distance would measure which file an editor wrote a line in,
+        not how related two entries are.
+
+        ``max_hops`` caps the search so a proposal on the far side of the
+        graph costs a bounded BFS rather than a full traversal; beyond it the
+        answer is ``None``, which reads the same as "no path" and is treated
+        the same everywhere downstream (both mean "we cannot place this id
+        relative to the document").
+
+        Returns 0 for a node against itself, and ``None`` if either end is
+        absent -- including every CVE, which is a corpus document but not an
+        ontology node.
+        """
+        if src_id not in self._nodes or dst_id not in self._nodes:
+            return None
+        if src_id == dst_id:
+            return 0
+        # Bounded BFS from the source rather than shortest_path_length(src, dst),
+        # which takes no cutoff and would traverse the whole component to prove
+        # that two unrelated entries are unrelated.
+        reachable = nx.single_source_shortest_path_length(
+            self._undirected_view(), src_id, cutoff=max_hops
+        )
+        hops = reachable.get(dst_id)
+        return int(hops) if hops is not None else None
+
+    def _undirected_view(self) -> nx.Graph:
+        """Cached simple undirected projection, built once per graph.
+
+        ``nx.Graph(MultiDiGraph)`` collapses parallel typed edges into one, which
+        is what a hop count wants: CWE-120 being both ``maps_to`` and
+        ``child_of``-adjacent to something is still one hop away.
+        """
+        if self._undirected is None:
+            self._undirected = nx.Graph(self.g)
+        return self._undirected
 
     # -- neighbourhood (used to expand a validated term) ---------------------------
 
