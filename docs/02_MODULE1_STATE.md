@@ -112,6 +112,9 @@ Added 2026-09-15:
   or dropped; the same seed always gives the same documents, which keeps sampled
   runs resumable. The manifest records how documents were chosen in a new
   `sampling` field (`{"method": "per_kind", ...}` or `{"method": "prefix", ...}`).
+- **`enrich_corpus.py --model NAME`** (2026-10-07) — overrides `llm.model` for one
+  run without editing the config (so the config hash stays comparable); the
+  manifest records the model that actually ran.
 - **Per-source summary** — `summarize_by_source()` in `corpus_side.py`, printed at
   the end of every run: counts per source document type, including which
   catalogue each structural proposal belongs to.

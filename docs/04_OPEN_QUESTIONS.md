@@ -420,6 +420,14 @@ their own text (e.g. `CAPEC-267` -> `"Entry_ID": "1027"`) and the model proposed
 none of them. So the grounding mechanism under test has still not been shown a
 single cross-catalogue proposal from this model.
 
+**Answered 2026-10-07: model.** `qwen2.5:14b` on the same 40 documents, same
+prompt, proposed 37 ATT&CK ids on ATT&CK entries (7B: 0) and 125 structural ids
+overall (7B: 14). Cross-catalogue proposals did appear on CAPEC entries, but 24
+of their 27 came from labelled mapping fields in the entry's own JSON, so
+genuine cross-catalogue inference is still rare (clearest case: `CWE-1321` ->
+`CAPEC-448`). And see question 8: much of the increase is sequential
+enumeration, not inference. Original reasoning preserved below.
+
 Prompt or model? The live prompt (`corpus-v1`) only defines what a structural id
 *is*; it never asks for related ids from other catalogues. But the reverted
 `corpus-v2` prompt did ask explicitly — "propose the ATT&CK technique this
@@ -445,7 +453,7 @@ which is question 8.
 
 ---
 
-## 8. (New, opened 2026-09-15 — affects RQ1) The graph gate accepts identifiers that are real but irrelevant
+## 8. (Opened 2026-09-15 — **HIGHEST**, confirmed at scale 2026-10-07) The graph gate accepts identifiers that are real but irrelevant
 
 **What happened.** In the `corpus-v3` stratified run, the model made its first
 two structural proposals that were not copied from the entry or the prompt:
@@ -491,7 +499,35 @@ current rejection log — both are accepted and `graph_validated=True`.
    larger open-weight model before designing anything — if a bigger model stops
    making these, option 1 is enough.
 
-Recommendation, for discussion: **3 then 1** — two examples justify measuring,
-not yet a new gate. But note that option 2 is arguably closer to what "grounding
-against a hierarchical ontology" should mean for RQ1 than an existence check,
-and is worth raising with the supervisor regardless of what the next run shows.
+### Option 3 was tried on 2026-10-07 (`qwen2.5:14b`) — it is worse at scale, not noise
+
+The larger model proposes 125 structural ids where the 7B proposed 14. Of the 83
+that are not copied from anywhere, **29 are adjacent (+1) to another id proposed
+for the same document** — the model enumerates consecutive numbers:
+
+```
+  CWE-512  Spyware  -> CWE-73,74,75,76,77,78,79,80,81   all 9 ACCEPTED by the graph
+  T1056.001         -> T1056.002/.003/.004 (real siblings) then .005-.009 (don't exist)
+  T1430.001         -> C0023,C0024,C0025,C0026
+```
+
+Consecutive CWE numbers almost always exist, so the existence check waves them
+through: `CWE-512` is Spyware and `CWE-79` is cross-site scripting. The five
+`not_in_graph` rejections in that run are simply where a counting run ran off
+the end of a sub-technique range.
+
+**This inverts how the RQ1 number must be read.** "Graph-validated proposal
+rate" rose with model size while proposal *quality* fell. A validity rate that
+goes up when the model starts enumerating is not measuring grounding; reporting
+it without a relatedness measure alongside would be misleading.
+
+**Revised recommendation: option 1 now, option 2 seriously considered.**
+Measure relatedness (graph distance from the proposed id to an anchor — the
+entry itself, or the ids it cites) and report it next to validity; that needs no
+contract change and can be added to `scripts/measure_redundancy.py`'s sibling
+script. Then decide on gating. Note the distance measure must treat `mapped`
+cross-namespace links as near (a CAPEC->ATT&CK mapping is one hop by design) and
+should *not* punish real siblings: `T1056.001 -> T1056.002` is a legitimate
+neighbour, while `CWE-512 -> CWE-79` is nine hops of nothing. Worth putting to
+the supervisor with these numbers: an existence-only check may simply be the
+wrong definition of "grounding" for a hierarchical ontology.

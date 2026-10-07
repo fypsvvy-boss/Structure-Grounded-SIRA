@@ -77,6 +77,12 @@ base index built fine.
 Model policy: open-weight (Qwen2.5-7B) for all development; a frontier/paid API
 model is reserved for the **final benchmark run only** (deliberate cost control).
 
+`qwen2.5:14b` is also pulled (9.0 GB) for the model-scale comparison. On this
+16 GB machine it runs at roughly **46s/document** versus the 7B's ~17s, so a
+40-document run takes about 30 minutes. Select it per run with
+`--model qwen2.5:14b` rather than editing the config, so the config hash stays
+comparable across runs; the manifest records the model that actually ran.
+
 ---
 
 ## Canonical run sequence (Module 1)

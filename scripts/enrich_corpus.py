@@ -46,6 +46,7 @@ def main() -> int:
     selection.add_argument("--per-kind", type=int, default=None, help="seeded random N documents from each type")
     parser.add_argument("--seed", type=int, default=None, help="sampling seed for --per-kind (default: eval.seed)")
     parser.add_argument("--concurrency", type=int, default=None, help="override config's enrichment.concurrency")
+    parser.add_argument("--model", default=None, help="override config's llm.model (recorded in the manifest)")
     parser.add_argument("--dry-run", action="store_true", help="run the pipeline but write nothing to disk")
     args = parser.parse_args()
 
@@ -82,9 +83,11 @@ def main() -> int:
         print(f"llm.backend={llm_cfg['backend']!r} is not supported yet (only 'ollama').")
         return 1
 
+    model = args.model or llm_cfg["model"]
+
     def client_factory():
         return OllamaClient(
-            model=llm_cfg["model"], host=llm_cfg.get("host"),
+            model=model, host=llm_cfg.get("host"),
             temperature=llm_cfg.get("temperature", 0.0), max_retries=llm_cfg.get("max_retries", 2),
         )
 
@@ -98,7 +101,7 @@ def main() -> int:
         docs = load_corpus(corpus_cfg["kb_dir"], corpus_cfg["kinds"], limit=args.limit)
         sampling = {"method": "prefix", "limit": args.limit}
 
-    print(f"Enriching -> {output_path}  (model={llm_cfg['model']}, dry_run={args.dry_run})")
+    print(f"Enriching -> {output_path}  (model={model}, dry_run={args.dry_run})")
     summary = run_corpus_enrichment(
         docs,
         client_factory=client_factory,

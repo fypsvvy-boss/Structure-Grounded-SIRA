@@ -8,6 +8,17 @@
 
 ## Current headline
 
+**2026-10-07: `qwen2.5:14b` on the same 40 documents answers "prompt or model" —
+it is the model, but not in the way we wanted.** Structural proposals went from
+14 to 125 and the graph gate finally rejected something it never could before
+(5 `not_in_graph`, 3 `revoked`). But a third of the ids it proposes that aren't
+copied are **sequential counting**, not inference: `CWE-512` (Spyware) ->
+`CWE-73,74,75,76,77,78,79,80,81`, all nine accepted as valid and none about
+spyware; `T1056.001` -> `.002 .003 .004` (real siblings) then `.005`-`.009`,
+which don't exist and are exactly the 5 hallucinations the gate caught.
+**Open question 8 (ids that are real but irrelevant) is now the most important
+open issue — ahead of question 7.** Details in the log entry below.
+
 **2026-09-15 (later): prompt `corpus-v3` — the document's own id removed from the
 prompt — confirms the own-id copies came from the header (9 -> 0), and exposes
 what the model does when it has nothing to copy: almost nothing, and wrong.**
@@ -60,6 +71,79 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### `qwen2.5:14b` on the same 40 documents (2026-10-07)
+Command (new `--model` flag, so the config is untouched and the manifest records
+what actually ran):
+`.venv/bin/python scripts/enrich_corpus.py --per-kind 10 --model qwen2.5:14b --output indexes/enrichment/corpus_stratified_v3_14b.jsonl`
+Same sample (seed 42), same prompt (`corpus-v3`), same gates — only the model
+differs. ~30 min for 39 docs (~46s/doc, 2.7x the 7B) on 16 GB RAM; the run was
+interrupted twice by this session's background time limit and resumed cleanly
+from the JSONL both times, which is the resumability design working for real.
+
+**1 of 40 failed and was not written:** `CAPEC-587`, invalid JSON — the model
+emitted `"frame busting evasion", "kind": ...` with the opening `{"term":`
+missing. Not truncation. Strict parsing caught it, so no fake
+"proposed nothing" record exists. Note it will fail identically on every retry
+at temperature 0, so a resume can never complete this document — see the new
+checklist item.
+
+```
+                              7B (corpus-v3)   14B (corpus-v3)
+  documents                        40               39 (+1 failed)
+  terms proposed                  419              468
+  accepted                        210              248
+  structural proposed              14              125
+  structural accepted              12              109
+  rejected: too_common            207              204
+            not_in_graph            0                5   <- first ever
+            revoked                 0                3   <- first ever
+            deprecated              0                3
+            malformed_id            2                5
+  already in own document       62.4%            23.4%   (33.1% under the gate rule)
+```
+
+**1. "Prompt or model" is answered: model.** The 7B proposed no ATT&CK ids for
+ATT&CK entries once the header id was removed; the 14B proposed 37. Structural
+proposals went 14 -> 125. Nothing else changed.
+
+**2. The graph gate finally has work to do — and this is the RQ4 result.** Five
+`not_in_graph` and three `revoked` rejections, where every earlier run had zero
+of both across 125 documents. The grounding step's value is invisible at 7B and
+visible at 14B; any RQ4 claim must say which model it was measured on.
+
+**3. But most of the new identifiers are counting, not inference.** Of 83
+proposed ids not copied from anywhere, **29 are adjacent (+1) to another id the
+model proposed for the same document**, across 7 documents:
+
+```
+  CWE-512  Spyware        -> CWE-73,74,75,76,77,78,79,80,81   all 9 ACCEPTED, none spyware-related
+  CWE-1169                -> CWE-481,482,483,484,485,486
+  CWE-398                 -> CWE-481,502,693,703,732,754,770,771,787
+  T1056.001 Keylogging    -> T1056, T1056.002/.003/.004 (real siblings, fine)
+                             then T1056.005-.009  -> all 5 not_in_graph
+  T1430.001               -> C0023,C0024,C0025,C0026 (campaign ids)
+```
+
+The existence check accepts a consecutive run whenever those numbers happen to
+exist, which for CWE they usually do. So the 14B's apparent jump in
+"graph-validated proposals" is substantially an artifact of enumeration, and
+**a higher validity rate here means a worse result, not a better one.** This is
+question 8, now upgraded to the top of the list.
+
+**4. Cross-catalogue links are still mostly copies.** CAPEC entries did produce
+CWE and ATT&CK ids (12 and 3) — but 24 of their 27 structural proposals came
+from labelled mapping fields in the entry's own JSON. The clearest genuine
+cross-catalogue proposal in the whole run is `CWE-1321` -> `CAPEC-448`.
+
+**5. Redundancy fell sharply** (62.4% -> 23.4%), mostly because structural
+proposals exploded and the new ones aren't copies. It does not mean the 14B
+restates less prose: colloquial terms are still 33/107 already present.
+
+**Also:** `enrichment.max_new_tokens: 512` in `configs/default.yaml` is dead —
+nothing reads it, and `OllamaClient` sends only `temperature` in its options.
+Either wire it to `num_predict` or delete the key; right now it reads as a
+control that exists.
 
 ### Decisions on the question 7 proposal, and the `corpus-v3` prompt run
 **Decisions (Module 1, 2026-09-15).** (1) Approve the `already_in_document`
@@ -483,15 +567,24 @@ Reading of this run:
       prompt `corpus-v3`; whether entries are searchable by their own id is
       handed to Module 3 (next item). Reasoning in the proposal. Confirmed by
       re-running the 40-document sample: own-id copies 9 -> 0.
-- [ ] **New — question 8:** the graph gate accepts ids that exist but don't fit
-      the entry (`CWE-1321` Prototype Pollution -> `CWE-134` Format String).
-      Recommendation: re-check with a larger open-weight model first, then decide
-      between measuring relatedness offline and gating on it. Worth raising with
-      the supervisor — a relatedness check is arguably what "grounding against a
-      hierarchical ontology" should mean for RQ1.
-- [ ] **Run the same 40 documents with `qwen2.5:14b`** (`ollama pull
-      qwen2.5:14b`, ~9 GB) under `corpus-v3`, own `--output`. Answers "prompt or
-      model" for the zero cross-catalogue ids and question 8 in one run.
+- [ ] **Question 8 — now the top item.** Confirmed at 14B: a third of
+      non-copied ids are sequential enumeration, and the existence check accepts
+      them (`CWE-512` Spyware -> `CWE-73`..`81`). Next step: a relatedness
+      measure (graph distance to the entry, or to the ids it cites) reported
+      beside validity — no contract change needed. Then decide whether to gate
+      on it. Take the numbers to the supervisor: an existence-only check may be
+      the wrong definition of grounding for a hierarchical ontology.
+- [x] **Run the same 40 documents with `qwen2.5:14b`.** — Done 2026-10-07,
+      `corpus_stratified_v3_14b.jsonl`. "Prompt or model" = model. See that log
+      entry; it reframed question 8.
+- [ ] **A deterministically malformed reply can never be resumed past.**
+      `CAPEC-587` failed JSON parsing in the 14B run; at temperature 0 every
+      retry reproduces it, so that document can never complete. Options: a retry
+      with a nudged temperature/seed for parse failures only, a repair pass, or
+      an explicit skip-list so a run can reach "all documents done".
+- [ ] `enrichment.max_new_tokens: 512` is dead config — nothing reads it and
+      `OllamaClient` sends only `temperature`. Wire it to Ollama's `num_predict`
+      or delete the key.
 - [ ] **Before the next default-path run:** `index.enrichment_path` still points
       at the `corpus-v1` file `corpus.jsonl`. Either implement question 2's
       version guard, or always pass `--output`.

@@ -184,6 +184,17 @@ limit: a CVE's own id is still visible to the model, because `corpus_kb` puts
 it in the CVE's title — and CVE ids are not graph nodes anyway (open question
 6).
 
+### The headline numbers are model-specific (added 2026-10-07)
+
+Everything above was measured on `qwen2.5:7b`. The same 40 documents under
+`qwen2.5:14b` give **23.4%** of accepted terms already present (33.1% under this
+gate's rule), not 61%, and structural copies are 37 of 125 proposals rather than
+all of them. The copying is real on both models and the gate still catches
+every copy; but if a number from this document ends up in the write-up, it has
+to carry the model with it. The larger model also raised a separate and now
+higher-priority problem — identifiers that exist but are irrelevant (open
+question 8) — which this gate does not address.
+
 **Result, same 40 documents re-run under `corpus-v3`:** own-id proposals went
 from 9 to 0, with no drop in overall output. ATT&CK entries then proposed no
 identifiers at all. The only two identifiers not copied from anywhere
