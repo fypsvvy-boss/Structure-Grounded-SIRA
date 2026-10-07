@@ -7,6 +7,25 @@ retrieval:
   b: 0.4
   top_k: 100
   synthesis_budget: 5    # extra graph-grounded queries for multi-doc synthesis (evidence-blind)
+  rrf_k: 60              # reciprocal-rank-fusion constant for merging synthesis sub-queries
+  # Which Lucene fields each half of the formula searches, and at what boost:
+  # BM25(q, d) = sum over fields of boost * BM25_field(q, d). Both halves search
+  # both fields by default -- see retrieval/weighted_bm25.py and docs/05_MODULE3_STATE.md.
+  fields:
+    orig: {contents: 1.0, expansion: 1.0}
+    exp:  {contents: 1.0, expansion: 1.0}
+  id_boost: 0.0          # >0 lets an id named in the query match the entry whose id it is; off by default
+
+baselines:
+  hybrid:
+    model: sentence-transformers/all-MiniLM-L6-v2
+    alpha: 0.5           # score = alpha*dense + (1-alpha)*bm25, both rescaled to [0,1]
+    depth: 1000          # candidates taken from each half before mixing
+    cache_dir: indexes/dense
+  agent:
+    max_rounds: 3        # searches per question; each one after the first costs an LLM call
+    read_k: 5            # results shown to the model per round
+    snippet_chars: 400
 
 enrichment:
   max_terms_per_doc: 12

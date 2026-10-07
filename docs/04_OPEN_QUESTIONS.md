@@ -205,6 +205,11 @@ a small `malformed_id` overcount. See question 6 for the related CVE case.
 
 ## 4. (Handoff to Module 3) expansion-field length normalization
 
+**Picked up by Module 3, 2026-10-07 — see `05_MODULE3_STATE.md` decision 2.**
+Both halves of the formula search both fields, with per-field boosts in the
+config (`retrieval.fields`). The boosts are untuned at 1.0, so the
+length-normalisation question below is parameterised, not yet answered.
+
 Not a Module 1 action, but flag it in the Module 1→3 handoff so Student 3 decides
 knowingly: BM25 length-normalization is per-field in Lucene, and the `expansion`
 field is short. So `BM25(q_exp, d)` against the expansion field isn't scaled like

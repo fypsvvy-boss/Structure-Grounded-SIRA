@@ -8,6 +8,14 @@
 
 ## Current headline
 
+**2026-10-07: Module 3 first implementation (branch `sarthak`) — weighted BM25
+engine, synthesis protocol, and the plain / hybrid / multi-round baselines.**
+Tested offline on fixture indexes only (214 tests pass); not yet run on the real
+corpus or on CTIConnect queries. Details, decisions and what Module 3 needs from
+the other modules: `05_MODULE3_STATE.md`. One decision is waiting on the team:
+whether an entry should be findable by its own id (`retrieval.id_boost`, built
+but off).
+
 **2026-09-15 (later): prompt `corpus-v3` — the document's own id removed from the
 prompt — confirms the own-id copies came from the header (9 -> 0), and exposes
 what the model does when it has nothing to copy: almost nothing, and wrong.**
