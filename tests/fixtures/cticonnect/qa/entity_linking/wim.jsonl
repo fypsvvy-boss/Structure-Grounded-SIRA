@@ -1,0 +1,1 @@
+{"id": "wim-001", "task": "wim", "category": "entity_linking", "eval_type": "single_id_match", "question": "Which vulnerability is an instance of improper restriction of excessive authentication attempts?", "answer": "CVE-2024-12345", "ground_truth": {"target_type": "cve", "target_id": "CVE-2024-12345"}, "source": {"source_type": "cwe", "source_id": "CWE-307"}}

@@ -1,0 +1,1 @@
+{"id": "esd-001", "task": "esd", "category": "entity_linking", "eval_type": "single_id_match", "question": "Which attack pattern exploits improper restriction of excessive authentication attempts by guessing passwords?", "answer": "CAPEC-49", "ground_truth": {"target_type": "capec", "target_id": "49"}, "source": {"source_type": "cwe", "source_id": "CWE-307"}}

@@ -1,0 +1,1 @@
+{"id": "csc-001", "task": "csc", "category": "multi_doc_synthesis", "eval_type": "judge", "question": "Reconstruct the storyline of the campaign described across these vendor reports.", "answer": "The campaign began with password guessing against exposed portals and moved on to ...", "ground_truth": {}, "source": {"source_type": "report", "source_id": "report-017"}}

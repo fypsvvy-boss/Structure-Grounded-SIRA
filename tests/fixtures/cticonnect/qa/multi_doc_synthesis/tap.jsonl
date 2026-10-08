@@ -1,0 +1,1 @@
+{"id": "tap-001", "task": "tap", "category": "multi_doc_synthesis", "eval_type": "judge", "question": "Profile the threat actor behind these intrusions.", "answer": "A financially motivated group that favours credential attacks ...", "ground_truth": {}, "source": {"source_type": "report", "source_id": "report-022"}}
