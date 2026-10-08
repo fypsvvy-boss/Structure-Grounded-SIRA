@@ -36,6 +36,14 @@ constrained decoding fixed `CAPEC-587`, so both runs completed 40/40 with zero
 parse failures. Full numbers in the log entry below; sign-off request in
 `docs/proposals/name-id-consistency.md`.
 
+**2026-10-07: Module 3 first implementation (branch `sarthak`) — weighted BM25
+engine, synthesis protocol, and the plain / hybrid / multi-round baselines.**
+Tested offline on fixture indexes only (214 tests pass); not yet run on the real
+corpus or on CTIConnect queries. Details, decisions and what Module 3 needs from
+the other modules: `05_MODULE3_STATE.md`. One decision is waiting on the team:
+whether an entry should be findable by its own id (`retrieval.id_boost`, built
+but off).
+
 **2026-10-07: `qwen2.5:14b` on the same 40 documents answers "prompt or model" —
 it is the model, but not in the way we wanted.** Structural proposals went from
 14 to 125 and the graph gate finally rejected something it never could before

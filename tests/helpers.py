@@ -114,3 +114,40 @@ def build_injection_graph() -> OntologyGraph:
     for child, parent in ((74, 707), (89, 74), (78, 74), (79, 74), (20, 707), (173, 707)):
         g.add_edge(OntologyEdge(f"CWE-{child}", f"CWE-{parent}", EdgeType.CHILD_OF))
     return g
+
+
+def build_retrieval_indexes(root):
+    """A base and an enriched index over ``corpus_kb``, for the Module 3 tests.
+
+    The enrichment is written directly as records instead of being run
+    through the Module 1 pipeline: these tests are about what retrieval does
+    with an enriched index, not about how one is produced. ``T1110`` and
+    ``CWE-307`` each get vocabulary that appears nowhere in the corpus text.
+    Returns ``(base_dir, enriched_dir)``.
+    """
+    from sira_cti.common import EnrichmentRecord, ProposedTerm, Source, TermKind, write_jsonl
+    from sira_cti.index import build_base_index, build_enriched_index
+
+    base_dir = build_base_index(
+        kb_dir=CORPUS_KB_FIXTURE, index_dir=root / "base", staging_dir=root / "base_staging", threads=1
+    )
+    records = [
+        EnrichmentRecord(
+            doc_id="T1110", source=Source.ATTACK, original_text="",
+            proposed_terms=[
+                ProposedTerm.accept("zzz-canary-term", TermKind.COLLOQUIAL),
+                ProposedTerm.accept("credential hammering", TermKind.COLLOQUIAL),
+            ],
+        ),
+        EnrichmentRecord(
+            doc_id="CWE-307", source=Source.CWE, original_text="",
+            proposed_terms=[ProposedTerm.accept("unlimited login tries", TermKind.SYMPTOM)],
+        ),
+    ]
+    enrichment_path = root / "enrichment.jsonl"
+    write_jsonl(records, enrichment_path)
+    enriched_dir = build_enriched_index(
+        kb_dir=CORPUS_KB_FIXTURE, enrichment_path=enrichment_path, index_dir=root / "enriched",
+        staging_dir=root / "enriched_staging", threads=1,
+    )
+    return base_dir, enriched_dir
