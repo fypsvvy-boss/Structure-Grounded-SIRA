@@ -224,3 +224,178 @@ def test_ollama_sends_a_schema_as_the_format_field():
 
     _Recorder(model="m", json_schema=schema).generate("p")
     assert captured["format"] == schema
+
+
+# -- Gemini (frontier backend) --------------------------------------------------------
+#
+# No network and no key: a fake SDK object stands in for google-genai, so
+# these check what is *sent* and how the reply's usage is *booked*.
+
+
+class _FakeGeminiSDK:
+    def __init__(self, *, text="[]", prompt=100, candidates=40, thoughts=300, finish="STOP", error=None):
+        from types import SimpleNamespace as NS
+
+        self.calls = []
+        self._error = error
+        self._response = NS(
+            text=text,
+            model_version="gemini-test-001",
+            usage_metadata=NS(
+                prompt_token_count=prompt, candidates_token_count=candidates, thoughts_token_count=thoughts
+            ),
+            candidates=[NS(finish_reason=NS(name=finish))],
+        )
+        self.models = self
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def test_gemini_books_thinking_tokens_apart_from_the_reply():
+    from sira_cti.common import GeminiClient
+
+    client = GeminiClient("gemini-test", sdk_client=_FakeGeminiSDK())
+    client.generate("p")
+
+    tokens = client.log.records[0].tokens
+    assert (tokens.prompt, tokens.completion, tokens.thinking) == (100, 40, 300)
+    assert tokens.total == 440
+    assert tokens.to_dict() == {"prompt": 100, "completion": 40, "thinking": 300}
+
+
+def test_gemini_sends_seed_schema_and_a_cap_that_leaves_room_to_think():
+    from sira_cti.common import GeminiClient
+
+    schema = {"type": "array", "items": {"type": "object"}}
+    sdk = _FakeGeminiSDK()
+    client = GeminiClient(
+        "gemini-test", sdk_client=sdk, seed=42, thinking_level="low",
+        thinking_headroom_tokens=1000, max_new_tokens=512, json_schema=schema,
+    )
+    client.generate("p", system="sys")
+
+    config = sdk.calls[0]["config"]
+    assert config["seed"] == 42
+    assert config["temperature"] == 0.0
+    # The provider's cap covers reasoning and reply together; sending 512
+    # as-is would let the reasoning starve the reply.
+    assert config["max_output_tokens"] == 1512
+    assert config["thinking_config"] == {"thinking_level": "low"}
+    assert config["response_mime_type"] == "application/json"
+    assert config["response_json_schema"] == schema
+    assert config["system_instruction"] == "sys"
+
+
+def test_gemini_does_not_send_a_thinking_config_it_was_not_given():
+    from sira_cti.common import GeminiClient
+
+    sdk = _FakeGeminiSDK()
+    client = GeminiClient("gemini-test", sdk_client=sdk)
+    client.generate("p")
+
+    assert "thinking_config" not in sdk.calls[0]["config"]
+    assert "seed" not in sdk.calls[0]["config"]
+    assert client.describe()["thinking"]["thinking_level"] == "model default (not sent)"
+
+
+def test_gemini_flags_a_reply_cut_off_at_the_token_cap():
+    from sira_cti.common import GeminiClient
+
+    client = GeminiClient("gemini-test", sdk_client=_FakeGeminiSDK(finish="MAX_TOKENS"))
+    client.generate("p")
+
+    assert client.last_truncated
+    assert client.last_model_version == "gemini-test-001"
+
+
+def test_gemini_never_lets_the_api_key_reach_the_call_log():
+    from sira_cti.common import GeminiClient
+
+    sdk = _FakeGeminiSDK(error=RuntimeError("403 for key=SECRET-KEY-123"))
+    client = GeminiClient("gemini-test", sdk_client=sdk, api_key="SECRET-KEY-123", max_retries=0)
+
+    with pytest.raises(LLMError):
+        client.generate("p")
+    assert "SECRET-KEY-123" not in client.log.records[0].error
+    assert "SECRET-KEY-123" not in str(client.describe())
+
+
+def test_gemini_refuses_to_start_without_a_key(monkeypatch):
+    from sira_cti.common import GeminiClient
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(LLMError, match="GEMINI_API_KEY"):
+        GeminiClient("gemini-test")
+
+
+def test_load_env_file_returns_names_not_values(tmp_path, monkeypatch):
+    from sira_cti.common import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text('# comment\nSIRA_TEST_KEY="abc123"\nSIRA_TEST_KEPT=from-file\n')
+    monkeypatch.delenv("SIRA_TEST_KEY", raising=False)
+    monkeypatch.setenv("SIRA_TEST_KEPT", "from-shell")
+
+    assert load_env_file(env) == ["SIRA_TEST_KEY"]
+    import os
+
+    assert os.environ["SIRA_TEST_KEY"] == "abc123"
+    assert os.environ["SIRA_TEST_KEPT"] == "from-shell"   # the real environment wins
+    monkeypatch.delenv("SIRA_TEST_KEY")
+    assert load_env_file(tmp_path / "missing.env") == []
+
+
+# -- Ollama: explicit seed, explicit context, and the silent-truncation guard ----------
+
+
+def _fake_ollama(monkeypatch, *, prompt_eval_count=100):
+    """Replace the HTTP call; return the list that collects request payloads."""
+    import io
+    import json as _json
+    import urllib.request
+
+    sent = []
+
+    def _urlopen(req, timeout=None):
+        sent.append(_json.loads(req.data.decode("utf-8")))
+        body = {"response": "[]", "prompt_eval_count": prompt_eval_count, "eval_count": 5, "done_reason": "stop"}
+        return io.BytesIO(_json.dumps(body).encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+    return sent
+
+
+def test_ollama_sends_seed_and_num_ctx_inside_options(monkeypatch):
+    from sira_cti.common.llm import OllamaClient
+
+    sent = _fake_ollama(monkeypatch)
+    OllamaClient(model="m", seed=42, num_ctx=4096, max_new_tokens=512).generate("p")
+
+    assert sent[0]["options"] == {"temperature": 0.0, "num_predict": 512, "seed": 42, "num_ctx": 4096}
+    assert "seed" not in sent[0] and "num_ctx" not in sent[0]   # top level is silently ignored
+
+
+def test_ollama_leaves_seed_and_num_ctx_out_when_not_configured(monkeypatch):
+    from sira_cti.common.llm import OllamaClient
+
+    sent = _fake_ollama(monkeypatch)
+    OllamaClient(model="m").generate("p")
+
+    assert sent[0]["options"] == {"temperature": 0.0}
+
+
+def test_ollama_flags_a_prompt_that_does_not_fit_the_context(monkeypatch):
+    from sira_cti.common.llm import OllamaClient
+
+    _fake_ollama(monkeypatch, prompt_eval_count=3700)
+    client = OllamaClient(model="m", num_ctx=4096, max_new_tokens=512)
+    client.generate("p")
+    assert client.last_context_overflow            # 3700 + 512 > 4096
+
+    _fake_ollama(monkeypatch, prompt_eval_count=3000)
+    client.generate("p")
+    assert not client.last_context_overflow

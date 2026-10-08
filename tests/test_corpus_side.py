@@ -1090,3 +1090,239 @@ def test_the_manifest_records_the_name_scorer(tmp_path):
     manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
     assert manifest["gates"]["name_scorer"] == "v2"
     assert manifest["gates"]["name_match_min_jaccard"] == 0.6
+
+
+def test_the_manifest_records_backend_settings_and_thinking_tokens(tmp_path):
+    from sira_cti.common import TokenUsage
+
+    client = StubClient(
+        model="frontier-test", responder=lambda _p: _reply([]),
+        fixed_usage=TokenUsage(prompt=100, completion=40, thinking=300),
+    )
+    out = tmp_path / "enrichment.jsonl"
+    settings = {"backend": "gemini", "seed_sent": 42, "seed_honoured": False, "thinking": {"thinking_level": "low"}}
+
+    summary = run_corpus_enrichment(
+        [_doc("T1110"), _doc("T1078")], client_factory=lambda: client, graph=build_fixture_graph(),
+        df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9, llm_settings=settings,
+    )
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["llm"] == settings
+    assert manifest["usage"] == {"llm_calls": 2, "tokens": {"prompt": 200, "completion": 80, "thinking": 600}}
+    assert summary.tokens.thinking == 600
+
+
+def test_a_plain_run_keeps_the_manifest_shape_it_always_had(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_doc("T1110")], client_factory=lambda: StubClient(responder=lambda _p: _reply([])),
+        graph=build_fixture_graph(), df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+    )
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert "llm" not in manifest and "usage" not in manifest
+
+
+# -- context handling: explicit truncation and the overflow guard (open question 12) --
+
+
+def _long_capec() -> str:
+    return "Example Attack " + json.dumps({
+        "Description": "An adversary does a thing.",
+        "Mitigations": {"Mitigation": ["m" * 300, "n" * 300]},
+        "Related_Weaknesses": {"Related_Weakness": [{"@CWE_ID": "345"}]},
+        "References": {"Reference": ["TAIL-THE-MODEL-MUST-NOT-SEE" + "r" * 300]},
+    })
+
+
+def test_a_long_document_is_shown_to_the_model_cut_but_recorded_whole(tmp_path):
+    long_text = _long_capec()
+    client = StubClient(responder=lambda _p: _reply([]))
+    out = tmp_path / "enrichment.jsonl"
+
+    run_corpus_enrichment(
+        [_doc("T1110", text=long_text), _doc("T1078", text="short")], client_factory=lambda: client,
+        graph=build_fixture_graph(), df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+        max_doc_chars=len(long_text) - 100,
+    )
+
+    assert "TAIL-THE-MODEL-MUST-NOT-SEE" not in client.prompts[0]
+    assert '"@CWE_ID": "345"' in client.prompts[0]                 # the links survive the cut
+    records = {r.doc_id: r for r in read_jsonl(out)}
+    assert records["T1110"].original_text == long_text           # the record keeps all of it
+    assert records["T1110"].truncation["mode"] == "sections"     # ...and says what was removed
+    assert records["T1110"].truncation["dropped"] == ["References"]
+    assert records["T1078"].truncation is None
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["gates"]["max_doc_chars"] == len(long_text) - 100
+    assert manifest["gates"]["truncation_version"] == "sections-v1"
+    assert manifest["truncation"]["truncated_docs"] == ["T1110"]
+    assert manifest["truncation"]["fallback_docs"] == []
+    assert manifest["truncation"]["truncated_count"] == 1
+
+
+def test_a_fallback_cut_is_named_on_the_record_and_in_the_manifest(tmp_path):
+    client = StubClient(responder=lambda _p: _reply([]))
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_doc("T1110", text="A" * 500)], client_factory=lambda: client, graph=build_fixture_graph(),
+        df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9, max_doc_chars=50,
+    )
+    record = next(iter(read_jsonl(out)))
+    assert record.truncation["mode"] == "fallback"
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["truncation"]["fallback_docs"] == ["T1110"]
+
+
+def test_readjudicating_a_record_keeps_its_truncation(tmp_path):
+    from sira_cti.enrichment.corpus_side import readjudicate_record
+
+    long_text = _long_capec()
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_doc("T1110", text=long_text)], client_factory=lambda: StubClient(responder=lambda _p: _reply([])),
+        graph=build_fixture_graph(), df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+        max_doc_chars=len(long_text) - 100,
+    )
+    record = next(iter(read_jsonl(out)))
+    again = readjudicate_record(record, build_fixture_graph(), _df(), df_max_ratio=0.9)
+    assert again.truncation == record.truncation
+
+
+def test_without_a_budget_nothing_is_cut_and_the_manifest_says_nothing(tmp_path):
+    client = StubClient(responder=lambda _p: _reply([]))
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_doc("T1110", text="B" * 500)], client_factory=lambda: client, graph=build_fixture_graph(),
+        df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+    )
+    assert "B" * 500 in client.prompts[0]
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert "truncation" not in manifest
+
+
+def test_a_reply_to_a_prompt_that_overflowed_the_context_is_not_written(tmp_path):
+    # Ollama answers an over-long prompt anyway, having dropped part of it.
+    client = StubClient(responder=lambda _p: _reply([{"term": "password spraying", "kind": "colloquial"}]))
+    client.last_context_overflow = True
+    client.num_ctx = 4096
+    out = tmp_path / "enrichment.jsonl"
+
+    summary = run_corpus_enrichment(
+        [_doc("T1110")], client_factory=lambda: client, graph=build_fixture_graph(), df_lookup=_df(),
+        output_path=out, max_terms=12, df_max_ratio=0.9,
+    )
+
+    assert summary.processed == 0 and summary.failed == 1
+    assert "context" in summary.failures[0][1]
+    assert not out.exists()
+
+
+# -- "copied from the entry" is measured against what the model was shown ---------------
+
+
+def test_an_id_in_a_cut_off_section_is_not_counted_as_copied():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from measure_redundancy import structural_provenance
+
+    from sira_cti.common import EnrichmentRecord
+    from sira_cti.enrichment.truncation import record_shown_text, truncate_text
+
+    text = "Example Attack " + json.dumps({
+        "Description": "An adversary does a thing.",
+        "Related_Weaknesses": {"Related_Weakness": [{"@CWE_ID": "345"}]},
+        "References": {"Reference": ["see CWE-79 and CWE-345 " + "r" * 300]},
+    })
+    _shown, info = truncate_text(text, len(text) - 100)
+    cut = EnrichmentRecord(doc_id="CAPEC-999", source=Source.CAPEC, original_text=text, truncation=info)
+    whole = EnrichmentRecord(doc_id="CAPEC-999", source=Source.CAPEC, original_text=text)
+
+    # CWE-79 appears only in References, which the model never saw.
+    assert structural_provenance("CWE-79", "CAPEC-999", record_shown_text(whole)) != "not_found"
+    assert structural_provenance("CWE-79", "CAPEC-999", record_shown_text(cut)) == "not_found"
+    # CWE-345 is in Related Weaknesses, which is protected: still a copy.
+    assert structural_provenance("CWE-345", "CAPEC-999", record_shown_text(cut)) != "not_found"
+
+
+# -- resume safety (open question 2) ---------------------------------------------------
+
+
+def _resume_run(out, docs, **overrides):
+    settings = dict(
+        client_factory=lambda: StubClient(model="m1", responder=lambda _p: _reply([])),
+        graph=build_fixture_graph(), df_lookup=_df(), output_path=out, max_terms=12, df_max_ratio=0.9,
+        config_hash="aaaa", name_match_min_overlap=0.5, name_scorer="v2", concurrency=1, max_doc_chars=6000,
+    )
+    settings.update(overrides)
+    return run_corpus_enrichment(docs, **settings)
+
+
+def test_resuming_under_identical_settings_continues(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    summary = _resume_run(out, [_doc("T1110"), _doc("T1078")])
+
+    assert (summary.already_done, summary.processed) == (1, 1)
+    assert {r.doc_id for r in read_jsonl(out)} == {"T1110", "T1078"}
+
+
+@pytest.mark.parametrize(
+    "override, named",
+    [
+        ({"config_hash": "bbbb"}, "config_hash"),
+        ({"client_factory": lambda: StubClient(model="m2", responder=lambda _p: _reply([]))}, "model"),
+        ({"name_scorer": "v1"}, "gates.name_scorer"),
+        ({"concurrency": 2}, "concurrency"),
+        ({"max_doc_chars": 4000}, "gates.max_doc_chars"),
+        ({"max_doc_chars": None}, "gates.max_doc_chars"),
+        ({"prompt_version": "corpus-v999"}, "prompt_version"),
+    ],
+)
+def test_resuming_under_different_settings_is_refused_and_names_the_difference(tmp_path, override, named):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    before = out.read_text()
+
+    with pytest.raises(ResumeMismatchError) as excinfo:
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], **override)
+
+    assert named in str(excinfo.value)
+    assert "--output" in str(excinfo.value)          # tells the user what to do
+    assert out.read_text() == before                 # nothing was appended
+
+
+def test_resuming_a_file_with_no_manifest_is_refused(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    out.with_suffix(out.suffix + ".manifest.json").unlink()
+
+    with pytest.raises(ResumeMismatchError, match="no manifest"):
+        _resume_run(out, [_doc("T1110"), _doc("T1078")])
+
+
+def test_the_manifest_exists_before_the_first_document_finishes(tmp_path):
+    # A run that dies part-way must still leave what a resume is checked against.
+    out = tmp_path / "enrichment.jsonl"
+    manifest_path = out.with_suffix(out.suffix + ".manifest.json")
+    seen = []
+
+    def responder(_prompt):
+        seen.append(manifest_path.exists())
+        return _reply([])
+
+    _resume_run(out, [_doc("T1110")], client_factory=lambda: StubClient(model="m1", responder=responder))
+    assert seen == [True]
+    assert json.loads(manifest_path.read_text())["concurrency"] == 1
+
+
+def test_a_finished_file_can_be_rerun_under_any_settings_because_nothing_is_appended(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    summary = _resume_run(out, [_doc("T1110")], config_hash="bbbb")       # nothing pending
+    assert (summary.already_done, summary.processed) == (1, 0)

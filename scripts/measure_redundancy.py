@@ -56,6 +56,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sira_cti.common import TermKind, load_config, read_jsonl
+from sira_cti.enrichment.truncation import record_shown_text
 from sira_cti.graph import extract_structural_ids
 
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
@@ -129,17 +130,20 @@ def main() -> int:
     provenance: dict[str, dict[str, int]] = {}   # source -> provenance label -> count
     not_found: list[tuple[str, str]] = []
     for rec in read_jsonl(args.enrichment_jsonl):
+        # What the model was shown, not the full entry: a section that was cut
+        # off cannot have been copied from.
+        shown = record_shown_text(rec)
         for t in rec.structural_terms:
-            label = structural_provenance(t.structural_id, rec.doc_id, rec.original_text)
+            label = structural_provenance(t.structural_id, rec.doc_id, shown)
             row = provenance.setdefault(rec.source.value, {})
             row[label] = row.get(label, 0) + 1
             if label == "not_found":
                 not_found.append((rec.doc_id, t.structural_id))
-        doc_tokens = reader.analyze(rec.original_text)
+        doc_tokens = reader.analyze(shown)
         for t in rec.accepted_terms:
             if t.kind is TermKind.STRUCTURAL:
-                present = structural_id_in_text(t.structural_id, rec.original_text)
-                gate_present += already_in_document_structural(t.structural_id, rec.original_text)
+                present = structural_id_in_text(t.structural_id, shown)
+                gate_present += already_in_document_structural(t.structural_id, shown)
             else:
                 present = contains_contiguous(doc_tokens, reader.analyze(t.term))
                 gate_present += present

@@ -22,7 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
-SCHEMA_VERSION = "1.3.0"
+SCHEMA_VERSION = "1.5.0"
 
 
 class Source(str, Enum):
@@ -108,27 +108,46 @@ class RejectStage(str, Enum):
 
 @dataclass
 class TokenUsage:
-    """Prompt/completion token counts for one or more LLM calls."""
+    """Prompt/completion token counts for one or more LLM calls.
+
+    ``thinking`` (schema 1.4.0) is the hidden reasoning a "thinking" model
+    does before it writes its reply. It is counted **separately** from
+    ``completion`` -- never folded into it -- because the two answer
+    different questions: ``completion`` is the size of the reply the pipeline
+    actually parses, ``thinking`` is extra work the provider bills at the
+    output rate but never shows. Local Ollama models report none, so the
+    field is 0 for them and is left out of the JSON entirely, which keeps
+    every record written before 1.4.0 byte-identical when re-saved.
+    """
 
     prompt: int = 0
     completion: int = 0
+    thinking: int = 0
 
     @property
     def total(self) -> int:
-        return self.prompt + self.completion
+        return self.prompt + self.completion + self.thinking
 
     def __add__(self, other: "TokenUsage") -> "TokenUsage":
         return TokenUsage(
             prompt=self.prompt + other.prompt,
             completion=self.completion + other.completion,
+            thinking=self.thinking + other.thinking,
         )
 
     def to_dict(self) -> dict[str, int]:
-        return {"prompt": self.prompt, "completion": self.completion}
+        d = {"prompt": self.prompt, "completion": self.completion}
+        if self.thinking:
+            d["thinking"] = self.thinking
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "TokenUsage":
-        return cls(prompt=int(d.get("prompt", 0)), completion=int(d.get("completion", 0)))
+        return cls(
+            prompt=int(d.get("prompt", 0)),
+            completion=int(d.get("completion", 0)),
+            thinking=int(d.get("thinking", 0)),
+        )
 
 
 @dataclass
@@ -446,6 +465,14 @@ class EnrichmentRecord:
     latency_ms: int = 0
     model: str = ""
     schema_version: str = SCHEMA_VERSION
+    truncation: Optional[dict[str, Any]] = None
+    """Schema 1.5.0. What was removed from the copy of the entry the model was
+    shown, when the entry was too long: ``mode`` (``"sections"`` or
+    ``"fallback"``), the section names ``dropped`` and ``trimmed``, and the
+    sizes. ``None`` -- and absent from the JSON -- means the model saw the whole
+    of ``original_text``, which is every record written before 1.5.0.
+    ``original_text`` itself is always the full entry. Written and read back by
+    ``enrichment/truncation.py``."""
 
     def __post_init__(self) -> None:
         self.source = Source(self.source)
@@ -510,7 +537,7 @@ class EnrichmentRecord:
     # -- serialisation ------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "doc_id": self.doc_id,
             "source": self.source.value,
             "original_text": self.original_text,
@@ -521,6 +548,9 @@ class EnrichmentRecord:
             "model": self.model,
             "schema_version": self.schema_version,
         }
+        if self.truncation:
+            d["truncation"] = self.truncation
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "EnrichmentRecord":
@@ -534,6 +564,7 @@ class EnrichmentRecord:
             latency_ms=int(d.get("latency_ms", 0)),
             model=d.get("model", ""),
             schema_version=d.get("schema_version", SCHEMA_VERSION),
+            truncation=d.get("truncation") or None,
         )
 
     def to_json(self) -> str:

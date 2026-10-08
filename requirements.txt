@@ -11,5 +11,9 @@ pytrec_eval>=0.5
 # Dense baseline (Module 3)
 sentence-transformers>=2.2.0
 
+# Frontier backend (Module 1) -- only needed for `enrich_corpus.py --backend gemini`,
+# a logged policy exception (docs/06_POLICY_EXCEPTIONS.md). Ollama runs don't import it.
+google-genai>=2.29
+
 # Dev
 pytest>=7.4

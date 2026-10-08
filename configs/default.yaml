@@ -36,8 +36,15 @@ enrichment:
   # The prompt version is no longer set here: scripts/enrich_corpus.py records
   # prompts/corpus_side.py:PROMPT_VERSION directly, so the manifest can't claim a
   # version the prompt doesn't have.
-  concurrency: 2                  # Ollama is local -- keep modest by default
+  concurrency: 1                  # one request at a time: Ollama serves one per model anyway, so 2
+                                  # gave no speed-up and doubled each record's latency_ms (q11)
   max_new_tokens: 512     # cap on reply length; reaches Ollama as options.num_predict
+  # Documents longer than this are shown to the model cut to this many
+  # characters (the record and the index keep the full text; the manifest lists
+  # which were cut). 6000 is sized for num_ctx 4096 on the *densest* documents:
+  # CVE version tables measured ~2.1 characters per token, not the ~3.75 average.
+  # 171 of 6,044 documents (2.8%) are longer. null = never cut.
+  max_doc_chars: 6000
   # Constrained decoding. "schema" sends prompts/corpus_side.py:REPLY_SCHEMA as
   # Ollama's "format", which is the only one of the three that actually fixed
   # CAPEC-587: unconstrained dropped an opening brace mid-array, and plain
@@ -89,6 +96,13 @@ llm:
   model: qwen2.5:7b            # frontier model reserved for the final benchmark run
   host: http://localhost:11434
   temperature: 0.0
+  # Sent to Ollama explicitly (under "options") so neither is left to chance.
+  # seed: at temperature 0 replies were already repeatable; this makes it a
+  # setting. num_ctx: the context window, in tokens. 4096 is what every sample
+  # run used. Prompt + reply must fit, or Ollama silently drops part of the
+  # prompt -- the client now refuses such a reply (docs/04_OPEN_QUESTIONS.md q12).
+  seed: 42
+  num_ctx: 4096
   max_retries: 2
 
 corpus:

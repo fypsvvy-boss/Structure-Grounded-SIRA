@@ -74,6 +74,22 @@ base index built fine.
   `options.num_predict`, and `max_new_tokens` set beside `"model"` is accepted
   and ignored. `common/llm.py` nests both (added 2026-10-07; before that
   `enrichment.max_new_tokens` was read by nothing at all).
+- **Seed and context size are now sent explicitly** (2026-10-08): `llm.seed: 42`
+  and `llm.num_ctx: 4096` go out as `options.seed` / `options.num_ctx`. Checked
+  on the real 7B — seeded replies repeat exactly and match the earlier
+  unseeded ones.
+- **Ollama does not fail a prompt that is too long — it silently drops part
+  of it and answers anyway.** Long documents are therefore shortened on
+  purpose — whole sections removed in a fixed order, never the description or
+  the links to other catalogues (`enrichment.max_doc_chars: 6000`,
+  `enrichment/truncation.py`) — and listed in the run manifest, and the
+  client refuses any reply where prompt + reply cap did not fit. Do not size
+  that budget from "~3.75 characters per token": CVE version tables are ~2.1.
+- **Never benchmark — or run — on battery.** Measured 2026-10-09 on the 14B:
+  8.5 tokens a second on mains, 5.4 on battery (1.7 times slower), and the
+  first 90 seconds after loading are a 13.5 tok/s burst that means nothing.
+  `scripts/bench_enrichment_speed.py` refuses to start on battery and stops
+  if the charger comes out part-way.
 
 ### ⚠️ `format: "json"` is not the JSON mode you want (2026-10-07)
 
@@ -147,6 +163,68 @@ A third, larger model is not an option on this machine: `qwen2.5:32b` at
 (`docs/04_OPEN_QUESTIONS.md`, model-scale note). Select it per run with
 `--model qwen2.5:14b` rather than editing the config, so the config hash stays
 comparable across runs; the manifest records the model that actually ran.
+
+---
+
+## Gemini (frontier model — policy exceptions only)
+
+Development stays on local Ollama models. A Gemini run is a **logged
+exception**: write it up in `06_POLICY_EXCEPTIONS.md` before you start.
+
+- **Key:** `GEMINI_API_KEY` in `.env` at the repo root (`.env` is git-ignored).
+  Get one from Google AI Studio. **Never print, log or commit it.**
+  `load_env_file()` in `common/repro.py` loads it and only ever returns the
+  variable *names*; `GeminiClient` scrubs it out of error messages.
+- **SDK:** `google-genai` (in `requirements.txt`). Install with
+  `.venv/bin/python -m pip install google-genai` — note `python -m pip`, not
+  `.venv/bin/pip`: the venv was moved and `pip`'s own launcher still points at
+  the old folder.
+- **Model id:** pass a pinned id (`gemini-3.1-pro-preview` on 2026-10-08), not
+  an alias like `gemini-pro-latest` — an alias silently changes which model
+  you are measuring.
+
+```bash
+.venv/bin/python scripts/enrich_corpus.py --per-kind 10 --backend gemini \
+    --model gemini-3.1-pro-preview --thinking-level low --concurrency 1 \
+    --price-in 2.00 --price-out 12.00 --cost-cap-usd 0.88 \
+    --output indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro.jsonl
+```
+
+`--backend` and `--model` are flags on purpose: editing `configs/default.yaml`
+would change the config hash and make the run look like a different experiment.
+
+### ⚠️ Four ways Gemini is not Ollama (measured 2026-10-08)
+
+1. **It thinks, and you pay for it.** Before answering, the model writes
+   private reasoning you never see. It is billed at the output price. On our
+   documents it was *several times larger than the reply itself*. It is
+   recorded as `tokens.thinking`, separate from `tokens.completion`
+   (`proposals/thinking-tokens.md`). Thinking cannot be switched off on a Pro
+   model; `--thinking-level low|medium|high` only turns it down. Leaving the
+   flag off uses the model's default, which is `high`.
+2. **The reply cap covers the thinking too.** Gemini's `max_output_tokens`
+   is one budget shared by reasoning and reply. Sending our 512 as-is would
+   let the reasoning use all of it and return nothing. `GeminiClient` sends
+   `512 + 8192` instead, so the reply still gets its 512.
+3. **The seed is accepted but not honoured.** We send `seed=42` at
+   temperature 0. The API takes it without complaint, and two identical
+   requests still came back different in 3 of 4 tries. Do not describe a
+   Gemini run as reproducible. The manifest records this per run
+   (`llm.seed_honoured`).
+4. **"At most 12" is taken literally.** The schema-constrained reply is
+   always a proper array (no single-object collapse), but the model often
+   stops short: 6 to 12 terms per document on the sample, 12 on only 8 of 40.
+   The local models nearly always fill all 12. That is allowed by the prompt;
+   the preflight only aborts on a real collapse (fewer than half).
+5. **Some replies report no thinking tokens at all** (5 of 40). The API simply
+   returned none for them; those records have no `thinking` key.
+
+The script runs a **preflight** before every Gemini run: one document, asked
+twice. It checks the array did not collapse, compares the two replies (the
+seed test), and turns their cost into an estimate for the whole run. It
+refuses to start if the estimate is over `--cost-cap-usd`, and stops mid-run
+if actual spend passes it (which is why a capped run must use
+`--concurrency 1`).
 
 ---
 

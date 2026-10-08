@@ -8,6 +8,58 @@
 
 ## Current headline
 
+**2026-10-09 (later): the cut is now made by section, resumes are guarded,
+and concurrency defaults to 1. The 14B re-run under the new cut is NOT done —
+the laptop was on battery.** Over-long entries are shortened by removing whole
+sections in a fixed order (references first, mitigations last); description
+and cross-catalogue links are never removed. On the 171 long entries: **0
+blind cuts, and all 63 CAPEC entries with a Related Weaknesses list keep it**
+(8 did under the plain cut). Each record says what was removed (schema
+**1.5.0**). "Copied from the entry" is now measured against what the model was
+shown — **no existing table number changes**. Resuming a file under different
+settings is refused. Config hash **`364d30da6c75`**. 349 tests pass. Stage 1
+not started.
+
+**2026-10-09: billing confirmed, the cut inspected, Stage 2 rule set, a
+Stage 1 checklist written — and the speed benchmark spoiled.** (1) The Gemini
+key is on the **paid tier**; actual charge for both runs **₹116.66**. (2) The
+6,000-character cut removes only product tables from CVEs, but **real
+descriptive text from all 108 cut CWE and CAPEC entries**, including the
+whole "Related Weaknesses" (CWE id) list on 55 CAPECs. (3) Owner's decisions:
+keep 4096 + 6,000; Gemini gets the same cut so the model is the only variable.
+(4) The 45-minute benchmark lost mains power after 6 minutes: **no valid
+sustained figure yet.** It did show 8.5 tok/s settled on mains (≈52 h, as
+estimated) and **5.4 tok/s on battery (89 h)**. (5) New finding recorded as
+open question 13: the stronger model improved *validity*, not *relatedness*.
+Stage 1 has not been started.
+
+**2026-10-08 (latest): Gemini repeated, the table completed, two freeze
+blockers closed, and a two-stage plan written.** (1) A second Gemini run with
+identical settings: 69 vs 68 accepted ids, **61 the same (80% overlap)**; name
+rejections 4 and 4, existence rejections 0 and 0 — the counts are stable, the
+exact ids are not. (2) Gemini's 95% acceptance is **not mostly copying**: ~30%
+of its accepted ids are copied from the entry, the same share as the 14B.
+(3) Ollama now gets an explicit seed and context size, long documents are cut
+explicitly at 6,000 characters and listed in the manifest, and a reply to a
+prompt that overflowed is refused. (4) **Not done: the sustained-speed
+benchmark** — the laptop was on battery; script ready. (5) Plan in
+`docs/proposals/module1-freeze.md`: 14B index now for development, one Gemini
+index (≈$67, or ≈$34 in batch mode) once the method is frozen.
+
+**2026-10-08 (later): the frontier model ran — Gemini 3.1 Pro on the same 40
+documents — and it does not continue the 14B's trend.** The 14B proposed 157
+structural ids and got 36% of them through the gates. Gemini proposed **73 and
+got 69 through (95%)**: zero ids that do not exist, zero counting runs, 4 name
+mismatches. So the flood of wrong ids on the 14B is how *that model* behaves,
+not what "bigger" does. The uncomfortable half of the same result: on a strong
+model **the existence check rejected nothing (0 of 73)** and the name check
+caught 4 — the gates have much less to do. Cost ≈ $0.57 of the $1 cap, two
+thirds of it "thinking" tokens. Caveats that matter: 40 documents, one run,
+`low` thinking, a different model family, and **the seed is not honoured** so
+the run cannot be repeated exactly. Logged in `06_POLICY_EXCEPTIONS.md`;
+schema **1.4.0** (`tokens.thinking`) needs sign-off —
+`docs/proposals/thinking-tokens.md`.
+
 **2026-10-08: scorer v2, the repair measurement, and a freeze checklist — all
 offline, no model calls. The frontier-model run is approved but blocked on a
 provider.** Saved runs can now be re-adjudicated for free
@@ -107,6 +159,290 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Section-aware truncation, shown-text copy measure, resume guard (2026-10-09, later)
+
+#### 1. Section-aware truncation
+
+`enrichment/truncation.py`, rules `sections-v1`, same 6,000-character budget.
+Rule and full table: `module1-freeze.md`, "The truncation rule".
+
+| of the 171 over-long entries | CVE (63) | CWE (44) | CAPEC (64) |
+|---|---|---|---|
+| blind-cut fallback | 0 | 0 | 0 |
+| keeps Related Weaknesses | CWE list kept, 63/63 | no such section | **63 of 63** (plain cut: 8) |
+| keeps Taxonomy Mappings | – | – | 32 of 32 (plain cut: 3) |
+| fits without touching mitigations | 63 | 8 | 46 |
+| mitigations trimmed / dropped | – | 30 / 6 | 7 / 11 |
+
+Not in the owner's list, added by Module 1: after mitigations, the remaining
+unprotected sections (`Notes`, `Indicators`, `Resources_Required`,
+`Skills_Required`, `Modes_Of_Introduction`, `Detection_Methods`,
+`Execution_Flow`) are trimmed in that order. 10 entries need it; without it
+they would have been blind cuts.
+
+Side effect: the 63 long CVEs lose the whole affected-products table and are
+shown at about 1,350 characters — vendor and version detail gone, description
+and CWE list intact.
+
+#### 2. "Copied from the entry" measured against the shown text
+
+`report_enrichment.py` and `measure_redundancy.py` now search what the model
+saw (`record_shown_text`). Recomputed on all 11 saved files: **identical
+copied counts under both definitions in every file** — every saved run
+predates truncation, so the model saw the full entry. No table changes. It
+will matter from the next run on.
+
+#### 3. Resume guard — open question 2 resolved
+
+Config hash, model, prompt, sampling, concurrency and every gate setting are
+compared against the existing file's manifest; any difference raises
+`ResumeMismatchError` naming it, and nothing is appended. Manifest is written
+before the first document. `04_OPEN_QUESTIONS.md` question 2.
+
+#### 4. Concurrency default 1 — config hash `364d30da6c75`
+
+#### 5. 14B re-run under the new truncation — NOT DONE
+
+Required plugged in; the laptop stayed on battery (18%). Only 3 of the 40
+sample documents are over the budget (`CAPEC-126`, `CAPEC-24`: References and
+Consequences removed; `CAPEC-656`: also Prerequisites and Example Instances),
+and at temperature 0 with a fixed seed the other 37 will get byte-identical
+prompts — so the comparison will come down to those three. Command:
+
+```bash
+caffeinate -i .venv/bin/python scripts/enrich_corpus.py --per-kind 10 --model qwen2.5:14b \
+    --output indexes/enrichment/corpus_stratified_v4_14b_sections.jsonl
+.venv/bin/python scripts/report_enrichment.py indexes/enrichment/corpus_stratified_v4_14b.jsonl \
+    indexes/enrichment/corpus_stratified_v4_14b_sections.jsonl
+```
+
+#### Code
+
+- `enrichment/truncation.py` (new); `corpus_side.py`: `truncate_document`
+  returns `(doc, info)`, `ResumeMismatchError`, `check_resume`, manifest at
+  start, `concurrency` and `truncation_version` in the manifest.
+- `common/schemas.py`: **1.5.0**, `EnrichmentRecord.truncation` (optional,
+  absent when nothing was removed). Sign-off: `thinking-tokens.md` amendment.
+- Scripts: report/redundancy use the shown text; `enrich_corpus.py` prints a
+  resume refusal and exits 2.
+- `tests/test_truncation.py` (new, 17). **349 tests pass** (+32).
+
+### Billing, what the cut removes, Stage 2 rule, benchmark, Stage 1 checklist (2026-10-09)
+
+- **Billing.** Paid tier, ₹116.66 actually charged for both Gemini exceptions
+  (our list-price calculation: ≈$1.03). Free-tier data-use caveat removed from
+  `06_POLICY_EXCEPTIONS.md` — paid-tier inputs are not used by Google.
+- **What the 6,000-character cut removes.** Sample of 15, then all 171
+  counted. CVE (63): affected-products tables only. CWE (44): descriptive
+  text, typically a third of the entry, mostly mitigations. CAPEC (64):
+  descriptive text, and in 55 the whole Related Weaknesses list. Table and
+  the full list of 108: `module1-freeze.md`, "What the 6,000-character cut
+  actually removes". Side effects: the "copied from the entry" measure
+  overstates copying on cut documents, and three seed-42 sample documents
+  (`CAPEC-126`, `CAPEC-24`, `CAPEC-656`) were run uncut.
+- **Decisions by the owner.** `num_ctx` 4096 + 6,000 characters stays; 8192
+  not tested. Stage 2 (Gemini) uses the identical cut.
+- **Benchmark.** `bench_enrichment_speed.py`, 14B, 45 minutes, 56 documents.
+  Invalid as a sustained figure: mains power was lost at minute 6 (power log).
+  Mains: 13.5 tok/s for 90 seconds, then 8.5 tok/s. Battery: 5.4 tok/s, flat
+  for 39 minutes, ~53 s/doc on every source → 89 h for the corpus. The script
+  now stops if the machine is unplugged mid-run. **Needs one clean rerun.**
+- **Validity vs relatedness** — open question 13.
+- **Stage 1 checklist** — `module1-freeze.md`, "Before Stage 1 starts".
+- 317 tests pass. No model code changed today; one script fix.
+
+### Gemini repeat run, completed table, freeze blockers, two-stage plan (2026-10-08, latest)
+
+#### 1. Run-to-run agreement (Gemini 3.1 Pro, identical settings, twice)
+
+Same 40 documents, low thinking, temperature 0, seed 42. Output:
+`corpus_stratified_v4_gemini-3.1-pro_run2.jsonl`. Cost $0.457.
+
+| | run 1 | run 2 |
+|---|---|---|
+| terms proposed / accepted | 396 / 326 | 394 / 328 |
+| structural ids proposed | 73 | 72 |
+| structural ids accepted | 69 | 68 |
+| rejected by the existence check | **0** | **0** |
+| rejected by the name check | **4** | **4** |
+| in a counting run | 0 | 0 |
+
+**Overlap of accepted ids, document by document:**
+
+- 61 ids were accepted in both runs, out of 76 accepted in either: **80%**.
+- 8 documents had no accepted id in either run. Of the other 32: **23 gave
+  exactly the same set** of ids both times; the average overlap per document
+  is 0.83 (1.0 = identical, 0 = nothing in common); 1 document shared none.
+- All accepted terms of any kind (not just ids): average overlap 0.74.
+
+**Are the two rejection counts stable?** The *counts* are: 0 and 0, 4 and 4.
+The *contents* mostly are: three of the four name mismatches are the same id
+on the same document in both runs (`CAPEC-240` on CVE-2025-6973, `CAPEC-616`
+on CAPEC-631, `T1552.005` on T1555.006). The fourth differs: run 1 had
+`CWE-1097` on CWE-1235, run 2 had `CAPEC-248` ("Command Injection", claimed as
+a cryptography weakness) on CVE-2025-26663.
+
+**In plain words:** ask twice and you get the same *kind* of answer with
+about four fifths of the same ids. So "about 70 ids, about 4 mis-named, none
+invented" is solid; "this exact list of ids" is not.
+
+#### 2. The completed three-model table
+
+Full table with definitions: `docs/proposals/module1-freeze.md`, "Which model".
+
+| accepted structural ids | 7B | 14B | Gemini run 1 | Gemini run 2 |
+|---|---|---|---|---|
+| total | 6 | 56 | 69 | 68 |
+| copied from the entry | 6 (100%) | 17 (30%) | 20 (29%) | 24 (35%) |
+| generated | 0 | 39 | 49 | 44 |
+| median graph distance | – | 2 hops | 1 hop | 1 hop |
+| within 2 hops (of those measurable) | – | 22 of 35 (63%) | 33 of 47 (70%) | 37 of 48 (77%) |
+
+Gemini's high acceptance is **not** copying: seven in ten accepted ids are
+ones it produced itself, the same proportion as the 14B. Its closer median
+distance is partly its 8–9 own-id copies (distance 0); looking at generated
+ids only, both models sit at a median of 2–2.5 hops. Distance cannot be
+measured on CVE documents (a CVE is not in the graph), which is 20–22 accepted
+ids per run.
+
+#### 3. Freeze blockers
+
+| item | status |
+|---|---|
+| `num_ctx` sent explicitly | **done** — `llm.num_ctx: 4096` → `options.num_ctx` |
+| explicit truncation | **done** — `enrichment.max_doc_chars: 6000`; 171 documents (2.8%) cut; ids listed in the manifest's `truncation` block; record and index keep the full text |
+| overflow refused | **done** — if prompt + reply cap exceed `num_ctx`, the reply is discarded and the document goes to `.failures.jsonl` |
+| explicit Ollama seed | **done** — `llm.seed: 42` → `options.seed`; real 7B check: repeatable and identical to the saved unseeded replies |
+| 1.3.0 / 1.4.0 sign-off docs | **written, not signed** — `name-id-consistency.md`, `thinking-tokens.md`; only Module 1's row is filled |
+| per-source time estimate, 14B | **provisional only** — ~52 h (CVE 24, CWE 12, ATT&CK 10, CAPEC 6), from short-benchmark speeds |
+| sustained (after-30-minutes) tok/s | **NOT DONE** — laptop on battery at 13%; `scripts/bench_enrichment_speed.py` is ready and refuses to run on battery |
+| resume instructions | **done** — `module1-freeze.md`, "Running it, and picking it up after an interruption" |
+
+New finding while sizing the truncation: the densest documents (CVE version
+tables) are ~2.1 characters per token, not the ~3.75 average the earlier note
+used. 8,000 characters of `CVE-2017-5753` filled the whole 4,096-token
+context. Hence 6,000, not 12,000.
+
+#### 4. Plan
+
+`module1-freeze.md`, "Two-stage plan". 14B index now (free, ~53 h best case),
+one Gemini index after the freeze: ≈$67 standard, ≈$34 batch (batch price is
+listed for this model; batch code is not built). Not run.
+
+#### Code
+
+- `common/llm.py`: `OllamaClient(seed=, num_ctx=)`, `last_context_overflow`.
+- `enrichment/corpus_side.py`: `truncate_document`, `max_doc_chars`, the
+  overflow refusal, manifest `truncation` block.
+- `scripts/enrich_corpus.py`: passes the three settings; Ollama runs now also
+  write `llm` (seed, `num_ctx`) and `usage` to the manifest.
+- `scripts/bench_enrichment_speed.py` (new).
+- `configs/default.yaml`: `llm.seed`, `llm.num_ctx`, `enrichment.max_doc_chars`
+  → config hash **`77fa240d81d1`**.
+- **317 tests pass** (+6).
+
+### Frontier model on the 40-document sample — Gemini 3.1 Pro (2026-10-08, later)
+
+The approved policy exception (`06_POLICY_EXCEPTIONS.md`, exception 1). Same
+40 documents (sampling seed 42), same prompt (`corpus-v4`), same gates, same
+`enrichment` and `llm` config — only the model and backend differ.
+
+#### The three-column table (scorer v1 throughout)
+
+| | `qwen2.5:7b` | `qwen2.5:14b` | `gemini-3.1-pro-preview` (low thinking) |
+|---|---|---|---|
+| terms proposed | 442 | 480 | 396 |
+| terms accepted | 205 (46%) | 177 (37%) | **326 (82%)** |
+| rejected `too_common` | 229 | 202 | 66 |
+| **structural ids proposed** | 14 | 157 | **73** |
+| **structural ids accepted** | 6 (43%) | 56 (36%) | **69 (95%)** |
+| rejected at the graph stage (id missing, deprecated, revoked, malformed) | 4 | 32 | **0** |
+| rejected at the name stage (real id, wrong title) | 4 | 69 | **4** |
+| ids in a counting run (3+ consecutive numbers) | 0 | 51 | **0** |
+| ids generated rather than copied from the document | 3 | 115 | 52 |
+| parse failures | 0 | 0 | 0 |
+
+Reproduce with `scripts/report_enrichment.py` on the three `corpus_stratified_v4_*` files.
+
+#### What it says
+
+**In plain words:** we wanted to know whether a smarter model makes *more*
+mistakes with catalogue ids (because it tries harder) or *fewer*. Two models
+could not tell us. With three: the small one barely tries, the middle one
+tries a lot and guesses, the strong one tries a moderate amount and is almost
+always right.
+
+1. **The 14B's behaviour is not a size trend.** Counting upwards through id
+   numbers (51 ids on the 14B) did not happen once on Gemini. Neither did a
+   single non-existent, deprecated or revoked id.
+2. **The existence check found nothing to reject (0 of 73).** On the 14B it
+   rejected 32. This is the answer to "does an existence check get weaker as
+   models get stronger": on this sample it stops firing at all.
+3. **The name check still caught 4 real errors the existence check let
+   through** — every one a real id with the wrong meaning:
+
+   | document | id proposed | what the model said it was | what it really is | repair |
+   |---|---|---|---|---|
+   | CVE-2025-6973 | CAPEC-240 | Use After Free | Resource Injection | none nearby |
+   | CWE-1235 | CWE-1097 | (CWE-1235's own title) | Persistent Storable Data Element… | CWE-1235 — the document itself |
+   | CAPEC-631 | CAPEC-616 | Typosquatting | Establish Rogue Location | CAPEC-630 |
+   | T1555.006 | T1552.005 | Cloud Secrets Management Stores | Cloud Instance Metadata API | T1555.006 — the document itself |
+
+   Two of the four are the model trying to name *the entry it was reading*
+   and getting the number wrong. 4 of 73 is 5%; small, but these are exactly
+   the errors nothing else in the pipeline can see.
+4. **Far fewer terms are thrown away as too common** (66 vs 202–229). The
+   strong model follows "don't repeat words already in the entry" much better.
+5. **It proposes fewer terms than it is allowed.** 6–12 per document, 12 on
+   only 8 of 40; the local models nearly always fill all 12.
+6. **8 accepted ids are the document's own id** (the model recognised the
+   entry). Whether an entry should be findable by its own id is still Module
+   3's open decision (`retrieval.id_boost`); these 8 make it more pressing.
+
+#### What it does *not* say — read before quoting
+
+- **40 documents, one run.** 4 mismatches is a count, not a rate.
+- **Size and family are mixed up.** Gemini is not "a bigger Qwen". The clean
+  statement is "a frontier model behaves like this", not "32B would".
+- **`low` thinking.** The default (`high`) projected over the $1 cap.
+- **Not repeatable.** Seed 42 was sent and accepted, and identical requests
+  still differed in 3 of 4 checks (12, 11 and 7 proposals for one document).
+  Re-running will give similar, not identical, numbers.
+- **`latency_ms` is network time to Google** (median 9.2 s/doc). Not
+  comparable with local generation speed for RQ3.
+
+#### Cost and tokens
+
+| | prompt | reply (`completion`) | thinking | cost |
+|---|---|---|---|---|
+| the 40-document run | 35,915 | 6,464 | 24,832 | $0.447 |
+| four one-document checks (8 calls) | 6,912 | 1,665 | 7,657 | $0.126 |
+| **total** | | | | **≈ $0.57** (cap $1.00) |
+
+Thinking was 79% of the output tokens. The earlier ~$0.25 estimate missed it
+because it came from a model that does not think. **Full corpus at this
+setting: roughly $68** (6,044 documents × $0.0112), not the $9–35 in question
+10 — that table is corrected there.
+
+#### Code
+
+- `common/llm.py`: **`GeminiClient`** (google-genai SDK, schema-constrained
+  output, seed, `thinking_level`, key scrubbed from errors, `describe()` for
+  the manifest).
+- `common/schemas.py`: **1.4.0** — `TokenUsage.thinking`, counted apart from
+  `completion`, included in `total`, omitted from JSON when 0 so old files are
+  unchanged. Needs four-owner sign-off: `docs/proposals/thinking-tokens.md`.
+- `common/repro.py`: `load_env_file()` — reads `.env`, returns names only.
+- `enrichment/corpus_side.py`: manifest gains optional `llm` and `usage`
+  blocks; `EnrichmentRunSummary.tokens` / `.llm_calls`; `llm_settings=`.
+- `scripts/enrich_corpus.py`: `--backend gemini`, `--thinking-level`,
+  `--llm-seed`, `--price-in/--price-out`, `--cost-cap-usd`, and a preflight
+  (one document twice: collapse check, seed check, cost estimate).
+- `requirements.txt`: `google-genai`. `configs/default.yaml` **not** edited, so
+  the config hash is untouched by this work.
+- **311 tests pass** (was 300 on `main` after the merge; +11). The Gemini
+  tests use a fake SDK object — no network, no key.
 
 ### Scorer v2/v3, repair ablation, RQ3 latency, freeze checklist (2026-10-08)
 
@@ -889,11 +1225,31 @@ Reading of this run:
       name. v3 (symmetric everywhere) exists as experimental.
 - [x] **Repair measurement.** Done 2026-10-08: 9 of 33 near mismatches repair
       cleanly. `enrichment.index_repaired_ids` off by default.
-- [ ] **Frontier model on the 40-document sample — approved, blocked on a
-      provider and API key.** Then: backend subclass, cost estimate, $1 cap.
+- [x] **Frontier model on the 40-document sample.** Done 2026-10-08 on
+      `gemini-3.1-pro-preview`, ≈$0.57. See the log entry and
+      `06_POLICY_EXCEPTIONS.md`.
+- [x] **Billing confirmed** 2026-10-09: paid tier, ₹116.66.
+- [ ] **Get four-owner sign-off for schema 1.4.0** (`tokens.thinking`) —
+      `docs/proposals/thinking-tokens.md`. Tell Module 4: cost must use
+      `completion + thinking` at the output price.
+- [x] **Second Gemini run for repeatability.** Done 2026-10-08: 80% overlap
+      of accepted ids; rejection counts stable. Still a team call whether a
+      `high`-thinking run is wanted (~$1.0–1.6).
+- [x] **Cut shape decided and built** 2026-10-09: section-aware.
+- [ ] **Re-run the 40-document sample on `qwen2.5:14b` under the new
+      truncation, plugged in**, and compare with the v4 14B numbers (command
+      in the log entry above).
+- [ ] **Sign-off now also covers schema 1.5.0** (`truncation`) —
+      `thinking-tokens.md` amendment.
+- [ ] **RE-run the sustained-speed benchmark, plugged in for all 45 minutes**
+      (the 2026-10-09 run lost mains at minute 6):
+      `caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`
+      and put its per-source table into `module1-freeze.md`.
+- [ ] **Owner: approve or change the two-stage plan** (`module1-freeze.md`).
 - [ ] **Freeze blockers** (`docs/proposals/module1-freeze.md`): context
-      overflow (question 12), explicit seed to Ollama, schema 1.3.0 sign-off,
-      model choice. Then the full-corpus run with `--concurrency 1`.
+      overflow and explicit seed are **done**; still open: schema 1.3.0/1.4.0
+      sign-off, model choice, the sustained benchmark. Then the full-corpus
+      run with `--concurrency 1`.
 - [ ] Tell Modules 3/4 about question 11 (same decoding setup for the
       multi-round baseline; sample-run latencies are unusable).
 - [x] ~~**Name check, next iteration (measured, not yet built).**~~ Built — see above. Original note: It catches
@@ -928,7 +1284,7 @@ Reading of this run:
 - [x] ~~Decide whether schema decoding is worth 3x the run time.~~ **Moot,
       2026-10-08:** it is not 3x. Measured cleanly: 1.5x on the 7B, no difference
       on the 14B. Keep it on.
-- [ ] **Third model (`04_OPEN_QUESTIONS.md` q10).** A 32B will not fit in 16 GiB
+- [x] ~~**Third model (`04_OPEN_QUESTIONS.md` q10).**~~ Run 2026-10-08 on Gemini 3.1 Pro — see above. Original note: A 32B will not fit in 16 GiB
       (~20 GB of weights at 4-bit). Needs the frontier API: ~$0.25 for the
       40-document sample, ~$9-35 for the full corpus, from measured token
       counts. Module 1 recommends spending it on the sample; it breaks the

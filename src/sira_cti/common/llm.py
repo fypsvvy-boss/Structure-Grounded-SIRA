@@ -333,6 +333,14 @@ class OllamaClient(LLMClient):
     last_stop_reason: str = ""
     last_truncated: bool = False
     last_timings: dict[str, float] = {}
+    last_context_overflow: bool = False
+    """True when the last prompt plus the reply cap did not fit in ``num_ctx``.
+
+    Ollama does not fail an over-long prompt: it quietly drops part of it and
+    answers anyway, and the reply looks normal. This flag is the only sign.
+    It needs ``num_ctx`` to be set explicitly -- the client cannot see a
+    context size it did not ask for.
+    """
 
     def __init__(
         self,
@@ -340,12 +348,16 @@ class OllamaClient(LLMClient):
         *,
         host: Optional[str] = None,
         temperature: float = 0.0,
+        seed: Optional[int] = None,
+        num_ctx: Optional[int] = None,
         timeout_s: float = 120.0,
         **kwargs: Any,
     ) -> None:
         super().__init__(model, **kwargs)
         self.host = (host or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
         self.temperature = temperature
+        self.seed = seed
+        self.num_ctx = num_ctx
         self.timeout_s = timeout_s
 
     def _complete(self, prompt: str, system: Optional[str], **kwargs: Any) -> tuple[str, TokenUsage]:
@@ -356,6 +368,14 @@ class OllamaClient(LLMClient):
         options: dict[str, Any] = {"temperature": kwargs.pop("temperature", self.temperature)}
         if opts.max_new_tokens is not None:
             options["num_predict"] = int(opts.max_new_tokens)
+        # Both nested here for the same reason as the cap. An explicit seed
+        # makes "same input, same reply" a setting rather than an observation;
+        # an explicit num_ctx stops the context size being whatever the
+        # server happened to load the model with.
+        if self.seed is not None:
+            options["seed"] = int(self.seed)
+        if self.num_ctx is not None:
+            options["num_ctx"] = int(self.num_ctx)
 
         payload: dict[str, Any] = {
             "model": self.model,
@@ -397,6 +417,10 @@ class OllamaClient(LLMClient):
         # blamed on the model's formatting.
         self.last_stop_reason = str(body.get("done_reason") or "")
         self.last_truncated = self.last_stop_reason == "length"
+        self.last_context_overflow = (
+            self.num_ctx is not None
+            and usage.prompt + int(opts.max_new_tokens or 0) > int(self.num_ctx)
+        )
         # Ollama's own split of where the time went (nanoseconds). Wall-clock
         # latency mixes model load, prompt evaluation and generation; RQ3's
         # decoding-mode comparison needs generation speed on its own.
@@ -407,6 +431,149 @@ class OllamaClient(LLMClient):
             "load_duration_s": int(body.get("load_duration", 0)) / 1e9,
         }
         return text, usage
+
+
+class GeminiClient(LLMClient):
+    """Google Gemini through the ``google-genai`` SDK -- the frontier backend.
+
+    Reserved by the model policy for runs that are logged as exceptions
+    (``docs/06_POLICY_EXCEPTIONS.md``); day-to-day development stays on
+    :class:`OllamaClient`.
+
+    The key is read from the ``GEMINI_API_KEY`` environment variable and is
+    never printed, logged, or stored on a record; an SDK error is scrubbed of
+    it before it reaches the :class:`CallLog`.
+
+    Three things behave differently from Ollama, and each would silently skew
+    a comparison if it were hidden:
+
+    * **Thinking.** Gemini Pro models reason before they answer and that
+      cannot be switched off. The reasoning is billed as output but is not
+      part of the reply, so it is reported as ``TokenUsage.thinking``, apart
+      from ``completion``. ``thinking_level`` (``None`` = the model's own
+      default) is what was asked for; ``describe()`` logs it.
+    * **The reply cap.** Gemini's ``max_output_tokens`` covers thinking *and*
+      reply together. Sending ``enrichment.max_new_tokens`` (512) as-is would
+      let the reasoning eat the whole budget and return an empty reply. So
+      the cap sent is ``max_new_tokens + thinking_headroom_tokens``: the
+      reply still gets its 512, and the reasoning gets its own allowance.
+    * **Seed.** Sent when given. Whether the model *honours* it is a
+      measurement (two identical calls, compare the replies), not something
+      this class can promise -- see ``scripts/enrich_corpus.py``'s preflight.
+    """
+
+    last_stop_reason: str = ""
+    last_truncated: bool = False
+    last_model_version: str = ""
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        api_key: Optional[str] = None,
+        temperature: float = 0.0,
+        seed: Optional[int] = None,
+        thinking_level: Optional[str] = None,
+        thinking_headroom_tokens: int = 8192,
+        timeout_s: float = 300.0,
+        sdk_client: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        kwargs.setdefault("retry_backoff_s", 8.0)   # rate limits clear in seconds, not 1.5s
+        super().__init__(model, **kwargs)
+        self.temperature = temperature
+        self.seed = seed
+        self.thinking_level = thinking_level
+        self.thinking_headroom_tokens = int(thinking_headroom_tokens)
+        self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or ""
+        if sdk_client is not None:          # tests inject a fake; no network, no key
+            self._sdk = sdk_client
+        else:
+            if not self._api_key:
+                raise LLMError("GEMINI_API_KEY is not set (put it in .env; never commit it)")
+            from google import genai        # imported lazily: Ollama-only users need not install it
+
+            self._sdk = genai.Client(
+                api_key=self._api_key, http_options={"timeout": int(timeout_s * 1000)}
+            )
+
+    def describe(self) -> dict[str, Any]:
+        """The settings that shape a reply, for the run manifest. No secrets."""
+        try:
+            from importlib.metadata import version
+
+            sdk_version = version("google-genai")
+        except Exception:  # noqa: BLE001 - a missing package version is not worth failing a run over
+            sdk_version = "unknown"
+        return {
+            "backend": "gemini",
+            "provider": "Google Gemini API (AI Studio key)",
+            "sdk": f"google-genai {sdk_version}",
+            "model": self.model,
+            "model_version_reported": self.last_model_version or None,
+            "temperature": self.temperature,
+            "seed_sent": self.seed,
+            "thinking": {
+                "thinking_level": self.thinking_level or "model default (not sent)",
+                "include_thoughts": False,
+                "can_be_disabled": False,
+                "headroom_tokens": self.thinking_headroom_tokens,
+            },
+            "max_output_tokens_sent": (
+                None if self.max_new_tokens is None
+                else int(self.max_new_tokens) + self.thinking_headroom_tokens
+            ),
+            "structured_output": (
+                "response_json_schema" if self.json_schema is not None
+                else "response_mime_type=application/json" if self.json_mode
+                else "off"
+            ),
+        }
+
+    def _config(self, system: Optional[str], opts: GenOptions) -> dict[str, Any]:
+        """The ``GenerateContentConfig`` for one call, as a plain dict (testable)."""
+        config: dict[str, Any] = {"temperature": self.temperature}
+        if self.seed is not None:
+            config["seed"] = int(self.seed)
+        if opts.max_new_tokens is not None:
+            config["max_output_tokens"] = int(opts.max_new_tokens) + self.thinking_headroom_tokens
+        if self.thinking_level:
+            config["thinking_config"] = {"thinking_level": self.thinking_level}
+        if opts.json_schema is not None:
+            config["response_mime_type"] = "application/json"
+            config["response_json_schema"] = opts.json_schema
+        elif opts.json_mode:
+            config["response_mime_type"] = "application/json"
+        if system:
+            config["system_instruction"] = system
+        return config
+
+    def _complete(self, prompt: str, system: Optional[str], **kwargs: Any) -> tuple[str, TokenUsage]:
+        opts = self._resolved_options(kwargs)
+        try:
+            response = self._sdk.models.generate_content(
+                model=self.model, contents=prompt, config=self._config(system, opts)
+            )
+        except Exception as exc:  # noqa: BLE001 - re-raised scrubbed, so the key cannot reach a log
+            message = f"{type(exc).__name__}: {exc}"
+            if self._api_key:
+                message = message.replace(self._api_key, "***")
+            raise LLMError(message[:600]) from None
+
+        meta = getattr(response, "usage_metadata", None)
+        usage = TokenUsage(
+            prompt=int(getattr(meta, "prompt_token_count", 0) or 0),
+            # candidates_token_count is the visible reply only; the reasoning
+            # is reported beside it, not inside it.
+            completion=int(getattr(meta, "candidates_token_count", 0) or 0),
+            thinking=int(getattr(meta, "thoughts_token_count", 0) or 0),
+        )
+        candidates = getattr(response, "candidates", None) or []
+        reason = getattr(candidates[0], "finish_reason", "") if candidates else ""
+        self.last_stop_reason = str(getattr(reason, "name", reason) or "")
+        self.last_truncated = self.last_stop_reason == "MAX_TOKENS"
+        self.last_model_version = str(getattr(response, "model_version", "") or "")
+        return (getattr(response, "text", None) or ""), usage
 
 
 class StubClient(LLMClient):

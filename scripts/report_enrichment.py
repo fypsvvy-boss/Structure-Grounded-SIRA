@@ -33,6 +33,7 @@ from measure_redundancy import structural_provenance  # noqa: E402  (sibling scr
 
 from sira_cti.common import read_jsonl  # noqa: E402
 from sira_cti.enrichment.corpus_side import flag_counting_runs  # noqa: E402
+from sira_cti.enrichment.truncation import record_shown_text  # noqa: E402
 from sira_cti.graph import name_tokens  # noqa: E402
 
 PROVENANCE_ORDER = ["literal", "labelled_field", "own_id", "not_found"]
@@ -106,12 +107,20 @@ def summarise(path: Path) -> dict:
             if reason == "llm_json_error":
                 out["parse_failures"].append(rec.doc_id)
 
+        shown = record_shown_text(rec)
+        if rec.truncation:
+            out["docs_shown_cut"] = out.get("docs_shown_cut", 0) + 1
         for t in rec.structural_terms:
             out["structural_proposed"] += 1
             if t.accepted:
                 out["structural_accepted"] += 1
-            label = structural_provenance(t.structural_id, rec.doc_id, rec.original_text)
+            # Against what the model was *shown*: an id in a section that was
+            # cut off is one it had to produce itself, not one it copied.
+            label = structural_provenance(t.structural_id, rec.doc_id, shown)
             out["provenance"][label] = out["provenance"].get(label, 0) + 1
+            if t.accepted:
+                key = "accepted_generated" if label == "not_found" else "accepted_copied"
+                out[key] = out.get(key, 0) + 1
             if t.in_counting_run:
                 out["counting_run_total"] += 1
                 if t.accepted:
@@ -199,6 +208,11 @@ def _print(s: dict) -> None:
     print(f"    -> copied {copied}{_pct(copied, sp)}, "
           f"generated {s['provenance'].get('not_found', 0)}"
           f"{_pct(s['provenance'].get('not_found', 0), sp)}")
+    sa = s["structural_accepted"]
+    print(f"    of the accepted: copied {s.get('accepted_copied', 0)}{_pct(s.get('accepted_copied', 0), sa)}, "
+          f"generated {s.get('accepted_generated', 0)}{_pct(s.get('accepted_generated', 0), sa)}"
+          "   (measured against the text the model was shown)")
+    print(f"  documents shown to the model shortened: {s.get('docs_shown_cut', 0)}")
 
     print(f"\n  in a counting run (>=3 consecutive): {s['counting_run_total']}"
           f"{_pct(s['counting_run_total'], sp)}, of which accepted "

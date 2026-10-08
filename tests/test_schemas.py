@@ -396,3 +396,32 @@ def test_repaired_to_is_only_meaningful_on_a_name_mismatch():
             term="T1110", kind=TermKind.STRUCTURAL, structural_id="T1110", graph_validated=True,
             accepted=True, repaired_to="T1110.001",
         )
+
+
+# -- schema 1.4.0: thinking tokens ---------------------------------------------------
+
+
+def test_thinking_tokens_are_counted_apart_and_included_in_the_total():
+    total = TokenUsage(10, 5, 100) + TokenUsage(1, 2, 7)
+    assert (total.prompt, total.completion, total.thinking, total.total) == (11, 7, 107, 125)
+    assert TokenUsage.from_dict(total.to_dict()) == total
+
+
+def test_a_record_with_no_thinking_tokens_serialises_exactly_as_before():
+    # Every Ollama record, and every file written before 1.4.0.
+    assert TokenUsage(10, 5).to_dict() == {"prompt": 10, "completion": 5}
+    assert TokenUsage.from_dict({"prompt": 10, "completion": 5}).thinking == 0
+
+
+# -- schema 1.5.0: what the model was shown --------------------------------------------
+
+
+def test_truncation_round_trips_and_is_absent_when_nothing_was_cut():
+    record = _record()
+    assert "truncation" not in record.to_dict()                    # old files re-save unchanged
+    assert EnrichmentRecord.from_dict(record.to_dict()).truncation is None
+
+    record.truncation = {"version": "sections-v1", "mode": "sections", "dropped": ["References"]}
+    again = EnrichmentRecord.from_json(record.to_json())
+    assert again.truncation == record.truncation
+    assert again.original_text == record.original_text

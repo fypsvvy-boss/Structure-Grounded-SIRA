@@ -97,7 +97,25 @@ instead of quietly skewing RQ1.
 
 ---
 
-## 2. Prompt versioning doesn't compose with resumability (affects RQ4 data integrity)
+## 2. ~~Prompt versioning doesn't compose with resumability~~ RESOLVED 2026-10-09
+
+**Built, and wider than first proposed.** When an output file already holds
+records, `run_corpus_enrichment` compares what this session would write to the
+file's manifest and **refuses to append if anything differs**: prompt version,
+model, config hash, sampling, concurrency, and every gate setting (name scorer
+and thresholds, decoding mode, reply cap, truncation budget and rules). The
+message names each difference and says what to do (restore the setting, or use
+a new `--output`). There is no override flag on purpose.
+
+Two supporting changes: the manifest is now written **before the first
+document**, not only at the end, so a run that dies part-way still leaves
+something to check against; and a file with records but no manifest is
+refused too. A finished file can still be re-run under any settings, because
+nothing would be appended. What the guard cannot see: edits to the Python
+code. 11 tests.
+
+*Original text:*
+
 
 **The situation:** `PROMPT_VERSION` is recorded once per output file in a sidecar
 `<output>.manifest.json` (chosen to avoid a schema sign-off round). But
@@ -726,7 +744,38 @@ same trap `temperature`/`seed` have — see `01_ENVIRONMENT.md`.
 
 ## 10. (Opened 2026-10-07) Is the grounding effect a trend across model size, or two points?
 
-**Open — approved in principle 2026-10-08, blocked on a provider.** The Module 1
+**Answered on the sample, 2026-10-08 (later): it is not a trend.** Gemini 3.1
+Pro ran on the same 40 documents (`06_POLICY_EXCEPTIONS.md`; full table in
+`03_STATUS_LOG.md`).
+
+| structural ids | 7B | 14B | Gemini 3.1 Pro |
+|---|---|---|---|
+| proposed | 14 | 157 | 73 |
+| accepted | 6 (43%) | 56 (36%) | 69 (95%) |
+| rejected by the existence check | 4 | 32 | **0** |
+| rejected by the name check | 4 | 69 | 4 |
+| in a counting run | 0 | 51 | 0 |
+
+The 14B's counting and inventing is that checkpoint's behaviour; the stronger
+model does neither. What the write-up should say, carefully: **the existence
+check had nothing to reject on a frontier model (0 of 73), and the name check
+still caught 4 real-id-wrong-meaning errors.** The grounding gates matter most
+for mid-sized open-weight models, and the name check is the part that still
+earns its place at the top end.
+
+**Repeated once (2026-10-08, latest):** a second run with identical settings
+gave 68 accepted ids against 69, 61 of them the same (80% overlap); 0 and 0
+existence rejections, 4 and 4 name rejections (three of the four identical).
+The counts are stable; the exact ids are not. And the high acceptance is not
+copying — ~30% of accepted ids are copied from the entry, the same as the 14B.
+Still true: 40 documents, `low` thinking, and a different model family, so
+"size" and "family" are mixed.
+
+**Cost table below is now wrong for a thinking model.** Measured: $0.447 for
+the 40 documents, of which two thirds was thinking tokens; the full corpus at
+the same setting would be roughly **$68**, not $9–35.
+
+*Earlier status, kept for the record:* approved in principle 2026-10-08, blocked on a provider. The Module 1
 owner approved running the 40-document sample on a frontier API model as a
 deliberate, logged exception to the open-weight-only development policy (hard
 cap $1, expected ~$0.25, reason: a third model-size point). It has **not been
@@ -836,7 +885,102 @@ server-side.
 
 ---
 
-## 12. (Opened 2026-10-08 — must be decided before the full-corpus run) About 40 documents do not fit in the model's context
+## 13. (Finding, 2026-10-08) A stronger model fixed *validity*, not *relatedness*
+
+**Recorded as a result for the write-up. Nothing to decide, but it shapes
+what RQ4 and the discussion can claim.**
+
+Two different questions can be asked about an id a model proposes:
+
+- **Is it valid?** Does the id exist, and does it mean what the model says it
+  means. (This is what our gates check.)
+- **Is it related?** Is it actually *about* the document it was proposed for.
+  We have no direct measure. Our stand-in is **graph distance**: how many
+  links apart the proposed id and the document's own entry are in MITRE's
+  maps. 1 hop = directly linked; 4 hops = a distant cousin.
+
+Looking only at ids the model **generated** (not copied from the entry) and
+that were **accepted**, on the same 40 documents:
+
+| | `qwen2.5:14b` | Gemini 3.1 Pro, run 1 | Gemini, run 2 |
+|---|---|---|---|
+| **validity** — structural ids accepted | 56 of 157 (36%) | 69 of 73 (95%) | 68 of 72 (94%) |
+| rejected: id does not exist / deprecated / revoked / malformed | 32 | 0 | 0 |
+| rejected: real id, wrong meaning | 69 | 4 | 4 |
+| **relatedness** — median distance of generated, accepted ids | **2.5 hops** | **2.5 hops** | **2 hops** |
+| …within 2 hops | 12 of 24 | 14 of 28 | 14 of 25 |
+
+**What it says.** Going from a 14B open-weight model to a frontier model
+almost removed invalid ids (101 rejections down to 4). It did **not** move
+the ids closer to the document: about half of the generated ids are within
+two links of the entry on both models, and the median is the same. The
+stronger model is more *correct*, not more *relevant*.
+
+**Why it matters for this project.**
+
+- Our gates check validity. A frontier model leaves them almost nothing to
+  catch — so on the final (Gemini) index the gates will look nearly idle.
+- The half of generated ids that sit 3+ hops away pass every gate on both
+  models. If "valid but only loosely related" ids hurt retrieval, **no model
+  upgrade fixes it and none of our current gates sees it.** That is open
+  question 8 (ids that are real but irrelevant), now with evidence that it
+  does not go away with model strength.
+- A distance-based gate or weight (e.g. down-weight ids beyond 2 hops) is the
+  natural next experiment for Modules 3/4. `graph_distance` is already on
+  every record, so it can be tried offline with no model calls.
+
+**Limits — say these whenever the finding is quoted.**
+
+- Small numbers: 24–28 ids per run have a measurable distance.
+- Distance exists only when the document is itself a CWE, CAPEC or ATT&CK
+  entry. A CVE is not in the graph, so CVE documents (where ids are arguably
+  most useful) are not in this comparison at all.
+- Hops are a stand-in. A 4-hop id can be genuinely relevant and a 1-hop id
+  useless; only retrieval results (Module 4) can say whether distance
+  predicts usefulness.
+- Accepted ids only, one prompt, 40 documents, Gemini at `low` thinking.
+
+---
+
+## 12. ~~About 40 documents do not fit in the model's context~~ RESOLVED 2026-10-08 (later) — and it was 171, not 40
+
+**Decision: option 2, explicit truncation — at 6,000 characters, with the
+context size also sent explicitly and an overflow refusal as a safety net.**
+
+- `llm.num_ctx: 4096` is sent on every request, so the context is a setting.
+- `enrichment.max_doc_chars: 6000`: a longer document is shown to the model
+  cut to 6,000 characters. The saved record and the index keep the full text.
+  The manifest's `truncation` block lists every document that was cut.
+- If prompt + reply cap still exceed `num_ctx`, the client flags it and the
+  pipeline discards the reply and records a failure, instead of saving an
+  answer to a prompt the model only partly saw.
+
+**Why the number below was wrong.** It assumed ~3.75 characters per token.
+That is the average; the long documents are not average. They are CVE version
+tables, measured at **~2.1 characters per token** — 8,000 characters of
+`CVE-2017-5753` came to 4,093 prompt tokens. So the real overflow point is
+about 6,900 characters, and **171 documents (2.8%: 63 CVE, 44 CWE, 64 CAPEC)**
+are over the 6,000 budget, not 39.
+
+**Owner's decision, 2026-10-08: keep 4096 + 6,000; 8192 will not be tested.
+Stage 2 (Gemini) uses the same cut, so the model is the only variable.**
+
+**What the cut removes** (sample of 15, then counted over all 171 — full
+table and list in `docs/proposals/module1-freeze.md`): for the 63 CVEs, only
+the affected-products table. For the 44 CWE and 64 CAPEC entries, real
+descriptive text — and for **55 CAPEC entries the whole "Related Weaknesses"
+list**, which is where the entry's CWE ids are.
+
+**That finding changed the design (owner, 2026-10-09): the cut is now made by
+section, not by character count.** Same 6,000 budget. Whole sections are
+removed in a fixed order (references first, mitigations last and trimmed
+rather than dropped), and the description and the cross-catalogue links are
+never removed. On the 171 over-long entries: **0 blind cuts, and all 63 CAPEC
+entries that have a Related Weaknesses list keep it** (8 did before). Each
+record now says what was removed (`truncation`, schema 1.5.0). Rule, table and
+side effects: `docs/proposals/module1-freeze.md`, "The truncation rule".
+
+*Original text, kept for the record:*
 
 Ollama is serving these models with a **4,096-token context** (`ollama ps`).
 The prompt (system ~330 tokens + the document) and the reply (capped at 512)

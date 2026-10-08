@@ -13,6 +13,7 @@ from .schemas import (
 from .llm import (
     CallLog,
     CallRecord,
+    GeminiClient,
     GenOptions,
     LLMClient,
     LLMError,
@@ -20,7 +21,7 @@ from .llm import (
     Scope,
     StubClient,
 )
-from .repro import config_hash, load_config
+from .repro import config_hash, load_config, load_env_file
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -35,6 +36,7 @@ __all__ = [
     "write_jsonl",
     "CallLog",
     "CallRecord",
+    "GeminiClient",
     "GenOptions",
     "LLMClient",
     "LLMError",
@@ -43,4 +45,5 @@ __all__ = [
     "StubClient",
     "config_hash",
     "load_config",
+    "load_env_file",
 ]

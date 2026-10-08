@@ -210,6 +210,31 @@ Added 2026-09-15:
   models side by side, and `--counting-ids-from OLD.jsonl` to ask what a newer
   run did with the ids an older one proposed in counting runs. It recomputes
   `in_counting_run` rather than reading it, so it works on pre-1.2.0 files too.
+- **`enrich_corpus.py --backend gemini`** (2026-10-08) — the frontier backend,
+  for logged policy exceptions only (`06_POLICY_EXCEPTIONS.md`). Needs
+  `--model`; optional `--thinking-level`, `--llm-seed`, `--price-in`,
+  `--price-out`, `--cost-cap-usd`. Runs a two-call preflight on one document
+  first. How-to and gotchas: `01_ENVIRONMENT.md`, "Gemini". The manifest gains
+  an **`llm`** block (provider, SDK, thinking setting, seed sent and whether it
+  was honoured, prices, preflight) and a **`usage`** block (calls and tokens,
+  thinking separate).
+- **Section-aware truncation** (2026-10-09) — `enrichment/truncation.py`.
+  An over-long entry is shown to the model with whole sections removed in a
+  fixed order; description and cross-catalogue links are never removed. The
+  record gets a `truncation` field; `record_shown_text(record)` rebuilds what
+  the model saw. `report_enrichment.py` and `measure_redundancy.py` now
+  measure "copied from the entry" against that, not the full text.
+- **Resume guard** (2026-10-09) — resuming into a file made under different
+  settings raises `ResumeMismatchError`; the manifest is written before the
+  first document and now records `concurrency`.
+- **Context handling** (2026-10-08) — `llm.seed`, `llm.num_ctx` and
+  `enrichment.max_doc_chars` in the config. Long documents are shortened for
+  the model only (`truncate_document`); the manifest gains a **`truncation`**
+  block listing them. Module 2 should send the same `seed`/`num_ctx` on the
+  query side.
+- **`scripts/bench_enrichment_speed.py`** (2026-10-08) — long-running speed
+  benchmark for planning the full-corpus run: tokens per second early vs after
+  30 minutes, and a per-source time estimate. Writes a timing log only.
 - The manifest now carries a **`gates`** block (which checks were on, the
   decoding mode, the token cap), because `--model` and `--name-overlap` mean the
   config hash alone no longer identifies a run.
@@ -225,7 +250,8 @@ Added 2026-09-15:
   approved and they move into `corpus_side.py` with tests.
 
 ### Tests
-**256 tests pass** (+32 on 2026-10-08: scorer versions, CWE short-name loader,
+**349 tests pass** (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+`load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,
 13 name-check and distance cases on the graph, 24 pipeline cases for the name
@@ -275,15 +301,25 @@ Modules 1 & 2 emit this; Module 3 consumes it; Module 4 audits it.
   ],
   "llm_calls": 1,
   "tokens": { "prompt": 812, "completion": 143 },
+  // schema 1.4.0: a "thinking" model adds a third count, e.g.
+  //   "tokens": { "prompt": 864, "completion": 208, "thinking": 679 }
+  // The key is absent when it is 0 (every local Ollama record).
   "latency_ms": 1904,
   "model": "qwen2.5:7b",
-  "schema_version": "1.3.0"
+  "schema_version": "1.5.0"
+  // schema 1.5.0: present only when the entry was shortened for the model:
+  //   "truncation": {"version": "sections-v1", "mode": "sections", "dropped": [...], "trimmed": {...}, ...}
+  // original_text is always the FULL entry.
 }
 ```
 
 `RejectReason` values: `not_in_graph`, `too_common`, `not_in_index`,
 `deprecated`, `revoked`, `malformed_id`, and (1.2.0) `name_mismatch`,
 `llm_json_error`.
+
+**Schema 1.5.0 (2026-10-09) adds the record-level `truncation` field; 1.4.0 (2026-10-08) adds `tokens.thinking`. Both are awaiting four-owner sign-off** —
+`docs/proposals/thinking-tokens.md`. Cost for a thinking model is
+`prompt` × input price + (`completion` + `thinking`) × output price.
 
 **Schema 1.3.0 (1.2.0 from 2026-10-07, amended 2026-10-08) is awaiting four-owner sign-off** —
 `docs/proposals/name-id-consistency.md`. Every addition is backward
@@ -317,6 +353,9 @@ downstream reviewer to skim past.
 
 ## Files new to `common/` (flag to the team)
 
+- `GeminiClient` in `common/llm.py` and `load_env_file()` in `common/repro.py`
+  (2026-10-08) — shared surface; Modules 2–4 can use them for their own
+  approved frontier runs instead of writing a second backend.
 - `src/sira_cti/common/repro.py` (new) — `config_hash` / `load_config`, used by
   both scripts for the "record the config hash" convention. New shared surface in
   `common/` — tell the other three so it doesn't get duplicated later.
