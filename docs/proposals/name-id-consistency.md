@@ -9,7 +9,12 @@ contract Modules 1–4 share):
 - one new enum — `RejectStage` (`parse` / `graph` / `name` / `df`)
 - five new optional fields on `ProposedTerm` — `claimed_name`,
   `official_name`, `rejected_at_stage`, `in_counting_run`, `graph_distance`
-- `SCHEMA_VERSION` 1.1.0 → 1.2.0
+- **added 2026-10-08, same sign-off round:** two more optional fields —
+  `name_scorer` (which scorer version made the name verdict) and `repaired_to`
+  (the id a name-mismatched proposal was probably meant to be; measurement
+  only). See "Amendment" at the end.
+- `SCHEMA_VERSION` 1.1.0 → 1.3.0 (1.2.0 was the first five fields; it was
+  never signed off, so there is one decision to make, not two)
 
 **All of it is additive.** No existing field changes name, type or meaning, and
 a 1.1.0 record loads into the 1.2.0 dataclass unchanged (there is a test:
@@ -349,7 +354,7 @@ behaviour for a clean A/B.
 
 | Owner | Decision | Date | Notes |
 |---|---|---|---|
-| Module 1 | **Approve** (implemented, default on, ablation flag kept) | 2026-10-07 | |
+| Module 1 | **Approve** (implemented, default on, ablation flag kept); amended 2026-10-08 to 1.3.0 | 2026-10-07 | `name_scorer` + `repaired_to` added — see Amendment |
 | Module 2 | *pending* | | Also: name check on query-side proposals? |
 | Module 3 | *pending* | | Expect fewer structural ids in the expansion field |
 | Module 4 | *pending* | | Two new reasons + `graph_validated=True` on rejects |
@@ -365,3 +370,112 @@ behaviour for a clean A/B.
   That keeps the model's behaviour comparable to `corpus-v3` and measures its
   unprompted error rate. A warned prompt is a separate experiment, and would
   measure the deterrent rather than the error.
+
+---
+
+## Amendment, 2026-10-08: scorer versions and `repaired_to` (schema 1.3.0)
+
+Everything below was measured **offline** on the saved `corpus-v4` runs —
+`scripts/rescore_enrichment.py` re-runs every gate on the stored proposals with
+no model call. Replaying under the original scorer reproduces every saved
+verdict on both files, so the differences below are the scorer and nothing
+else.
+
+### `name_scorer` — a verdict is not comparable without it
+
+There are now three scorers (`sira_cti.graph.ontology.NAME_SCORERS`), and each
+term records which one decided it:
+
+| | rule | reach |
+|---|---|---|
+| `v1` | overlap against the title (what this proposal describes above) | every node |
+| `v2` | symmetric match on the entry's **short names** — the quoted name in a CWE title and CWE `Alternate_Terms`; falls back to v1 where there are none, recorded as `v2:v1-fallback` | 122 of 1,450 CWE nodes; no ATT&CK, no CAPEC |
+| `v3` | symmetric match everywhere, plurals folded — *experimental* | every node |
+
+The CWE loader now fills `node.aliases` with those short names (it was empty
+for every CWE). v1 deliberately keeps ignoring them, so runs already on disk
+replay exactly.
+
+| structural ids | 7B v1 | 7B v2 | 7B v3 | 14B v1 | 14B v2 | 14B v3 |
+|---|---|---|---|---|---|---|
+| proposed | 14 | 14 | 14 | 157 | 157 | 157 |
+| accepted | 6 | 4 | 4 | 56 | 54 | 46 |
+| rejected at `graph` | 4 | 4 | 4 | 32 | 32 | 32 |
+| rejected at `name` | 4 | 6 | 6 | 69 | 71 | 79 |
+| name verdicts that fell back to v1 | – | 3 of 10 | – | – | 90 of 125 | – |
+| counting-run ids accepted | 0 | 0 | 0 | 7 of 51 | 7 of 51 | 4 of 51 |
+
+Verdicts that change, v1 → v2 (all four, both files):
+
+```
+7B   CWE-74   accepted -> name_mismatch   claimed CWE-89's title ('SQL Injection')         correct catch
+7B   CWE-89   accepted -> name_mismatch   claimed CWE-78's title ('OS Command Injection')  correct catch
+14B  CWE-416  accepted -> name_mismatch   "Double Free" for 'Use After Free'               correct catch
+14B  CWE-415  accepted -> name_mismatch   "Double Free or Release of Same Resource"
+                                          for 'Double Free'                                arguably a FALSE rejection
+```
+
+So v2 does what it was built for — both known within-family escapes are
+caught — and its honest limit is reach, not accuracy: on the 14B it only had a
+short name to work with for 35 of 125 verdicts.
+
+v3 changes 10 verdicts on the 14B: the two above, six more wrong titles v2
+cannot reach because the node has no short name (`CAPEC-423` claimed with
+CAPEC-421's title; `CAPEC-424` with CAPEC-423's; `T1098` "Account
+Manipulation" claimed as "Account Discovery"; `T1056.002`; `T1552`; `CWE-1230`),
+and two that are **stale rather than wrong** — `T1046` claimed as "Network
+Service Scanning", which was its title before MITRE renamed it to "Network
+Service Discovery". A model whose training data predates a rename is a
+different finding from a model that does not know the id, and v3 cannot tell
+them apart.
+
+### `repaired_to` — what the model probably meant
+
+For a `name_mismatch`, the pipeline now looks for a real id **within 2 hops of
+the source document** whose official name matches what the model *said*
+(matched symmetrically, whatever scorer adjudicates — naming a candidate is a
+stronger claim than not rejecting one). If there is **exactly one**, it is
+recorded as `repaired_to`. The term stays rejected and `reject_reason` stays
+`name_mismatch`. Two candidates means the name does not identify an id, so
+nothing is recorded.
+
+On the 14B run (v1 verdicts, to match the "33 within 2 hops" figure above):
+
+```
+69 name mismatches
+  33 with the proposed id within 2 hops of the document
+       9 repair cleanly      2 ambiguous      22 match nothing nearby
+  13 clean repairs in all (4 more where the proposed id itself was further out)
+       2 are the document's own id   -> recorded, never indexed
+      11 would be indexed under the ablation flag
+```
+
+Examples of clean repairs: `CAPEC-24`: `CWE-119` claimed as "Integer Overflow
+or Wraparound" → `CWE-190`; `CWE-1169`: `CWE-364` claimed as "Improper Locking"
+→ `CWE-667`; `CAPEC-267` (7B): `CWE-173` claimed as "Improper Input
+Validation" → `CWE-20`. The two ambiguous ones: "Dangling Pointer" matches both
+`CWE-416` and `CWE-825`; "Credential Access: Credentials in Files" matches both
+`T1552.001` and the tactic `TA0006`.
+
+Two cautions. Repairs scoring 1.00 are exact title matches and look right; the
+three scoring 0.67–0.80 are weaker, and one of them lands on a *tactic*
+(`T1005` claimed as "Credential Access: Credential Dumping" → `TA0006`), which
+is a category, not a technique. And a CVE document has no ontology node, so
+nothing on a CVE is ever repaired.
+
+**`enrichment.index_repaired_ids` (default `false`)** makes
+`scripts/build_index.py --stage enriched` also index `repaired_to` ids. That is
+the retrieval ablation for Modules 3 and 4: does indexing what the model
+*meant* beat indexing nothing? The default index is byte-for-byte what it was
+before the flag existed (there is a test).
+
+### What this adds for each owner
+
+- **Module 2:** `check_name(..., scorer=...)`, `name_candidates()` and
+  `within()` are on the shared `OntologyGraph`; interfaces are listed in
+  `docs/proposals/module1-freeze.md`.
+- **Module 3:** one new flag you may flip for an ablation; nothing changes
+  unless you do.
+- **Module 4:** group name verdicts by `name_scorer` before comparing them — a
+  `v2:v1-fallback` verdict is a v1 verdict. `repaired_to` on a rejected term is
+  a new RQ4 category: *knew the concept, wrote the wrong number*.

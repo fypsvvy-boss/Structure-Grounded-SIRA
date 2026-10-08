@@ -37,6 +37,16 @@ enrichment:
   # reproduces corpus-v3 behaviour exactly, which is how the before/after
   # comparison is run without editing this file.
   name_match_min_overlap: 0.5
+  # Which name scorer adjudicates (sira_cti.graph.ontology.NAME_SCORERS), and
+  # the threshold v2/v3 use. v1 = overlap against the title (the corpus-v4 runs);
+  # v2 = symmetric match on CWE short names, v1 where a node has none;
+  # v3 = symmetric everywhere (experimental). Recorded per term as name_scorer.
+  name_scorer: v1
+  name_match_min_jaccard: 0.6
+  # Retrieval ablation for Modules 3/4, OFF by default: also index the id a
+  # name-mismatched proposal was probably meant to be (ProposedTerm.repaired_to).
+  # The term itself stays rejected either way.
+  index_repaired_ids: false
 
 graph:
   # Pinned to ATT&CK v17.1 (mitre-attack/attack-stix-data), the last release

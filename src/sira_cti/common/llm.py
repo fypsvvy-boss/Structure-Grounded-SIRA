@@ -332,6 +332,7 @@ class OllamaClient(LLMClient):
 
     last_stop_reason: str = ""
     last_truncated: bool = False
+    last_timings: dict[str, float] = {}
 
     def __init__(
         self,
@@ -396,6 +397,15 @@ class OllamaClient(LLMClient):
         # blamed on the model's formatting.
         self.last_stop_reason = str(body.get("done_reason") or "")
         self.last_truncated = self.last_stop_reason == "length"
+        # Ollama's own split of where the time went (nanoseconds). Wall-clock
+        # latency mixes model load, prompt evaluation and generation; RQ3's
+        # decoding-mode comparison needs generation speed on its own.
+        self.last_timings = {
+            "eval_count": int(body.get("eval_count", 0)),
+            "eval_duration_s": int(body.get("eval_duration", 0)) / 1e9,
+            "prompt_eval_duration_s": int(body.get("prompt_eval_duration", 0)) / 1e9,
+            "load_duration_s": int(body.get("load_duration", 0)) / 1e9,
+        }
         return text, usage
 
 

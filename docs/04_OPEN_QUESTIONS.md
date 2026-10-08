@@ -470,6 +470,41 @@ which is question 8.
 > proposal to inform that decision, and is deliberately not a gate — see below
 > for why the `CAPEC-24` case makes a distance gate unsafe.
 >
+> **Update, 2026-10-08 — scorer v2 and the repair measurement, both offline.**
+> The saved `corpus-v4` runs were re-adjudicated with no model calls
+> (`scripts/rescore_enrichment.py`; replaying under v1 reproduces every saved
+> verdict, so the comparison is clean).
+>
+> | structural ids | 7B v1 | 7B v2 | 7B v3 | 14B v1 | 14B v2 | 14B v3 |
+> |---|---|---|---|---|---|---|
+> | accepted | 6 | 4 | 4 | 56 | 54 | 46 |
+> | rejected at `name` | 4 | 6 | 6 | 69 | 71 | 79 |
+> | verdicts decided by v1 fallback | – | 3/10 | – | – | **90/125** | – |
+>
+> v2 (symmetric match on CWE short names) catches **both** within-family
+> escapes on the 7B (`CWE-74` with CWE-89's title, `CWE-89` with CWE-78's) and
+> one more on the 14B (`CWE-416` "Use After Free" claimed as "Double Free"). It
+> also rejects one answer that was arguably right (`CWE-415` "Double Free",
+> claimed as "Double Free or Release of Same Resource"). **Its reach is small:**
+> only 122 of 1,450 CWE nodes have a short name and no ATT&CK or CAPEC node
+> does, so on the 14B 90 of 125 name verdicts still fall back to v1. v3
+> (symmetric everywhere, experimental) reaches the rest: 8 more rejections, of
+> which 6 are real within-family escapes (`CAPEC-423` with CAPEC-421's title,
+> `T1098` "Account Manipulation" claimed as "Account Discovery") and 2 are a
+> *stale* name rather than a wrong one (`T1046` "Network Service Scanning", its
+> title before MITRE renamed it).
+>
+> **Repair** (`repaired_to`, measurement only): of the 33 name mismatches within
+> 2 hops on the 14B, **9 repair cleanly** — the claimed title belongs to exactly
+> one other id within 2 hops of the document — 2 are ambiguous and 22 match
+> nothing nearby. Counting mismatches whose proposed id was further out, 13
+> repair cleanly in all; 2 of those are the document's own id and are never
+> indexed, leaving 11. So roughly a third of the "near" mismatches are *the
+> right neighbourhood and a real title with the wrong number attached*; the
+> other two thirds carry a title that belongs to nothing nearby. Whether
+> indexing the repaired id helps retrieval is now a flag Module 3/4 can flip
+> (`enrichment.index_repaired_ids`, off by default).
+>
 > One number that needs a human call: **33 of the 69 name-mismatch rejections
 > are within 2 hops of the document**, so the check discards structurally
 > plausible ids. For retrieval the id is what gets indexed, so those would have
@@ -654,11 +689,10 @@ biases the model towards `{...}` and guts a run instead of failing it. Sending
 a JSON Schema (`prompts/corpus_side.py:REPLY_SCHEMA`, selected by
 `enrichment.json_mode: schema`) pins the shape as well.
 
-Cost: grammar-constrained sampling runs roughly 3x slower — `qwen2.5:7b` takes
-~50s/document under the schema against ~17s unconstrained. If that becomes the
-bottleneck, run unconstrained first and fall back to the schema only on a parse
-failure; the unconstrained path parsed 39 of 40 documents, so the grammar would
-run about once per run instead of forty times.
+Cost, measured cleanly on 2026-10-08 (question 11): **1.5x slower on the 7B
+(26.4 -> 17.4 tokens/s), no measurable difference on the 14B (8.6 vs 8.9).** An
+earlier version of this paragraph said "roughly 3x"; that figure came from
+comparing runs made under different load and was wrong.
 
 ### And a backstop, because decoding is not a guarantee
 
@@ -687,8 +721,19 @@ same trap `temperature`/`seed` have — see `01_ENVIRONMENT.md`.
 
 ## 10. (Opened 2026-10-07) Is the grounding effect a trend across model size, or two points?
 
-**Open. Needs a decision about spending money, so it is a supervisor question,
-not a Module 1 one.**
+**Open — approved in principle 2026-10-08, blocked on a provider.** The Module 1
+owner approved running the 40-document sample on a frontier API model as a
+deliberate, logged exception to the open-weight-only development policy (hard
+cap $1, expected ~$0.25, reason: a third model-size point). It has **not been
+run**: no API key or provider is configured on this machine, `common/llm.py`
+has only an Ollama backend, and the instruction was not to guess a provider.
+Needed before it can run: which provider and model, and the key in the
+environment. Then an `openai-compatible` (or provider-native) `LLMClient`
+subclass, a pre-run cost estimate from the token counts below, and an abort if
+the estimate exceeds the cap.
+
+*Original framing:* needs a decision about spending money, so it is a
+supervisor question, not a Module 1 one.
 
 We have two model sizes and they disagree in an awkward way: the 7B invents
 almost nothing and proposes almost nothing, the 14B proposes ten times as much
@@ -722,8 +767,8 @@ over the sample):
 are measured and will not change.)
 
 Time, not cost, is the real argument for the sample: an API run at
-concurrency 4–8 finishes 40 documents in a few minutes, against ~35 minutes
-locally for the 7B under schema decoding.
+concurrency 4–8 finishes 40 documents in a few minutes, against ~8 minutes
+locally for the 7B and ~22 for the 14B.
 
 **Module 1's recommendation:** spend the ~$0.25 on the 40-document sample now,
 on the same seed-42 documents, and keep the full-corpus run for the benchmark.
@@ -731,3 +776,92 @@ The question "does an existence check get weaker as models get stronger" is
 load-bearing for the write-up, and answering it on two local checkpoints is
 answering it on one data point and a hunch. Needs sign-off because the model
 policy says development is open-weight only.
+
+
+---
+
+## 11. (Handoff to Modules 3 and 4, opened 2026-10-08) Decoding mode and concurrency change latency — RQ3 must compare like with like
+
+**Decision recorded: enrichment uses schema-constrained decoding
+(`enrichment.json_mode: schema`). It is slower on the small model, and RQ3 is
+a latency comparison, so the baseline has to match or the gap has to be
+reported.**
+
+Measured 2026-10-08 on this machine: same 8 documents (2 of each type, seed 7),
+one request at a time, model already loaded, generation speed taken from
+Ollama's own `eval_count / eval_duration` so prompt evaluation and model load
+are excluded.
+
+| model | mode | completion tokens | generation tok/s | wall s/doc |
+|---|---|---|---|---|
+| `qwen2.5:7b` | unconstrained | 1,727 | **26.4** | 9.1 |
+| `qwen2.5:7b` | schema | 1,718 | **17.4** | 12.7 |
+| `qwen2.5:14b` | unconstrained | 2,186 | **8.6** | 34.5 |
+| `qwen2.5:14b` | schema | 2,186 | **8.9** | 31.7 |
+
+So: **1.5x slower on the 7B, no measurable difference on the 14B.** (An earlier
+note in these docs said "~3x". That was wrong — it compared runs made under
+different load. Corrected everywhere on 2026-10-08.) The grammar adds a roughly
+fixed cost per token, which is large next to a fast model's token time and
+invisible next to a slow one's — so expect the penalty to matter *more* for
+smaller, faster models and not at all for an API model that enforces a schema
+server-side.
+
+**For Module 3 (multi-round baseline) and Module 4 (RQ3 audit):**
+
+1. **The multi-round agent baseline must use the same decoding setup as
+   enrichment, or the difference must be reported.** If the baseline's rounds
+   run unconstrained while SIRA-CTI's single enrichment call runs under the
+   schema, the 7B comparison hands the baseline a 1.5x per-token head start
+   that has nothing to do with the method. Either constrain both, or report
+   latency in both modes.
+2. **Report LLM calls and tokens as the primary RQ3 numbers, latency second.**
+   Calls and tokens are properties of the method; seconds are properties of
+   this laptop, the decoding mode and whatever else was running.
+3. **`latency_ms` in the saved `corpus-v4` sample runs is not usable.** Those
+   runs were made at `concurrency: 2` (Ollama serves one request at a time per
+   model, so the second worker queues and its latency includes the wait —
+   measured: 12 documents take 148.7s at concurrency 1 and 139.1s at 2) and
+   while other jobs were hitting the same Ollama server. They recorded 43.9
+   s/doc (7B) and 122.3 s/doc (14B) against a clean 12.7 and 31.7. Token and
+   call counts in those files are fine.
+4. **Any run whose latency is going into the write-up: `--concurrency 1`,
+   nothing else using Ollama, and say so.** The full-corpus run is specified
+   that way in `docs/proposals/module1-freeze.md`.
+
+---
+
+## 12. (Opened 2026-10-08 — must be decided before the full-corpus run) About 40 documents do not fit in the model's context
+
+Ollama is serving these models with a **4,096-token context** (`ollama ps`).
+The prompt (system ~330 tokens + the document) and the reply (capped at 512)
+both have to fit. `corpus_kb` text runs at ~3.75 characters per token, so a
+document over roughly **12,000 characters overflows** — and Ollama truncates
+the prompt silently instead of failing. The model then enriches a document it
+has only partly seen, or without its instructions, and the record looks normal.
+
+Not a problem in any run so far (largest sampled document: 1,999 prompt
+tokens). In the full corpus:
+
+```
+> 12,800 chars:  39 documents  (30 CVE, 8 CWE, 1 CAPEC)
+> 20,000 chars:  19 documents  (all CVE)
+largest:         CVE-2017-5753, 161,946 chars (~43k tokens)
+```
+
+**Options — not decided:**
+
+1. **Raise the context** (`options.num_ctx`, e.g. 8,192) through the wrapper.
+   Covers all but ~19 documents; costs memory, which is tight for the 14B on
+   16 GB, and changes speed for every document.
+2. **Truncate the document text explicitly** to a fixed character budget before
+   building the prompt, and record that it happened. Predictable, cheap, and
+   honest; the long tail of these documents is mostly reference lists and
+   affected-version tables.
+3. **Skip them** and list them. 0.7% of the corpus.
+
+Module 1's recommendation is 2 (with the budget and the count of truncated
+documents written to the manifest), because 1 does not actually cover the
+worst cases and silently changes the timing of the whole run. Whatever is
+chosen, the wrapper should also start refusing — or at least logging — a prompt
+whose token count Ollama reports as larger than the context allows.

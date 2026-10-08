@@ -6,7 +6,8 @@ report a hallucination rate that is really a staleness rate, and no test
 elsewhere in the suite would catch it.
 """
 
-from helpers import build_attack_only_graph, build_fixture_graph
+import pytest
+from helpers import build_attack_only_graph, build_fixture_graph, build_injection_graph
 
 from sira_cti.common import RejectReason
 from sira_cti.graph import Namespace, RevokedPolicy
@@ -401,3 +402,130 @@ def test_distance_respects_the_hop_cap():
     g = build_fixture_graph()
     assert g.distance("T1110.001", "CWE-307", max_hops=1) is None
     assert g.distance("T1110.001", "CWE-307", max_hops=6) == 2
+
+
+# -- versioned name scorers (v1 / v2 / v3) -------------------------------------------
+#
+# v1 let two wrong titles through on the first real run, both the same way:
+# the model was off by one entry inside the injection family, and those
+# titles are nearly the same sentence. v2 compares the short names instead.
+
+SQL_TITLE = "Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+OS_TITLE = "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+
+
+def test_v1_passes_a_within_family_neighbour_and_v2_catches_it():
+    g = build_injection_graph()
+    # The two escapes observed on 2026-10-07, verbatim.
+    for node_id, claimed in (("CWE-89", OS_TITLE), ("CWE-74", SQL_TITLE)):
+        assert g.check_name(node_id, claimed, scorer="v1").matches, node_id
+        check = g.check_name(node_id, claimed, scorer="v2")
+        assert not check.matches, node_id
+        assert check.scorer == "v2"
+
+
+def test_v2_still_accepts_the_right_title_in_every_form_a_model_writes_it():
+    g = build_injection_graph()
+    for claimed in (SQL_TITLE, "SQL Injection", "SQLi", "sql injection"):
+        assert g.check_name("CWE-89", claimed, scorer="v2").matches, claimed
+    # the formal title with its quoted short name left off
+    assert g.check_name(
+        "CWE-79", "Improper Neutralization of Input During Web Page Generation", scorer="v2"
+    ).matches
+    assert g.check_name("CWE-79", "XSS", scorer="v2").matches
+
+
+def test_v2_says_so_when_it_falls_back_to_v1():
+    # Most nodes have no short name. The verdict must record which rule
+    # actually decided, or a v2 run reads as stricter than it was.
+    g = build_injection_graph()
+    check = g.check_name("CWE-20", "Input Validation", scorer="v2")
+    assert check.matches
+    assert check.scorer == "v2:v1-fallback"
+
+
+def test_v1_ignores_short_names_so_saved_verdicts_stay_reproducible():
+    # "XSS" shares no word with CWE-79's title. v1 predates short names; if it
+    # started reading them, runs already on disk would stop replaying.
+    g = build_injection_graph()
+    assert not g.check_name("CWE-79", "XSS", scorer="v1").matches
+
+
+def test_v3_scores_symmetrically_even_without_short_names():
+    g = build_fixture_graph()
+    # T1110.001 is "Password Guessing". One shared word of two passes v1's
+    # shorter-side rule and fails a symmetric one.
+    assert g.check_name("T1110.001", "Password Spraying", scorer="v1").matches
+    check = g.check_name("T1110.001", "Password Spraying", scorer="v3")
+    assert not check.matches and check.scorer == "v3"
+    assert g.check_name("T1110.001", "Password Guessing", scorer="v3").matches
+
+
+def test_v3_folds_plurals():
+    g = build_fixture_graph()
+    assert g.check_name("T1110.004", "Credentials Stuffing", scorer="v3").matches
+
+
+def test_an_unknown_scorer_is_an_error_not_a_silent_default():
+    with pytest.raises(ValueError):
+        build_fixture_graph().check_name("T1110", "Brute Force", scorer="v9")
+
+
+def test_split_title_separates_the_quoted_short_name():
+    from sira_cti.graph import split_title
+
+    assert split_title(SQL_TITLE) == (
+        "Improper Neutralization of Special Elements used in an SQL Command", ["SQL Injection"]
+    )
+    assert split_title("Use After Free") == ("Use After Free", [])
+
+
+def test_cwe_short_names_come_from_the_title_and_alternate_terms():
+    from sira_cti.graph import cwe_short_names
+
+    assert cwe_short_names(SQL_TITLE, ["SQLi", "sql injection"]) == ["SQL Injection", "SQLi"]
+    # An acronym in plain parentheses is not a quoted short name.
+    assert cwe_short_names("Generation of Weak Initialization Vector (IV)") == []
+
+
+def test_the_cwe_loader_gives_weaknesses_their_short_names(tmp_path):
+    from sira_cti.graph import load_cwe_xml
+
+    xml = tmp_path / "cwe.xml"
+    xml.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<Weakness_Catalog xmlns="http://cwe.mitre.org/cwe-7" Name="CWE" Version="4.14">
+  <Weaknesses>
+    <Weakness ID="89" Name="Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+              Abstraction="Base" Structure="Simple" Status="Stable">
+      <Description>SQL injection.</Description>
+      <Alternate_Terms>
+        <Alternate_Term><Term>SQLi</Term><Description>short form</Description></Alternate_Term>
+      </Alternate_Terms>
+    </Weakness>
+    <Weakness ID="20" Name="Improper Input Validation" Abstraction="Class" Structure="Simple" Status="Stable">
+      <Description>Validation.</Description>
+    </Weakness>
+  </Weaknesses>
+</Weakness_Catalog>""",
+        encoding="utf-8",
+    )
+    nodes = {n.node_id: n for n in load_cwe_xml(xml).nodes}
+    assert nodes["CWE-89"].aliases == ["SQL Injection", "SQLi"]
+    assert nodes["CWE-89"].attrs["short_names"] == ["SQL Injection", "SQLi"]
+    assert nodes["CWE-20"].aliases == []
+
+
+def test_within_lists_neighbours_with_their_distance():
+    g = build_injection_graph()
+    near = g.within("CWE-89", 2)
+    assert near["CWE-89"] == 0 and near["CWE-74"] == 1 and near["CWE-78"] == 2
+    assert "CWE-20" not in near            # three hops away
+    assert g.within("CVE-2024-0001", 2) == {}
+
+
+def test_name_candidates_find_the_id_a_title_belongs_to():
+    g = build_injection_graph()
+    ids = g.within("CWE-74", 2)
+    assert [i for i, _ in g.name_candidates(OS_TITLE, ids)] == ["CWE-78"]
+    assert g.name_candidates("Totally Unrelated Thing", ids) == []

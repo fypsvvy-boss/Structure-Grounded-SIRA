@@ -92,6 +92,70 @@ def name_overlap(claimed: str, official: str) -> float:
     return len(a & b) / min(len(a), len(b))
 
 
+_QUOTED_SHORT_NAME = re.compile(r"\('([^']+(?:'[^')][^']*)*)'\)")
+
+
+def split_title(title: str) -> tuple[str, list[str]]:
+    """``"Long Formal Title ('Short Name')"`` -> ``("Long Formal Title", ["Short Name"])``.
+
+    Works on a model's claim as well as on an official title: a model asked
+    for CWE-89's name usually reproduces MITRE's punctuation, quoted short
+    name included, and that quoted part is the most informative thing in it.
+    """
+    shorts = [m.strip() for m in _QUOTED_SHORT_NAME.findall(title or "") if m.strip()]
+    return _QUOTED_SHORT_NAME.sub("", title or "").strip(), shorts
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
+
+
+def name_jaccard(a: str, b: str, *, fold_plurals: bool = False) -> float:
+    """Symmetric overlap of two names' content words: shared / all.
+
+    The symmetric counterpart of :func:`name_overlap`. That one divides by the
+    *shorter* name, so "Injection" inside "SQL Injection" scores 1.0; this one
+    scores it 0.5, because half of what was said is not in the official name.
+    Only safe when both sides are comparably short -- against a long formal
+    title it rejects correct short answers, which is why scorer v1 does not
+    use it and v2 applies it to short names only.
+    """
+    ta, tb = name_tokens(a), name_tokens(b)
+    if fold_plurals:
+        ta, tb = {_singular(t) for t in ta}, {_singular(t) for t in tb}
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+NAME_SCORERS = ("v1", "v2", "v3")
+"""The name-ID consistency scorers, versioned because verdicts are data.
+
+``v1``  Overlap coefficient (shared words / the shorter name's words) against
+        the official title and catalogue aliases. Threshold ``min_overlap``.
+        Catches cross-family confusions; passes within-family neighbours,
+        because CWE's injection titles are near-identical sentences (CWE-78's
+        and CWE-89's official titles score 0.83 against each other).
+
+``v2``  For a node that has short names (the quoted name in a CWE title, CWE
+        ``Alternate_Terms``): symmetric Jaccard between the claim's short name
+        and the node's. If the claim carries a quoted short name, only that is
+        compared -- the long titles are what v1 already showed to be
+        uninformative. A claim with no quoted part may also match the title
+        with its quoted part removed. Threshold ``min_jaccard``. A node with
+        **no** short names falls back to v1, and the verdict says so
+        (``"v2:v1-fallback"``): 122 of 1,450 CWE nodes have short names, and
+        no ATT&CK or CAPEC node does.
+
+``v3``  Experimental: v2's symmetric scoring for every node, with the title
+        (quoted part removed) standing in where there are no short names, and
+        trailing-s plurals folded. Catches within-family escapes v2 cannot
+        reach (CAPEC-423 claimed with CAPEC-421's title) at the cost of
+        rejecting stale-but-right names (T1046 "Network Service Scanning",
+        its pre-rename title).
+"""
+
+
 @dataclass
 class NameCheck:
     """Whether the model's claim about an id's title survives comparison."""
@@ -105,6 +169,12 @@ class NameCheck:
     its aliases (CWE "alternate terms", ATT&CK ``x_mitre_aliases``). Recorded
     so a match on an alias is auditable rather than looking like a match on
     the title."""
+    scorer: str = "v1"
+    """The rule that actually produced this verdict: ``"v1"``, ``"v2"``,
+    ``"v3"``, or ``"v2:v1-fallback"`` when v2 was asked for but the node has
+    no short names to compare against. ``overlap`` is that rule's score, so
+    the two must be read together -- a v1 0.5 and a v2 0.5 are different
+    measurements."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -113,6 +183,7 @@ class NameCheck:
             "official_name": self.official_name,
             "overlap": round(self.overlap, 3),
             "matched_against": self.matched_against,
+            "scorer": self.scorer,
         }
 
 
@@ -349,12 +420,16 @@ class OntologyGraph:
         claimed_name: Optional[str],
         *,
         min_overlap: float = 0.5,
+        scorer: str = "v1",
+        min_jaccard: float = 0.6,
     ) -> NameCheck:
         """Does the model's claimed title for ``node_id`` match MITRE's?
 
         Runs *after* :meth:`validate` has already found the node, so it takes
-        a canonical id rather than a raw term. Scores the claim against the
-        node's primary name and every alias, and keeps the best.
+        a canonical id rather than a raw term. ``scorer`` picks the rule (see
+        :data:`NAME_SCORERS`); ``min_overlap`` is v1's threshold and
+        ``min_jaccard`` is v2/v3's. They are separate arguments because they
+        are thresholds on different measurements.
 
         A blank or missing claim is a mismatch, not a pass. The model was
         asked what the id is; declining to answer is not evidence that it
@@ -366,29 +441,118 @@ class OntologyGraph:
         ``official_name=None`` -- but the pipeline never reaches here for one,
         because a non-existent id has already failed the graph stage.
         """
+        if scorer not in NAME_SCORERS:
+            raise ValueError(f"unknown name scorer {scorer!r}; expected one of {NAME_SCORERS}")
+
         node = self._nodes.get(node_id)
         if node is None:
-            return NameCheck(matches=False, claimed_name=claimed_name, official_name=None)
+            return NameCheck(
+                matches=False, claimed_name=claimed_name, official_name=None, scorer=scorer
+            )
 
         official = node.name or ""
         if not claimed_name or not claimed_name.strip():
-            return NameCheck(matches=False, claimed_name=None, official_name=official or None)
+            return NameCheck(
+                matches=False, claimed_name=None, official_name=official or None, scorer=scorer
+            )
+        claimed = claimed_name.strip()
+        short_names = list(node.attrs.get("short_names") or [])
 
-        best, best_label = 0.0, official
-        for label in [official, *node.aliases]:
-            if not label:
-                continue
-            score = name_overlap(claimed_name, label)
-            if score > best:
-                best, best_label = score, label
+        if scorer == "v1" or (scorer == "v2" and not short_names):
+            # v1 predates short names and must go on ignoring them, or verdicts
+            # already written to disk stop being reproducible.
+            labels = [official, *(a for a in node.aliases if a not in short_names)]
+            best, best_label = self._best(claimed, labels, name_overlap)
+            return NameCheck(
+                matches=best >= min_overlap,
+                claimed_name=claimed,
+                official_name=official or None,
+                overlap=best,
+                matched_against=best_label or official,
+                scorer="v1" if scorer == "v1" else "v2:v1-fallback",
+            )
+
+        fold = scorer == "v3"
+        official_title, _ = split_title(official)
+        claimed_title, claimed_shorts = split_title(claimed)
+
+        def score(a: str, b: str) -> float:
+            return name_jaccard(a, b, fold_plurals=fold)
+
+        if claimed_shorts and short_names:
+            # Both sides state a short name: compare those and nothing else.
+            # Letting the long titles vote is how CWE-89 passed as CWE-78.
+            best, best_label = max(
+                ((score(c, label), label) for c in claimed_shorts for label in short_names),
+                key=lambda pair: pair[0],
+            )
+        else:
+            labels = [official_title or official, *short_names, *node.aliases]
+            forms = [claimed_title or claimed, *claimed_shorts]
+            best, best_label = max(
+                ((score(c, label), label) for c in forms for label in labels if label),
+                key=lambda pair: pair[0],
+                default=(0.0, official),
+            )
 
         return NameCheck(
-            matches=best >= min_overlap,
-            claimed_name=claimed_name.strip(),
+            matches=best >= min_jaccard,
+            claimed_name=claimed,
             official_name=official or None,
             overlap=best,
             matched_against=best_label,
+            scorer=scorer,
         )
+
+    @staticmethod
+    def _best(claimed: str, labels: Iterable[str], fn) -> tuple[float, str]:
+        best, best_label = 0.0, ""
+        for label in labels:
+            if not label:
+                continue
+            value = fn(claimed, label)
+            if value > best:
+                best, best_label = value, label
+        return best, best_label
+
+    def within(self, node_id: str, max_hops: int) -> dict[str, int]:
+        """Every node within ``max_hops`` of ``node_id``, with its distance.
+
+        Same undirected projection as :meth:`distance`. Includes the node
+        itself at 0; empty if the node is not in the graph.
+        """
+        if node_id not in self._nodes:
+            return {}
+        return dict(
+            nx.single_source_shortest_path_length(
+                self._undirected_view(), node_id, cutoff=max_hops
+            )
+        )
+
+    def name_candidates(
+        self,
+        claimed_name: Optional[str],
+        node_ids: Iterable[str],
+        *,
+        min_jaccard: float = 0.6,
+    ) -> list[tuple[str, float]]:
+        """Which of ``node_ids`` the claimed name could be the title of.
+
+        Always scored with v3's symmetric rule, whatever scorer the pipeline
+        adjudicates with. Naming a candidate is a stronger claim than not
+        rejecting one: v1's shorter-side rule would let the ATT&CK data source
+        titled "Command" match any claim that mentions a command. Only usable
+        (active) nodes are returned, best first.
+        """
+        out: list[tuple[str, float]] = []
+        for nid in node_ids:
+            node = self._nodes.get(nid)
+            if node is None or not node.is_usable:
+                continue
+            check = self.check_name(nid, claimed_name, scorer="v3", min_jaccard=min_jaccard)
+            if check.matches:
+                out.append((nid, check.overlap))
+        return sorted(out, key=lambda pair: (-pair[1], pair[0]))
 
     # -- ontology distance (reported, never filtered on) ---------------------------
 

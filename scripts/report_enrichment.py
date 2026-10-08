@@ -174,7 +174,7 @@ def _print(s: dict) -> None:
     print(f"\n{'=' * 78}\n{s['path']}")
     print(f"  model={s['model']}  prompt={s['prompt_version']}")
     print(
-        f"  gates: name_overlap={g.get('name_match_min_overlap')}  "
+        f"  gates: name_overlap={g.get('name_match_min_overlap')}  scorer={g.get('name_scorer') or 'v1'}  "
         f"decoding={g.get('json_mode')}  max_new_tokens={g.get('max_new_tokens')}  "
         f"df_max_ratio={g.get('df_max_ratio')}"
     )

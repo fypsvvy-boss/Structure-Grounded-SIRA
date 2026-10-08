@@ -95,23 +95,49 @@ this machine runs **0.33.2**, which is a later release than 0.5 (0.5 → 0.6 →
 … → 0.33), so it is supported. Read those version numbers as semver, not
 decimals.
 
-**It is not free.** Grammar-constrained sampling costs roughly what tripling
-the model size costs: `qwen2.5:7b` generates ~220 completion tokens in ~50s
-under the schema, against ~17s/document unconstrained. Budget ~35 min for a
-40-document 7B run and well over an hour for 14B. If that becomes the
-bottleneck, the cheaper arrangement is unconstrained on the first attempt and
-schema-constrained only on the retry — the unconstrained path parsed 39 of 40
-documents, so the grammar would run about once per run instead of forty times.
-- Config model string must be exactly `qwen2.5:7b` (not `qwen2.5`, which resolves
-  to a different default tag).
+**What it costs (measured 2026-10-08, corrected).** Same 8 documents, one
+request at a time, model already loaded, generation speed from Ollama's own
+`eval_count / eval_duration`:
 
-Model policy: open-weight (Qwen2.5-7B) for all development; a frontier/paid API
-model is reserved for the **final benchmark run only** (deliberate cost control).
+| model | unconstrained | schema-constrained | slowdown |
+|---|---|---|---|
+| `qwen2.5:7b` | 26.4 tok/s, 9.1 s/doc | 17.4 tok/s, 12.7 s/doc | **1.5x** |
+| `qwen2.5:14b` | 8.6 tok/s, 34.5 s/doc | 8.9 tok/s, 31.7 s/doc | **none** |
+
+An earlier version of this note said "~3x slower (17s vs 50s)". **That was
+wrong.** It compared a wall-clock figure from one run with per-call latencies
+from another run during which other Ollama jobs (including the 14B) were being
+fired at the same server. The grammar has a roughly fixed per-token cost, which
+is a third of the 7B's token time and lost in the noise of the 14B's.
+
+### ⚠️ Three things that make a run's `latency_ms` untrustworthy
+
+1. **`enrichment.concurrency: 2` buys nothing and corrupts latency.** Ollama
+   runs one request at a time per loaded model, so the second worker's request
+   just queues. Measured on 12 documents (7B, schema): 148.7s at concurrency 1,
+   139.1s at concurrency 2. But each record's `latency_ms` is timed from when
+   the request was *sent*, so at concurrency 2 it includes the time spent
+   queued behind the other worker — roughly double the real figure. **Any run
+   whose latency will be reported (RQ3) must use `--concurrency 1`.**
+2. **Don't use Ollama for anything else while a run is going.** A second model
+   forces a load/unload cycle on 16 GB; even the same model queues. The
+   `corpus-v4` 40-document runs recorded 43.9 s/doc (7B) and 122.3 s/doc (14B)
+   against a clean 12.7 and 31.7, purely because diagnostics were being run
+   against the same server at the same time. **Their `latency_ms` values are
+   not usable for RQ3.** Their verdicts are unaffected.
+3. **The context window is 4,096 tokens** (`ollama ps` shows it). Prompt +
+   512 reply tokens has to fit. Measured: ~3.75 characters per token on
+   `corpus_kb` text, ~330 tokens of system prompt — so a document over roughly
+   **12,000 characters does not fit**, and Ollama truncates the prompt silently
+   rather than failing. None of the 40 sampled documents is close (largest:
+   1,999 prompt tokens). In the full corpus about **40 of 6,044** are over, the
+   largest being `CVE-2017-5753` at 162k characters. Decide before the
+   full-corpus run (`docs/proposals/module1-freeze.md`).
 
 `qwen2.5:14b` is also pulled (9.0 GB) for the model-scale comparison. On this
-16 GB machine it runs at roughly **46s/document** versus the 7B's ~17s
-(both unconstrained), so a 40-document run takes about 30 minutes. Add the
-schema-decoding multiplier above on top of that.
+16 GB machine it runs at roughly **32-35 s/document** against the 7B's 9-13 s
+(table above), so a clean 40-document run is ~22 minutes on the 14B and ~8 on
+the 7B.
 
 **Don't run two models at once.** 7B (5 GB) plus 14B (9 GB) exceeds 16 GB, and
 Ollama will swap instead of answering. Run them in sequence; both runs are

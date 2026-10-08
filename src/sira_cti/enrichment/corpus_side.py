@@ -200,6 +200,8 @@ def _adjudicate_structural(
     revoked_policy: RevokedPolicy | str,
     claimed_name: Optional[str] = None,
     name_match_min_overlap: Optional[float] = None,
+    name_scorer: str = "v1",
+    name_match_min_jaccard: float = 0.6,
 ) -> ProposedTerm:
     """Validate one structural proposal: stage 1 existence, then stage 2 name.
 
@@ -237,12 +239,18 @@ def _adjudicate_structural(
     # The node the id resolved to -- for a repair, that is the *replacement*,
     # so the name is checked against what would actually enter the index.
     official_name = result.node.name if result.node else None
+    scored_by: Optional[str] = None
 
     if name_match_min_overlap is not None:
         check = graph.check_name(
-            result.canonical_id, claimed_name, min_overlap=name_match_min_overlap
+            result.canonical_id,
+            claimed_name,
+            min_overlap=name_match_min_overlap,
+            scorer=name_scorer,
+            min_jaccard=name_match_min_jaccard,
         )
         official_name = check.official_name
+        scored_by = check.scorer
         if not check.matches:
             return ProposedTerm.reject(
                 term,
@@ -251,6 +259,7 @@ def _adjudicate_structural(
                 structural_id=result.canonical_id,
                 claimed_name=check.claimed_name,
                 official_name=official_name,
+                name_scorer=scored_by,
             )
 
     if result.repaired:
@@ -262,6 +271,7 @@ def _adjudicate_structural(
             repaired_from_id=repaired_from,
             claimed_name=claimed_name,
             official_name=official_name,
+            name_scorer=scored_by,
         )
 
     return ProposedTerm.accept(
@@ -270,6 +280,7 @@ def _adjudicate_structural(
         structural_id=result.canonical_id,
         claimed_name=claimed_name,
         official_name=official_name,
+        name_scorer=scored_by,
     )
 
 
@@ -322,6 +333,7 @@ def _apply_df_filter(term: ProposedTerm, df_lookup: DFLookup, *, df_max_ratio: f
             doc_freq=doc_freq,
             claimed_name=term.claimed_name,
             official_name=term.official_name,
+            name_scorer=term.name_scorer,
         )
 
     if term.repaired_from_id is not None:
@@ -332,6 +344,7 @@ def _apply_df_filter(term: ProposedTerm, df_lookup: DFLookup, *, df_max_ratio: f
             doc_freq=doc_freq,
             claimed_name=term.claimed_name,
             official_name=term.official_name,
+            name_scorer=term.name_scorer,
         )
     return ProposedTerm.accept(
         term.term,
@@ -340,6 +353,7 @@ def _apply_df_filter(term: ProposedTerm, df_lookup: DFLookup, *, df_max_ratio: f
         doc_freq=doc_freq,
         claimed_name=term.claimed_name,
         official_name=term.official_name,
+        name_scorer=term.name_scorer,
     )
 
 
@@ -443,6 +457,89 @@ def annotate_graph_distance(
     return anchor_node.node_id
 
 
+REPAIR_MAX_HOPS = 2
+"""How far from the source document a repair candidate may sit.
+
+The bound is what makes a repair evidence rather than a search. Scored
+against all ~4,500 titles, most claimed names match *something*; scored
+against the few dozen nodes within two hops of the entry, a match means the
+model named a real neighbour and attached the wrong number to it.
+"""
+
+
+def repair_candidates(
+    term: ProposedTerm,
+    doc: CorpusDocument,
+    graph: OntologyGraph,
+    df_lookup: DFLookup,
+    *,
+    df_max_ratio: float,
+    min_jaccard: float = 0.6,
+    max_hops: int = REPAIR_MAX_HOPS,
+) -> list[tuple[str, float, int]]:
+    """Real ids near ``doc`` whose official name matches what the model *said*.
+
+    ``(node_id, score, hops)``, best score first. Empty unless ``term`` is a
+    ``name_mismatch`` with a claimed name and ``doc`` is an ontology node --
+    so never for a CVE, which has no neighbourhood to search.
+
+    The rejected id itself is never a candidate. The document's own id *can*
+    be (the model reciting the entry's title beside a different number is a
+    recurring pattern), and the index build skips it when the repair ablation
+    is on (``index.build_enriched.repaired_ids``): an entry's own id reaching
+    the index by way of the LLM is the thing prompt ``corpus-v3`` was written
+    to stop.
+
+    A candidate must also clear the same document-frequency bar as any
+    accepted structural id, so that switching the repair ablation on cannot
+    index something the ordinary pipeline would have refused.
+    """
+    if term.reject_reason is not RejectReason.NAME_MISMATCH or not term.claimed_name:
+        return []
+    anchor = graph.resolve(doc.doc_id)
+    if anchor is None:
+        return []
+    nearby = graph.within(anchor.node_id, max_hops)
+    nearby.pop(term.structural_id, None)
+    out: list[tuple[str, float, int]] = []
+    for node_id, score in graph.name_candidates(
+        term.claimed_name, nearby, min_jaccard=min_jaccard
+    ):
+        doc_freq = df_lookup.doc_freq(node_id, combine="min")
+        ratio = doc_freq / df_lookup.total_docs if df_lookup.total_docs else 0.0
+        if ratio <= df_max_ratio:
+            out.append((node_id, score, nearby[node_id]))
+    return out
+
+
+def annotate_repairs(
+    terms: Iterable[ProposedTerm],
+    doc: CorpusDocument,
+    graph: OntologyGraph,
+    df_lookup: DFLookup,
+    *,
+    df_max_ratio: float,
+    min_jaccard: float = 0.6,
+) -> int:
+    """Set ``repaired_to`` on name mismatches with exactly one candidate. Returns the count.
+
+    Measurement only: the term stays rejected with ``reject_reason`` still
+    ``name_mismatch``. Exactly one, because two candidates means the claimed
+    name does not identify an id -- recording the better-scoring one would
+    present a guess as a recovery. Ambiguous cases are left unset and can be
+    listed from the saved records with ``scripts/rescore_enrichment.py``.
+    """
+    repaired = 0
+    for t in terms:
+        candidates = repair_candidates(
+            t, doc, graph, df_lookup, df_max_ratio=df_max_ratio, min_jaccard=min_jaccard
+        )
+        if len(candidates) == 1:
+            t.repaired_to = candidates[0][0]
+            repaired += 1
+    return repaired
+
+
 # -- one document ---------------------------------------------------------------------
 
 
@@ -474,6 +571,59 @@ def _ask_for_proposals(
     raise last_exc
 
 
+def adjudicate_proposals(
+    proposals: Iterable[Proposal],
+    doc: CorpusDocument,
+    graph: OntologyGraph,
+    df_lookup: DFLookup,
+    *,
+    df_max_ratio: float,
+    allow_deprecated: bool = False,
+    revoked_policy: RevokedPolicy | str = RevokedPolicy.REJECT,
+    name_match_min_overlap: Optional[float] = None,
+    name_scorer: str = "v1",
+    name_match_min_jaccard: float = 0.6,
+) -> list[ProposedTerm]:
+    """Everything after the model call: route -> graph -> name -> DF -> annotate.
+
+    Split out from :func:`propose_terms` so that a saved run can be
+    re-adjudicated without calling the model again
+    (:func:`readjudicate_record`). The model's reply is the expensive,
+    unrepeatable part of a run; every gate after it is a pure function of
+    that reply, the graph and the index, and should be re-runnable for free.
+
+    The last step annotates ``in_counting_run``, ``graph_distance`` and
+    ``repaired_to`` across the whole document's proposals at once. All three
+    are measurements and run after adjudication so that nothing they record
+    can influence it.
+    """
+    terms: list[ProposedTerm] = []
+    for proposal in proposals:
+        kind = _route_kind(TermKind(proposal.kind), proposal.term)
+        if kind is TermKind.STRUCTURAL:
+            pt = _adjudicate_structural(
+                proposal.term,
+                graph,
+                allow_deprecated=allow_deprecated,
+                revoked_policy=revoked_policy,
+                claimed_name=proposal.claimed_name,
+                name_match_min_overlap=name_match_min_overlap,
+                name_scorer=name_scorer,
+                name_match_min_jaccard=name_match_min_jaccard,
+            )
+        else:
+            pt = ProposedTerm.accept(proposal.term, kind)
+        terms.append(_apply_df_filter(pt, df_lookup, df_max_ratio=df_max_ratio))
+
+    flag_counting_runs(terms)
+    annotate_graph_distance(terms, doc, graph)
+    annotate_repairs(
+        terms, doc, graph, df_lookup, df_max_ratio=df_max_ratio,
+        min_jaccard=name_match_min_jaccard,
+    )
+    return terms
+
+
 def propose_terms(
     doc: CorpusDocument,
     client: LLMClient,
@@ -485,44 +635,95 @@ def propose_terms(
     allow_deprecated: bool = False,
     revoked_policy: RevokedPolicy | str = RevokedPolicy.REJECT,
     name_match_min_overlap: Optional[float] = None,
+    name_scorer: str = "v1",
+    name_match_min_jaccard: float = 0.6,
     json_retries: int = 0,
 ) -> list[ProposedTerm]:
-    """The per-document pipeline: prompt -> parse -> graph -> name -> DF -> annotate.
+    """The per-document pipeline: prompt -> parse -> :func:`adjudicate_proposals`.
 
     Raises :class:`MalformedReplyError` if the reply cannot be trusted. Every
     model call goes through ``client.generate()`` (the instrumented wrapper) --
     never a direct call -- and JSON extraction reuses ``parse_json_loose``
     rather than a second parser.
-
-    The last step annotates ``in_counting_run`` and ``graph_distance`` across
-    the whole document's proposals at once. Both are properties of the *set*
-    rather than of one term -- an id is only part of a run relative to its
-    neighbours -- so neither can be decided inside the per-term loop, and
-    both run after adjudication so that nothing they record can influence it.
     """
     proposals, _attempts = _ask_for_proposals(
         doc, client, max_terms=max_terms, json_retries=json_retries
     )
+    return adjudicate_proposals(
+        proposals[:max_terms],
+        doc,
+        graph,
+        df_lookup,
+        df_max_ratio=df_max_ratio,
+        allow_deprecated=allow_deprecated,
+        revoked_policy=revoked_policy,
+        name_match_min_overlap=name_match_min_overlap,
+        name_scorer=name_scorer,
+        name_match_min_jaccard=name_match_min_jaccard,
+    )
 
-    terms: list[ProposedTerm] = []
-    for proposal in proposals[:max_terms]:
-        kind = _route_kind(TermKind(proposal.kind), proposal.term)
-        if kind is TermKind.STRUCTURAL:
-            pt = _adjudicate_structural(
-                proposal.term,
-                graph,
-                allow_deprecated=allow_deprecated,
-                revoked_policy=revoked_policy,
-                claimed_name=proposal.claimed_name,
-                name_match_min_overlap=name_match_min_overlap,
-            )
-        else:
-            pt = ProposedTerm.accept(proposal.term, kind)
-        terms.append(_apply_df_filter(pt, df_lookup, df_max_ratio=df_max_ratio))
 
-    flag_counting_runs(terms)
-    annotate_graph_distance(terms, doc, graph)
-    return terms
+def readjudicate_record(
+    record: EnrichmentRecord,
+    graph: OntologyGraph,
+    df_lookup: DFLookup,
+    *,
+    df_max_ratio: float,
+    allow_deprecated: bool = False,
+    revoked_policy: RevokedPolicy | str = RevokedPolicy.REJECT,
+    name_match_min_overlap: Optional[float] = None,
+    name_scorer: str = "v1",
+    name_match_min_jaccard: float = 0.6,
+) -> EnrichmentRecord:
+    """Re-run every gate on a saved record's proposals. No model call.
+
+    Each stored term keeps what the model literally wrote (``term``) and what
+    it claimed (``claimed_name``), which is all the gates ever saw of the
+    reply -- so a new scorer, threshold or graph snapshot can be applied to
+    an old run and the result is exactly what that run would have produced.
+    Cost fields (``llm_calls``, ``tokens``, ``latency_ms``, ``model``) are
+    carried over untouched: they describe the model call that was made, and
+    re-adjudicating makes none.
+
+    The stored ``kind`` is the kind *after* routing. Routing only ever demotes
+    a mislabelled "structural", and a demoted term is routed the same way
+    again, so replaying from it is lossless. A term recording that the reply
+    never parsed (``llm_json_error``) was never a proposal and is passed
+    through as it is.
+    """
+    doc = CorpusDocument(
+        doc_id=record.doc_id, source=record.source, title="", text=record.original_text
+    )
+    failures = [
+        t for t in record.proposed_terms if t.reject_reason is RejectReason.LLM_JSON_ERROR
+    ]
+    proposals = [
+        Proposal(term=t.term, kind=t.kind.value, claimed_name=t.claimed_name)
+        for t in record.proposed_terms
+        if t.reject_reason is not RejectReason.LLM_JSON_ERROR
+    ]
+    terms = adjudicate_proposals(
+        proposals,
+        doc,
+        graph,
+        df_lookup,
+        df_max_ratio=df_max_ratio,
+        allow_deprecated=allow_deprecated,
+        revoked_policy=revoked_policy,
+        name_match_min_overlap=name_match_min_overlap,
+        name_scorer=name_scorer,
+        name_match_min_jaccard=name_match_min_jaccard,
+    )
+    return EnrichmentRecord(
+        doc_id=record.doc_id,
+        source=record.source,
+        original_text=record.original_text,
+        proposed_terms=failures + terms,
+        llm_calls=record.llm_calls,
+        tokens=record.tokens,
+        latency_ms=record.latency_ms,
+        model=record.model,
+    )
 
 
 # -- the resumable, (optionally) concurrent driver -----------------------------------
@@ -639,6 +840,8 @@ def run_corpus_enrichment(
     allow_deprecated: bool = False,
     revoked_policy: RevokedPolicy | str = RevokedPolicy.REJECT,
     name_match_min_overlap: Optional[float] = None,
+    name_scorer: str = "v1",
+    name_match_min_jaccard: float = 0.6,
     json_retries: int = 0,
     record_json_failures: bool = False,
     max_new_tokens: Optional[int] = None,
@@ -718,6 +921,8 @@ def run_corpus_enrichment(
                 allow_deprecated=allow_deprecated,
                 revoked_policy=revoked_policy,
                 name_match_min_overlap=name_match_min_overlap,
+                name_scorer=name_scorer,
+                name_match_min_jaccard=name_match_min_jaccard,
                 json_retries=json_retries,
             )
         except MalformedReplyError as exc:
@@ -820,6 +1025,8 @@ def run_corpus_enrichment(
             sampling=sampling,
             gates={
                 "name_match_min_overlap": name_match_min_overlap,
+                "name_scorer": name_scorer if name_match_min_overlap is not None else None,
+                "name_match_min_jaccard": name_match_min_jaccard,
                 "json_retries": json_retries,
                 "record_json_failures": record_json_failures,
                 "max_new_tokens": max_new_tokens,

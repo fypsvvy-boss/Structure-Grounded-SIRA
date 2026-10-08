@@ -58,6 +58,10 @@ def main() -> int:
         default=None,
         help="override enrichment.name_match_min_overlap (0.0-1.0)",
     )
+    parser.add_argument(
+        "--name-scorer", choices=["v1", "v2", "v3"], default=None,
+        help="override enrichment.name_scorer",
+    )
     parser.add_argument("--dry-run", action="store_true", help="run the pipeline but write nothing to disk")
     args = parser.parse_args()
 
@@ -152,6 +156,8 @@ def main() -> int:
         allow_deprecated=graph_cfg.get("allow_deprecated", False),
         revoked_policy=graph_cfg.get("revoked_policy", "reject"),
         name_match_min_overlap=name_overlap,
+        name_scorer=args.name_scorer or enrich_cfg.get("name_scorer", "v1"),
+        name_match_min_jaccard=float(enrich_cfg.get("name_match_min_jaccard", 0.6)),
         json_retries=int(enrich_cfg.get("json_retries", 0)),
         record_json_failures=bool(enrich_cfg.get("record_json_failures", False)),
         max_new_tokens=max_new_tokens,

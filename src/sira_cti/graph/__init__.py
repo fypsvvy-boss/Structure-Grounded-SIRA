@@ -4,6 +4,7 @@ from .loaders import (
     OntologyEdge,
     OntologyNode,
     Status,
+    cwe_short_names,
     load_all,
     load_attack_stix,
     load_capec_xml,
@@ -19,12 +20,15 @@ from .normalize import (
     parse_structural_id,
 )
 from .ontology import (
+    NAME_SCORERS,
     NameCheck,
     OntologyGraph,
     RevokedPolicy,
     ValidationResult,
+    name_jaccard,
     name_overlap,
     name_tokens,
+    split_title,
 )
 
 __all__ = [
@@ -33,6 +37,7 @@ __all__ = [
     "OntologyEdge",
     "OntologyNode",
     "Status",
+    "cwe_short_names",
     "load_all",
     "load_attack_stix",
     "load_capec_xml",
@@ -44,10 +49,13 @@ __all__ = [
     "is_id_shaped",
     "looks_structural",
     "parse_structural_id",
+    "NAME_SCORERS",
     "NameCheck",
     "OntologyGraph",
     "RevokedPolicy",
     "ValidationResult",
+    "name_jaccard",
     "name_overlap",
     "name_tokens",
+    "split_title",
 ]

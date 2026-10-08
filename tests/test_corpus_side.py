@@ -11,19 +11,24 @@ from __future__ import annotations
 import json
 
 import pytest
-from helpers import FakeDFLookup, build_fixture_graph
+from helpers import FakeDFLookup, build_fixture_graph, build_injection_graph
 
 from sira_cti.common import (
+    EnrichmentRecord,
+    ProposedTerm,
     RejectReason,
     RejectStage,
     Source,
     StubClient,
     TermKind,
+    TokenUsage,
     read_jsonl,
 )
 from sira_cti.enrichment.corpus_side import (
     MalformedReplyError,
     propose_terms,
+    readjudicate_record,
+    repair_candidates,
     run_corpus_enrichment,
     summarize,
 )
@@ -901,3 +906,187 @@ def test_the_manifest_records_which_gates_were_on(tmp_path):
     assert manifest["gates"]["max_new_tokens"] == 512
     assert manifest["gates"]["json_mode"] == "schema"
     assert manifest["gates"]["record_json_failures"] is True
+
+
+# == name scorer versions, offline re-adjudication, and the repair measurement ========
+
+_SQL = "Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+_OS = "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+
+
+def _cwe_doc(doc_id="CWE-74", text="Injection weakness entry.") -> CorpusDocument:
+    return CorpusDocument(doc_id=doc_id, source=Source.CWE, title="x", text=text)
+
+
+def _propose(doc, payload, graph, **kw):
+    kw.setdefault("name_match_min_overlap", 0.5)
+    return propose_terms(doc, _client(payload), graph, _df(), max_terms=12, df_max_ratio=0.5, **kw)
+
+
+def test_every_name_verdict_records_the_scorer_that_made_it():
+    g = build_injection_graph()
+    payload = [
+        {"term": "CWE-89", "kind": "structural", "name": "SQL Injection"},     # has a short name
+        {"term": "CWE-20", "kind": "structural", "name": "Input Validation"},  # has none
+        {"term": "CWE-9999", "kind": "structural", "name": "Nothing"},         # fails the graph first
+        {"term": "sqli attack", "kind": "colloquial"},
+    ]
+    v1 = _propose(_cwe_doc(), payload, g)
+    assert [t.name_scorer for t in v1] == ["v1", "v1", None, None]
+    v2 = _propose(_cwe_doc(), payload, g, name_scorer="v2")
+    assert [t.name_scorer for t in v2] == ["v2", "v2:v1-fallback", None, None]
+
+
+def test_no_scorer_is_recorded_when_the_name_check_is_off():
+    terms = _propose(
+        _cwe_doc(), [{"term": "CWE-89", "kind": "structural", "name": "SQL Injection"}],
+        build_injection_graph(), name_match_min_overlap=None,
+    )
+    assert terms[0].accepted and terms[0].name_scorer is None
+
+
+def test_v2_rejects_the_within_family_escape_in_the_pipeline():
+    g = build_injection_graph()
+    payload = [{"term": "CWE-89", "kind": "structural", "name": _OS}]
+    assert _propose(_cwe_doc(), payload, g)[0].accepted                      # v1: the escape
+    v2 = _propose(_cwe_doc(), payload, g, name_scorer="v2")[0]
+    assert v2.reject_reason is RejectReason.NAME_MISMATCH
+    assert v2.graph_validated is True
+
+
+def _saved_record(graph, payload, doc=None, **kw):
+    doc = doc or _cwe_doc()
+    terms = _propose(doc, payload, graph, **kw)
+    return EnrichmentRecord(
+        doc_id=doc.doc_id, source=doc.source, original_text=doc.text, proposed_terms=terms,
+        llm_calls=1, tokens=TokenUsage(prompt=100, completion=40), latency_ms=1234, model="stub",
+    )
+
+
+def test_readjudicating_under_the_same_scorer_reproduces_the_saved_verdicts():
+    g = build_injection_graph()
+    rec = _saved_record(g, [
+        {"term": "CWE-89", "kind": "structural", "name": _OS},
+        {"term": "CWE-79", "kind": "structural", "name": "Cross-site Scripting"},
+        {"term": "CWE-9999", "kind": "structural", "name": "Nothing"},
+        {"term": "heap-based", "kind": "structural"},          # demoted by kind routing
+        {"term": "sqli attack", "kind": "colloquial"},
+    ])
+    again = readjudicate_record(rec, g, _df(), df_max_ratio=0.5, name_match_min_overlap=0.5)
+    assert [t.to_dict() for t in again.proposed_terms] == [t.to_dict() for t in rec.proposed_terms]
+
+
+def test_readjudicating_under_v2_changes_the_verdict_without_a_model_call():
+    g = build_injection_graph()
+    rec = _saved_record(g, [{"term": "CWE-89", "kind": "structural", "name": _OS}])
+    assert rec.proposed_terms[0].accepted
+    again = readjudicate_record(
+        rec, g, _df(), df_max_ratio=0.5, name_match_min_overlap=0.5, name_scorer="v2"
+    )
+    assert again.proposed_terms[0].reject_reason is RejectReason.NAME_MISMATCH
+    assert again.proposed_terms[0].name_scorer == "v2"
+    # The cost of the run is the cost of the model call that was made. None was made here.
+    assert (again.llm_calls, again.tokens.to_dict(), again.latency_ms, again.model) == (
+        1, {"prompt": 100, "completion": 40}, 1234, "stub"
+    )
+
+
+def test_readjudicating_keeps_a_recorded_parse_failure_as_it_is():
+    failure = ProposedTerm.reject("[{broken", TermKind.COLLOQUIAL, RejectReason.LLM_JSON_ERROR)
+    rec = EnrichmentRecord(
+        doc_id="CWE-74", source=Source.CWE, original_text="x", proposed_terms=[failure]
+    )
+    again = readjudicate_record(rec, build_injection_graph(), _df(), df_max_ratio=0.5)
+    assert [t.reject_reason for t in again.proposed_terms] == [RejectReason.LLM_JSON_ERROR]
+
+
+def test_a_name_mismatch_is_repaired_to_the_one_nearby_id_the_title_belongs_to():
+    # On the CWE-74 entry the model writes CWE-89 beside CWE-78's title.
+    # CWE-78 is a real neighbour: that is the id it probably meant.
+    g = build_injection_graph()
+    term = _propose(
+        _cwe_doc("CWE-74"), [{"term": "CWE-89", "kind": "structural", "name": _OS}], g,
+        name_scorer="v2",
+    )[0]
+    assert term.repaired_to == "CWE-78"
+    # Measurement only: still rejected, same reason.
+    assert term.accepted is False
+    assert term.reject_reason is RejectReason.NAME_MISMATCH
+
+
+def test_no_repair_when_the_title_matches_nothing_nearby():
+    g = build_injection_graph()
+    term = _propose(
+        _cwe_doc("CWE-74"), [{"term": "CWE-89", "kind": "structural", "name": "Spyware"}], g,
+        name_scorer="v2",
+    )[0]
+    assert term.reject_reason is RejectReason.NAME_MISMATCH and term.repaired_to is None
+
+
+def test_no_repair_beyond_two_hops():
+    # CWE-173's title on CWE-89, read from the CWE-89 entry: CWE-173 is real
+    # and the title is exact, but it is four hops away. Too far to call a slip.
+    g = build_injection_graph()
+    term = _propose(
+        _cwe_doc("CWE-89"),
+        [{"term": "CWE-78", "kind": "structural", "name": "Improper Handling of Alternate Encoding"}],
+        g, name_scorer="v2",
+    )[0]
+    assert term.reject_reason is RejectReason.NAME_MISMATCH and term.repaired_to is None
+
+
+def test_an_ambiguous_title_is_not_repaired_but_its_candidates_are_listable():
+    from sira_cti.graph import EdgeType, Namespace, NodeType, OntologyEdge, OntologyNode
+
+    g = build_injection_graph()
+    # A second entry with the same title as CWE-20, also next to CWE-707.
+    g.add_node(OntologyNode(node_id="CWE-1020", namespace=Namespace.CWE,
+                            node_type=NodeType.WEAKNESS, name="Improper Input Validation"))
+    g.add_edge(OntologyEdge("CWE-1020", "CWE-707", EdgeType.CHILD_OF))
+    doc = _cwe_doc("CWE-707")
+    term = _propose(
+        doc, [{"term": "CWE-173", "kind": "structural", "name": "Improper Input Validation"}],
+        g, name_scorer="v2",
+    )[0]
+    assert term.reject_reason is RejectReason.NAME_MISMATCH
+    assert term.repaired_to is None            # two candidates: a guess is not a recovery
+    cands = repair_candidates(term, doc, g, _df(), df_max_ratio=0.5)
+    assert sorted(c[0] for c in cands) == ["CWE-1020", "CWE-20"]
+
+
+def test_a_cve_document_has_no_neighbourhood_so_nothing_is_repaired():
+    g = build_injection_graph()
+    doc = CorpusDocument(doc_id="CVE-2025-7160", source=Source.CVE, title="x", text="sql injection")
+    term = _propose(doc, [{"term": "CWE-89", "kind": "structural", "name": _OS}], g, name_scorer="v2")[0]
+    assert term.reject_reason is RejectReason.NAME_MISMATCH and term.repaired_to is None
+
+
+def test_the_document_reciting_its_own_title_repairs_to_its_own_id():
+    # Recorded, because it is the commonest pattern -- and never indexed (see
+    # test_index_build), because prompt corpus-v3 exists to stop exactly that.
+    g = build_injection_graph()
+    term = _propose(
+        _cwe_doc("CWE-89"), [{"term": "CWE-78", "kind": "structural", "name": _SQL}], g,
+        name_scorer="v2",
+    )[0]
+    assert term.repaired_to == "CWE-89"
+
+
+def test_a_repair_candidate_must_clear_the_df_gate_too():
+    g = build_injection_graph()
+    doc = _cwe_doc("CWE-74")
+    term = _propose(doc, [{"term": "CWE-89", "kind": "structural", "name": _OS}], g, name_scorer="v2")[0]
+    common = _df(total_docs=100, **{"78": 99, "cwe": 99})
+    assert repair_candidates(term, doc, g, common, df_max_ratio=0.1) == []
+
+
+def test_the_manifest_records_the_name_scorer(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    run_corpus_enrichment(
+        [_cwe_doc()], client_factory=lambda: _client([{"term": "sqli", "kind": "colloquial"}]),
+        graph=build_injection_graph(), df_lookup=_df(), output_path=out, max_terms=12,
+        df_max_ratio=0.9, name_match_min_overlap=0.5, name_scorer="v2",
+    )
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["gates"]["name_scorer"] == "v2"
+    assert manifest["gates"]["name_match_min_jaccard"] == 0.6

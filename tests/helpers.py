@@ -70,3 +70,47 @@ class FakeDFLookup:
         if not dfs:
             return 0
         return min(dfs) if combine == "min" else max(dfs)
+
+
+def build_injection_graph() -> OntologyGraph:
+    """A hand-built CWE injection family, with MITRE's real titles and short names.
+
+    The mini fixtures have no entry whose title carries a quoted short name,
+    and the name scorers differ *only* on entries that do. Built from nodes
+    rather than XML so the titles under test are visible in one place.
+
+        CWE-707 (parent)
+          +- CWE-74 'Injection'
+               +- CWE-89 'SQL Injection'      +- CWE-78 'OS Command Injection'
+               +- CWE-79 'Cross-site Scripting' (alternate term: XSS)
+          +- CWE-20  Improper Input Validation            (no short name)
+          +- CWE-173 Improper Handling of Alternate Encoding (no short name)
+    """
+    from sira_cti.graph import EdgeType, Namespace, NodeType, OntologyEdge, OntologyNode
+    from sira_cti.graph.loaders import cwe_short_names
+
+    def cwe(num: int, title: str, alternates: tuple[str, ...] = ()) -> OntologyNode:
+        shorts = cwe_short_names(title, alternates)
+        return OntologyNode(
+            node_id=f"CWE-{num}", namespace=Namespace.CWE, node_type=NodeType.WEAKNESS,
+            name=title, aliases=list(shorts), attrs={"short_names": list(shorts)},
+        )
+
+    g = OntologyGraph()
+    for node in (
+        cwe(707, "Improper Neutralization"),
+        cwe(74, "Improper Neutralization of Special Elements in Output Used by a "
+                "Downstream Component ('Injection')"),
+        cwe(89, "Improper Neutralization of Special Elements used in an SQL Command "
+                "('SQL Injection')", ("SQLi",)),
+        cwe(78, "Improper Neutralization of Special Elements used in an OS Command "
+                "('OS Command Injection')"),
+        cwe(79, "Improper Neutralization of Input During Web Page Generation "
+                "('Cross-site Scripting')", ("XSS",)),
+        cwe(20, "Improper Input Validation"),
+        cwe(173, "Improper Handling of Alternate Encoding"),
+    ):
+        g.add_node(node)
+    for child, parent in ((74, 707), (89, 74), (78, 74), (79, 74), (20, 707), (173, 707)):
+        g.add_edge(OntologyEdge(f"CWE-{child}", f"CWE-{parent}", EdgeType.CHILD_OF))
+    return g

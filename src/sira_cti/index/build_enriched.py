@@ -34,7 +34,7 @@ import time
 from pathlib import Path
 from typing import Iterable, Optional
 
-from ..common.schemas import read_jsonl
+from ..common.schemas import EnrichmentRecord, read_jsonl
 from .build_base import _run_pyserini_index
 from .corpus import KINDS, load_corpus
 
@@ -48,8 +48,15 @@ def write_json_collection_with_expansion(
     *,
     kinds: Iterable[str] = KINDS,
     limit: Optional[int] = None,
+    index_repaired_ids: bool = False,
 ) -> Path:
     """Every base-index document, plus its accepted expansion vocabulary (or "").
+
+    ``index_repaired_ids`` (config ``enrichment.index_repaired_ids``, off by
+    default) additionally indexes each name-mismatched proposal's
+    ``repaired_to`` id -- the id the model's stated title actually belongs
+    to. It exists as a retrieval ablation for Modules 3 and 4; the default
+    index contains accepted terms only, exactly as before the flag existed.
 
     Every ``corpus_kb`` document is included, even one enrichment never
     reached (e.g. a partial ``--limit`` run) -- it just gets an empty
@@ -59,7 +66,11 @@ def write_json_collection_with_expansion(
     """
     expansions: dict[str, str] = {}
     for rec in read_jsonl(enrichment_path):
-        expansions[rec.doc_id] = rec.expansion_query()
+        expansion = rec.expansion_query()
+        if index_repaired_ids:
+            repaired = " ".join(repaired_ids(rec))
+            expansion = f"{expansion} {repaired}".strip()
+        expansions[rec.doc_id] = expansion
 
     staging_dir = Path(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +90,24 @@ def write_json_collection_with_expansion(
     return out_file
 
 
+def repaired_ids(record: EnrichmentRecord) -> list[str]:
+    """The ``repaired_to`` ids a record would add under the repair ablation.
+
+    Skips a repair to the document's own id (an entry's own id reaching the
+    index by way of the LLM is what prompt ``corpus-v3`` was written to stop;
+    whether entries should be searchable by their own id is Module 3's call)
+    and anything already present as an accepted structural id.
+    """
+    present = {t.structural_id for t in record.accepted_terms if t.structural_id}
+    out: list[str] = []
+    for t in record.proposed_terms:
+        target = t.repaired_to
+        if target and target != record.doc_id and target not in present:
+            present.add(target)
+            out.append(target)
+    return out
+
+
 def build_enriched_index(
     *,
     kb_dir: str | Path,
@@ -90,6 +119,7 @@ def build_enriched_index(
     stemmer: str = "porter",
     limit: Optional[int] = None,
     config_hash: Optional[str] = None,
+    index_repaired_ids: bool = False,
 ) -> Path:
     """Build the enriched index. Requires a finished (or partial) enrichment JSONL.
 
@@ -108,7 +138,10 @@ def build_enriched_index(
     index_dir = Path(index_dir)
     staging = Path(staging_dir) if staging_dir else index_dir.parent / f"{index_dir.name}_staging"
 
-    write_json_collection_with_expansion(kb_dir, enrichment_path, staging, kinds=kinds, limit=limit)
+    write_json_collection_with_expansion(
+        kb_dir, enrichment_path, staging, kinds=kinds, limit=limit,
+        index_repaired_ids=index_repaired_ids,
+    )
     _run_pyserini_index(
         input_dir=staging, index_dir=index_dir, threads=threads, stemmer=stemmer,
         extra_fields=[EXPANSION_FIELD],
@@ -128,6 +161,7 @@ def build_enriched_index(
         "enrichment_model": enrichment_manifest.get("model"),
         "stemmer": stemmer,
         "config_hash": config_hash,
+        "index_repaired_ids": index_repaired_ids,
         "created_at": time.time(),
     }
     (index_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

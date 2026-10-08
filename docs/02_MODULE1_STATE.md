@@ -70,6 +70,29 @@ Three properties worth knowing:
 reproduces `corpus-v3` adjudication exactly — that is the existence-only
 ablation.
 
+**Scorer versions (2026-10-08).** `enrichment.name_scorer` / `--name-scorer`
+picks `v1` (above), `v2` (symmetric match on CWE short names — the quoted name
+in the title plus `Alternate_Terms`, which the loader now puts in
+`node.aliases`; falls back to v1 where a node has none and says so as
+`v2:v1-fallback`) or `v3` (symmetric everywhere, experimental). Every name
+verdict records its scorer in `name_scorer`. Measurements and the reasoning for
+each are in the proposal's Amendment.
+
+**Generation and adjudication are separate (2026-10-08).** `propose_terms` =
+`_ask_for_proposals` (the model call) + `adjudicate_proposals` (every gate and
+measurement). `readjudicate_record` replays the second half on a saved record,
+and `scripts/rescore_enrichment.py` does it for a whole file — a new scorer,
+threshold or graph snapshot applied to an old run with **no model calls**. It
+replays under the original scorer first and reports any verdict that differs,
+so drift in the graph or the index cannot pass as a scorer effect.
+
+**Repair (2026-10-08, measurement only).** A `name_mismatch` gets
+`repaired_to` when exactly one other real id within 2 hops of the document has
+the title the model stated. The term stays rejected. Ambiguous matches are not
+recorded. `enrichment.index_repaired_ids: true` makes the enriched index
+include those ids (never a repair to the document's own id) — off by default,
+there for Modules 3/4 to run as an ablation.
+
 #### Measured, never gated (step 8)
 
 - **`in_counting_run`** — true when an id sits in a run of ≥3 consecutive
@@ -202,7 +225,9 @@ Added 2026-09-15:
   approved and they move into `corpus_side.py` with tests.
 
 ### Tests
-**224 tests pass** (+54 on 2026-10-07: 6 LLM-wrapper generation settings,
+**256 tests pass** (+32 on 2026-10-08: scorer versions, CWE short-name loader,
+`within`/`name_candidates`, offline re-adjudication, repair, the repair index
+flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,
 13 name-check and distance cases on the graph, 24 pipeline cases for the name
 stage / counting runs / distance / recorded parse failures, 7 schema 1.2.0
 cases including the 1.1.0 backward-compatibility load, plus the manifest
@@ -241,14 +266,18 @@ Modules 1 & 2 emit this; Module 3 consumes it; Module 4 audits it.
       "official_name": null,            // MITRE's title for it
       "rejected_at_stage": null,        // parse | graph | name | df
       "in_counting_run": false,         // measurement only, never a verdict
-      "graph_distance": null            // hops from the document's own node
+      "graph_distance": null,           // hops from the document's own node
+
+      // --- schema 1.3.0 ---
+      "name_scorer": null,              // v1 | v2 | v2:v1-fallback | v3
+      "repaired_to": null               // on a name_mismatch: the id it probably meant
     }
   ],
   "llm_calls": 1,
   "tokens": { "prompt": 812, "completion": 143 },
   "latency_ms": 1904,
   "model": "qwen2.5:7b",
-  "schema_version": "1.2.0"
+  "schema_version": "1.3.0"
 }
 ```
 
@@ -256,7 +285,7 @@ Modules 1 & 2 emit this; Module 3 consumes it; Module 4 audits it.
 `deprecated`, `revoked`, `malformed_id`, and (1.2.0) `name_mismatch`,
 `llm_json_error`.
 
-**Schema 1.2.0 (2026-10-07) is awaiting four-owner sign-off** —
+**Schema 1.3.0 (1.2.0 from 2026-10-07, amended 2026-10-08) is awaiting four-owner sign-off** —
 `docs/proposals/name-id-consistency.md`. Every addition is backward
 compatible (a 1.1.0 record loads unchanged; there is a test for it), but new
 enum values still reach Module 4's `RejectReason` switch, so it is a contract

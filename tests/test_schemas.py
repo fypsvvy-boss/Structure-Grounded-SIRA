@@ -357,3 +357,42 @@ def test_a_recorded_parse_failure_can_never_reach_the_index():
     assert rec.accepted_terms == []
     assert rec.expansion_query() == ""
     assert rec.rejected_terms == [term]      # still in the RQ4 dataset
+
+
+# -- schema 1.3.0 additions: name_scorer, repaired_to ---------------------------------
+
+
+def test_v1_2_0_terms_without_scorer_or_repair_load_cleanly():
+    term = ProposedTerm.from_dict({
+        "term": "CWE-79", "kind": "structural", "structural_id": "CWE-79",
+        "graph_validated": True, "accepted": False, "reject_reason": "name_mismatch",
+        "claimed_name": "Spyware", "official_name": "Cross-site Scripting",
+        "rejected_at_stage": "name", "in_counting_run": True, "graph_distance": 4,
+    })
+    assert term.name_scorer is None and term.repaired_to is None
+
+
+def test_repaired_to_keeps_the_term_rejected_as_a_name_mismatch():
+    term = ProposedTerm.reject(
+        "CWE-89", TermKind.STRUCTURAL, RejectReason.NAME_MISMATCH, structural_id="CWE-89",
+        claimed_name="OS Command Injection", official_name="SQL Injection", name_scorer="v2",
+    )
+    term.repaired_to = "CWE-78"
+    back = ProposedTerm.from_dict(term.to_dict())
+    assert back.repaired_to == "CWE-78" and back.name_scorer == "v2"
+    assert back.accepted is False and back.reject_reason is RejectReason.NAME_MISMATCH
+    rec = EnrichmentRecord(doc_id="CWE-74", source=Source.CWE, original_text="x", proposed_terms=[back])
+    assert rec.expansion_query() == ""       # a repair never enters the query by itself
+
+
+def test_repaired_to_is_only_meaningful_on_a_name_mismatch():
+    with pytest.raises(ValueError):
+        ProposedTerm(
+            term="T9999", kind=TermKind.STRUCTURAL, structural_id="T9999", graph_validated=False,
+            accepted=False, reject_reason=RejectReason.NOT_IN_GRAPH, repaired_to="T1110",
+        )
+    with pytest.raises(ValueError):
+        ProposedTerm(
+            term="T1110", kind=TermKind.STRUCTURAL, structural_id="T1110", graph_validated=True,
+            accepted=True, repaired_to="T1110.001",
+        )

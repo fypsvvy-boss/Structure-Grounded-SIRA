@@ -59,6 +59,7 @@ def main() -> int:
                 index_dir=index_cfg["enriched_dir"], kinds=corpus_cfg["kinds"],
                 threads=index_cfg.get("threads", 2), stemmer=index_cfg.get("stemmer", "porter"),
                 limit=args.limit, config_hash=the_hash,
+                index_repaired_ids=bool(cfg["enrichment"].get("index_repaired_ids", False)),
             )
             print(f"Enriched index built -> {path}")
 

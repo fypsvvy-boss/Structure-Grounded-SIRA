@@ -22,6 +22,7 @@ Two behaviours worth knowing about before you trust a validation result:
 from __future__ import annotations
 
 import json
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
@@ -285,6 +286,32 @@ def _status_from_attr(value: str) -> Status:
     return Status.ACTIVE
 
 
+_CWE_SHORT_NAME = re.compile(r"\('([^']+(?:'[^')][^']*)*)'\)")
+
+
+def cwe_short_names(title: str, alternate_terms: Iterable[str] = ()) -> list[str]:
+    """The names people actually use for a weakness, as opposed to its title.
+
+    Two sources, both MITRE's own: the quoted name in parentheses that some
+    titles end with -- ``Improper Neutralization of ... ('SQL Injection')``
+    -> ``SQL Injection`` -- and the entry's ``Alternate_Terms`` (``XSS``,
+    ``Clickjacking``). Order-preserving and de-duplicated case-insensitively.
+
+    These exist for the name-ID consistency check. CWE's long titles are
+    formulaic enough that two different injection weaknesses share most of
+    their words, so a title-overlap check passes one as the other; the short
+    names are where the entries actually differ.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for candidate in [*_CWE_SHORT_NAME.findall(title or ""), *alternate_terms]:
+        label = (candidate or "").strip()
+        if label and label.lower() not in seen:
+            seen.add(label.lower())
+            out.append(label)
+    return out
+
+
 def load_cwe_xml(path: str | Path) -> LoadResult:
     """Load the CWE catalogue (weaknesses, categories, views, and CAPEC links)."""
     result = LoadResult()
@@ -296,6 +323,13 @@ def load_cwe_xml(path: str | Path) -> LoadResult:
             continue
         node_id = f"CWE-{int(cwe_id)}"
         abstraction = (weakness.get("Abstraction") or "").lower()
+        short_names = cwe_short_names(
+            weakness.get("Name", ""),
+            (
+                _first_text(term, "Term")
+                for term in _find_all(weakness, "Alternate_Terms", "Alternate_Term")
+            ),
+        )
         result.nodes.append(
             OntologyNode(
                 node_id=node_id,
@@ -304,9 +338,14 @@ def load_cwe_xml(path: str | Path) -> LoadResult:
                 name=weakness.get("Name", ""),
                 description=_first_text(weakness, "Description"),
                 status=_status_from_attr(weakness.get("Status", "")),
+                aliases=list(short_names),
                 attrs={
                     "abstraction": weakness.get("Abstraction", ""),
                     "structure": weakness.get("Structure", ""),
+                    # The same labels again, marked as short names: name scorer
+                    # v1 predates them and must keep ignoring them so its saved
+                    # verdicts stay reproducible; v2 is built on them.
+                    "short_names": list(short_names),
                 },
             )
         )

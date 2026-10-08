@@ -217,3 +217,50 @@ def test_docs_with_no_enrichment_still_get_an_empty_expansion_field(enriched_ind
     searcher = LuceneSearcher(str(index_dir))
     doc = searcher.doc("CWE-307")
     assert doc is not None
+
+
+# -- the repair ablation flag (enrichment.index_repaired_ids, off by default) --------
+
+
+def _repair_record(doc_id="CAPEC-49", repaired_to="CWE-307"):
+    from sira_cti.common import EnrichmentRecord, ProposedTerm, RejectReason, Source, TermKind
+
+    mismatch = ProposedTerm.reject(
+        "CWE-620", TermKind.STRUCTURAL, RejectReason.NAME_MISMATCH, structural_id="CWE-620",
+        claimed_name="Improper Restriction of Excessive Authentication Attempts",
+        official_name="Unverified Password Change", name_scorer="v2",
+    )
+    mismatch.repaired_to = repaired_to
+    return EnrichmentRecord(
+        doc_id=doc_id, source=Source.CAPEC, original_text="x",
+        proposed_terms=[ProposedTerm.accept("password spraying", TermKind.COLLOQUIAL), mismatch],
+    )
+
+
+def _expansion_of(tmp_path, record, **kw):
+    from sira_cti.common import write_jsonl
+    from sira_cti.index.build_enriched import EXPANSION_FIELD, write_json_collection_with_expansion
+
+    enrichment = tmp_path / "enrichment.jsonl"
+    write_jsonl([record], enrichment)
+    out = write_json_collection_with_expansion(
+        CORPUS_KB_FIXTURE, enrichment, tmp_path / "staging", kinds=["capec"], **kw
+    )
+    rows = {r["id"]: r for r in map(json.loads, out.read_text().splitlines())}
+    return rows[record.doc_id][EXPANSION_FIELD]
+
+
+def test_a_repaired_id_is_not_indexed_by_default(tmp_path):
+    # The default index is accepted terms only, exactly as before the flag existed.
+    assert _expansion_of(tmp_path, _repair_record()) == "password spraying"
+
+
+def test_a_repaired_id_is_indexed_when_the_ablation_flag_is_on(tmp_path):
+    expansion = _expansion_of(tmp_path, _repair_record(), index_repaired_ids=True)
+    assert expansion == "password spraying CWE-307"
+    assert "CWE-620" not in expansion      # the id the model actually wrote stays out
+
+
+def test_a_repair_to_the_documents_own_id_is_never_indexed(tmp_path):
+    record = _repair_record(doc_id="CAPEC-49", repaired_to="CAPEC-49")
+    assert _expansion_of(tmp_path, record, index_repaired_ids=True) == "password spraying"

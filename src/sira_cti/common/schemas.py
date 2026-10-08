@@ -22,7 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 
 
 class Source(str, Enum):
@@ -203,6 +203,26 @@ class ProposedTerm:
     entry's own data lacks, so a distance filter would reject exactly the
     novel ids that make the method worth having."""
 
+    # -- schema 1.3.0 additions (optional, same rule: absent means not measured) --
+
+    name_scorer: Optional[str] = None
+    """Which name-ID scorer produced this term's name verdict (``"v1"``,
+    ``"v2"``, ``"v2:v1-fallback"``, ``"v3"`` -- see
+    ``sira_cti.graph.ontology.NAME_SCORERS``). None when no name check ran:
+    non-structural terms, structural terms that failed the graph stage first,
+    and everything written before 1.3.0 -- all of which were scored by v1 if
+    they were scored at all. A verdict without its scorer is not comparable
+    to any other verdict, which is the reason this field exists."""
+
+    repaired_to: Optional[str] = None
+    """Measurement only. On a ``name_mismatch`` rejection: the one real id,
+    within two hops of the source document, whose official name matches what
+    the model *said* -- i.e. the id it probably meant. The term stays
+    rejected and ``reject_reason`` stays ``name_mismatch``; nothing reads
+    this unless ``enrichment.index_repaired_ids`` is switched on for the
+    retrieval ablation. Not to be confused with ``repaired_from_id``, which
+    records an *accepted* term whose revoked id was rewritten."""
+
     def __post_init__(self) -> None:
         self.kind = TermKind(self.kind)
         if self.reject_reason is not None:
@@ -238,6 +258,12 @@ class ProposedTerm:
         if self.graph_distance is not None and self.graph_distance < 0:
             raise ValueError("graph_distance must be >= 0")
 
+        if self.repaired_to is not None and self.reject_reason is not RejectReason.NAME_MISMATCH:
+            raise ValueError(
+                f"repaired_to on {self.term!r} requires reject_reason=name_mismatch "
+                "-- it records what a name-mismatched id was probably meant to be"
+            )
+
         if self.repaired_from_id is not None:
             if self.kind is not TermKind.STRUCTURAL:
                 raise ValueError(f"non-structural term {self.term!r} must not carry a repaired_from_id")
@@ -264,6 +290,7 @@ class ProposedTerm:
         doc_freq: Optional[int] = None,
         claimed_name: Optional[str] = None,
         official_name: Optional[str] = None,
+        name_scorer: Optional[str] = None,
     ) -> "ProposedTerm":
         kind = TermKind(kind)
         return cls(
@@ -276,6 +303,7 @@ class ProposedTerm:
             reject_reason=None,
             claimed_name=claimed_name,
             official_name=official_name,
+            name_scorer=name_scorer,
         )
 
     @classmethod
@@ -288,6 +316,7 @@ class ProposedTerm:
         doc_freq: Optional[int] = None,
         claimed_name: Optional[str] = None,
         official_name: Optional[str] = None,
+        name_scorer: Optional[str] = None,
     ) -> "ProposedTerm":
         """A structural term whose REVOKED id was rewritten to its replacement.
 
@@ -308,6 +337,7 @@ class ProposedTerm:
             repaired_from_id=repaired_from_id,
             claimed_name=claimed_name,
             official_name=official_name,
+            name_scorer=name_scorer,
         )
 
     @classmethod
@@ -322,6 +352,7 @@ class ProposedTerm:
         claimed_name: Optional[str] = None,
         official_name: Optional[str] = None,
         stage: Optional[RejectStage] = None,
+        name_scorer: Optional[str] = None,
     ) -> "ProposedTerm":
         kind = TermKind(kind)
         graph_validated: Optional[bool] = None
@@ -342,6 +373,7 @@ class ProposedTerm:
             reject_reason=RejectReason(reason),
             claimed_name=claimed_name,
             official_name=official_name,
+            name_scorer=name_scorer,
             rejected_at_stage=stage,
         )
 
@@ -370,6 +402,8 @@ class ProposedTerm:
             ),
             in_counting_run=bool(d.get("in_counting_run", False)),
             graph_distance=d.get("graph_distance"),
+            name_scorer=d.get("name_scorer"),
+            repaired_to=d.get("repaired_to"),
         )
 
 

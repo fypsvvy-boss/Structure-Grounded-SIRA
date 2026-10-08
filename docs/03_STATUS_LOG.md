@@ -8,6 +8,20 @@
 
 ## Current headline
 
+**2026-10-08: scorer v2, the repair measurement, and a freeze checklist — all
+offline, no model calls. The frontier-model run is approved but blocked on a
+provider.** Saved runs can now be re-adjudicated for free
+(`scripts/rescore_enrichment.py`), and replaying them reproduces every verdict.
+Scorer **v2** (CWE short names) catches both within-family escapes v1 let
+through on the 7B and one more on the 14B; its limit is reach — only 122 CWE
+nodes have a short name, so 90 of 125 name verdicts on the 14B still fall back
+to v1. **9 of the 33** near name-mismatches repair cleanly to the id the model
+probably meant. Two corrections to earlier notes: schema decoding is **1.5x**
+slower on the 7B and **not slower at all** on the 14B (not "3x"), and the
+`latency_ms` in the saved sample runs is not usable for RQ3. One new blocker
+for the full-corpus run: ~40 documents overflow the 4,096-token context.
+`docs/proposals/module1-freeze.md` lists what would be frozen.
+
 **2026-10-07 (later): the name-ID consistency check — the adaptation that makes
 SIRA's grounding transfer to CTI.** Asking the model to state what each
 identifier *is*, and checking that against MITRE's title, cut structural
@@ -85,6 +99,96 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Scorer v2/v3, repair ablation, RQ3 latency, freeze checklist (2026-10-08)
+
+Schema **1.3.0** (adds `name_scorer`, `repaired_to`; folded into the pending
+sign-off in `docs/proposals/name-id-consistency.md`). No model was re-run for
+tasks 1 and 2.
+
+#### 1. Name scorers, rescored offline
+
+`propose_terms` is now `_ask_for_proposals` + `adjudicate_proposals`, and
+`readjudicate_record` replays the second half on a saved record.
+`scripts/rescore_enrichment.py` first replays each file under the scorer it was
+written with — **identical verdicts on both `corpus-v4` files** — then
+compares.
+
+| structural ids | 7B v1 | 7B v2 | 7B v3 | 14B v1 | 14B v2 | 14B v3 |
+|---|---|---|---|---|---|---|
+| proposed | 14 | 14 | 14 | 157 | 157 | 157 |
+| accepted | 6 | 4 | 4 | 56 | 54 | 46 |
+| rejected at `name` | 4 | 6 | 6 | 69 | 71 | 79 |
+| name verdicts falling back to v1 | – | 3/10 | – | – | 90/125 | – |
+| counting-run ids accepted | 0 | 0 | 0 | 7/51 | 7/51 | 4/51 |
+
+v1 -> v2 changes four verdicts in total: `CWE-74` and `CWE-89` on the 7B (the
+two known escapes, both caught), `CWE-416` on the 14B ("Double Free" for Use
+After Free, a real catch) and `CWE-415` on the 14B ("Double Free or Release of
+Same Resource" for Double Free — arguably a false rejection). v3 adds eight
+more on the 14B: six wrong titles on nodes with no short name, and `T1046`
+twice under its *pre-rename* title, which is stale rather than wrong.
+
+Loader: 122 of 1,450 CWE nodes now carry short names (quoted name in the title
++ `Alternate_Terms`) in `node.aliases` and `attrs["short_names"]`. v1 ignores
+them on purpose so saved runs keep replaying. Re-adjudicated copies written to
+`corpus_stratified_v4_{7b,14b}_scorer-v2.jsonl`.
+
+#### 2. Repair (`repaired_to`), measurement only
+
+For each name mismatch: is there exactly one *other* real id within 2 hops of
+the document whose official name matches what the model said? On the 14B, of
+the 33 mismatches whose proposed id was within 2 hops: **9 clean, 2 ambiguous,
+22 nothing nearby**. 13 clean repairs in all; 2 are the document's own id
+(recorded, never indexed). On the 7B: 2 clean, one of them own-id.
+`enrichment.index_repaired_ids` (default `false`) makes the enriched index
+include them — for Modules 3/4 to test; default index unchanged.
+
+Weak spots: three repairs score 0.67–0.80 rather than 1.00, and one lands on a
+tactic (`TA0006`) rather than a technique.
+
+#### 3. Frontier model — NOT RUN
+
+Approved by the Module 1 owner as a logged exception to the open-weight-only
+development policy (cap $1, expected ~$0.25, reason: third model-size point,
+open question 10). Blocked: no API key, no provider configured, Ollama is the
+only backend in `common/llm.py`, and the instruction was to ask rather than
+guess. **$0 spent.** The three-column table is therefore still two columns.
+
+#### 4. RQ3 latency — two corrections
+
+Clean benchmark (8 documents, sequential, warm, Ollama's own eval timings):
+7B 26.4 tok/s unconstrained vs 17.4 under the schema (**1.5x**); 14B 8.6 vs 8.9
+(**no difference**). The "~3x" in yesterday's notes was wrong and has been
+corrected in every doc. Separately, `concurrency: 2` gives no speed-up on
+Ollama (148.7s vs 139.1s for 12 documents) while inflating each record's
+`latency_ms` with queue time, and yesterday's sample runs shared the server
+with diagnostics — so **their latency fields are unusable for RQ3**. Handoff
+note for Modules 3/4: `04_OPEN_QUESTIONS.md` question 11.
+
+#### 5. Freeze checklist
+
+`docs/proposals/module1-freeze.md`. Its organising point: only what shapes the
+model's reply has to be right before the run (model, prompt, decoding, caps,
+context handling); every gate after it can be re-derived offline in seconds.
+Full corpus: ~21 h on the 7B, ~53 h on the 14B, $0. New blocker found while
+writing it: ~40 of 6,044 documents exceed the 4,096-token context and would be
+silently truncated (question 12).
+
+#### Code
+
+- `graph/loaders.py`: `cwe_short_names()`, CWE aliases.
+- `graph/ontology.py`: `NAME_SCORERS`, `check_name(scorer=, min_jaccard=)`,
+  `name_jaccard`, `split_title`, `within()`, `name_candidates()`.
+- `common/schemas.py`: 1.3.0. `common/llm.py`: `OllamaClient.last_timings`.
+- `enrichment/corpus_side.py`: `adjudicate_proposals`, `readjudicate_record`,
+  `repair_candidates`, `annotate_repairs`; scorer in the manifest `gates`.
+- `index/build_enriched.py`: `index_repaired_ids`, `repaired_ids()`.
+- `scripts/rescore_enrichment.py` (new); `enrich_corpus.py --name-scorer`.
+- Config: `name_scorer`, `name_match_min_jaccard`, `index_repaired_ids`. This
+  changes the config hash (`86fee6d106b8` -> `2514fd048115`) without changing
+  generation; the manifest `gates` block is what shows comparability.
+- **256 tests pass** (was 224; +32). Offline throughout.
 
 ### Name-ID consistency, counting-run detection, ontology distance (2026-10-07, later)
 
@@ -231,9 +335,9 @@ Plain `format: "json"` would have quietly gutted every run instead of failing
 one document. Enrichment now sends `REPLY_SCHEMA`. Both v4 runs finished 40/40
 with **zero** parse failures and no `.failures.jsonl` sidecar at all.
 
-Cost: grammar-constrained sampling is ~3x slower (7B ~50s/document against
-~17s). If that bites, run unconstrained first and fall back to the schema only
-on a parse failure.
+Cost: ~~grammar-constrained sampling is ~3x slower~~ **corrected 2026-10-08:
+1.5x on the 7B, nothing measurable on the 14B.** The 3x figure compared runs
+made under different load. See the 2026-10-08 entry.
 
 `enrichment.max_new_tokens` also now does something — it had been read by
 nothing since it was added, and every reply was generated unbounded. It reaches
@@ -771,7 +875,20 @@ Reading of this run:
       flag) at one hop (genuine mapping), and MITRE numbered related weaknesses
       sequentially, so the two signals are correlated. Counting run **and**
       distance >= 3 is the enumeration signature.
-- [ ] **Name check, next iteration (measured, not yet built).** It catches
+- [x] **Name scorer v2 + CWE short-name loader.** Done 2026-10-08, rescored
+      offline. Catches all three within-family escapes it can reach; falls back
+      to v1 for 90 of 125 verdicts on the 14B because most nodes have no short
+      name. v3 (symmetric everywhere) exists as experimental.
+- [x] **Repair measurement.** Done 2026-10-08: 9 of 33 near mismatches repair
+      cleanly. `enrichment.index_repaired_ids` off by default.
+- [ ] **Frontier model on the 40-document sample — approved, blocked on a
+      provider and API key.** Then: backend subclass, cost estimate, $1 cap.
+- [ ] **Freeze blockers** (`docs/proposals/module1-freeze.md`): context
+      overflow (question 12), explicit seed to Ollama, schema 1.3.0 sign-off,
+      model choice. Then the full-corpus run with `--concurrency 1`.
+- [ ] Tell Modules 3/4 about question 11 (same decoding setup for the
+      multi-round baseline; sample-run latencies are unusable).
+- [x] ~~**Name check, next iteration (measured, not yet built).**~~ Built — see above. Original note: It catches
       cross-family confusions and misses within-family neighbours: `CWE-74`
       claimed with CWE-89's title scores 0.67 and passes, because CWE-78's and
       CWE-89's real titles score 0.83 against *each other*. Two fixes tested
@@ -782,7 +899,7 @@ Reading of this run:
       for every CWE, so the short names and `Alternate_Terms` are never loaded.
       Do the loader change, re-score the saved runs offline to confirm, then
       decide about re-running.
-- [ ] **Get four-owner sign-off for schema 1.2.0** —
+- [ ] **Get four-owner sign-off for schema 1.3.0** (was 1.2.0; amended) —
       `docs/proposals/name-id-consistency.md`. Two new `RejectReason` values,
       `RejectStage`, five optional `ProposedTerm` fields. All additive and a
       1.1.0 record still loads, but new enum values reach Module 4's switch.
@@ -800,12 +917,9 @@ Reading of this run:
 - [x] `enrichment.max_new_tokens: 512` was dead config. Fixed 2026-10-07 — it
       reaches Ollama as `options.num_predict` through the wrapper, and
       `StubClient.option_calls` lets a test prove it got there.
-- [ ] **Decide whether schema decoding is worth 3x the run time.** It is on by
-      default (`enrichment.json_mode: schema`) and it fixed the one
-      unfinishable document, but grammar-constrained sampling took the 7B from
-      ~17s to ~50s per document. The cheaper arrangement is unconstrained
-      first, schema only on a parse failure — the unconstrained path parsed 39
-      of 40, so the grammar would run about once per run instead of forty times.
+- [x] ~~Decide whether schema decoding is worth 3x the run time.~~ **Moot,
+      2026-10-08:** it is not 3x. Measured cleanly: 1.5x on the 7B, no difference
+      on the 14B. Keep it on.
 - [ ] **Third model (`04_OPEN_QUESTIONS.md` q10).** A 32B will not fit in 16 GiB
       (~20 GB of weights at 4-bit). Needs the frontier API: ~$0.25 for the
       40-document sample, ~$9-35 for the full corpus, from measured token
