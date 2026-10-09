@@ -1398,3 +1398,37 @@ def test_a_file_whose_manifest_has_no_commit_is_refused_when_this_run_has_one(tm
     _resume_run(out, [_doc("T1110")])                              # written without a code version
     with pytest.raises(ResumeMismatchError, match="not recorded"):
         _resume_run(out, [_doc("T1110"), _doc("T1078")], code_version=_code("b" * 40))
+
+
+# -- processing order (--kinds) and one resumable output file ---------------------------
+
+
+def _typed(doc_id, source):
+    return CorpusDocument(doc_id=doc_id, source=source, title="t", text=f"text of {doc_id}")
+
+
+def test_documents_are_written_in_the_order_given_into_one_file(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_typed("CWE-1", Source.CWE), _typed("CAPEC-1", Source.CAPEC), _typed("CVE-2024-1", Source.CVE)]
+    _resume_run(out, docs)
+    assert [r.doc_id for r in read_jsonl(out)] == ["CWE-1", "CAPEC-1", "CVE-2024-1"]
+
+
+def test_a_run_started_in_one_kind_order_resumes_correctly_in_another(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    cwe, capec, cve = _typed("CWE-1", Source.CWE), _typed("CAPEC-1", Source.CAPEC), _typed("CVE-2024-1", Source.CVE)
+    prompts: list[str] = []
+
+    def factory():
+        return StubClient(model="m1", responder=lambda p: (prompts.append(p), _reply([]))[1])
+
+    # First leg: the non-CVE kinds only.
+    _resume_run(out, [cwe, capec], client_factory=factory, corpus_kinds=["cwe", "capec"])
+    # Second leg: everything, CVE first this time. Only the CVE is new work.
+    summary = _resume_run(out, [cve, cwe, capec], client_factory=factory, corpus_kinds=["cve", "cwe", "capec"])
+
+    assert (summary.already_done, summary.processed) == (2, 1)
+    assert len(prompts) == 3                                           # no document was asked twice
+    assert [r.doc_id for r in read_jsonl(out)] == ["CWE-1", "CAPEC-1", "CVE-2024-1"]
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["kinds"] == ["cve", "cwe", "capec"]                # the latest session's order

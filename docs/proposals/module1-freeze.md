@@ -3,7 +3,7 @@
 **Status: draft for the Module 1 owner, updated 2026-10-08 (later). Nothing is
 frozen yet and the full-corpus run has not been started. Two of the five
 blockers are closed in code; see "Blockers".**
-**Purpose:** agree the exact method before spending ~1–2 days of laptop time
+**Purpose:** agree the exact method before spending ~3 days of laptop time
 enriching all 6,044 documents and building the enriched index, which completes
 Phase 1.
 
@@ -76,7 +76,7 @@ can be applied to the finished full-corpus file offline.
 | 2 | Explicit seed to Ollama | **Closed.** `llm.seed: 42` → `options.seed`. Verified on the real 7B (repeatable, and identical to the saved unseeded replies) |
 | 3 | Schema sign-off | **Docs written, signatures missing.** 1.3.0: `name-id-consistency.md`. 1.4.0: `thinking-tokens.md`. Only the Module 1 row is filled in on either. This one cannot be closed by Module 1 alone |
 | 4 | Model choice | **Proposal below** ("Two-stage plan") — needs the owner's yes |
-| 5 | Sustained speed figure for the time estimate | **STILL NOT DONE.** A 45-minute benchmark was run on 2026-10-09 but the laptop came off mains 6 minutes in, so it measured battery speed (5.4 tok/s → 89 h). On mains it settled at 8.5 tok/s, in line with the ~52 h estimate, but only 4 minutes of that were captured. Needs one clean, plugged-in rerun. See "Time and cost" |
+| 5 | Sustained speed figure for the time estimate | **Closed, 2026-10-09.** Clean 45-minute benchmark on mains: 6.5 tok/s sustained, 43.4 s/doc, **74.6 hours** for the corpus (the earlier ~52 h came from a benchmark too short to leave the fast phase). See "Time and cost" |
 
 Two things to know about blocker 1:
 
@@ -309,80 +309,64 @@ page, so an index enriched by it is close to the base index.
 
 ### Local models
 
-| model | s/doc | full corpus | money |
+**`qwen2.5:14b`: about 75 hours (3.1 days) for the full corpus. Measured, not
+estimated.** Clean benchmark, 2026-10-09: 45 minutes, on mains the whole time
+(checked against the system power log), nothing else running, 66 documents,
+the real prompt, seed, context size and truncation.
+
+**In plain words:** a laptop is fast for the first minute or two, then it
+warms up and slows itself down. A two-day run spends nearly all its time in
+the slowed-down state, so that is the speed that matters.
+
+| minutes into the run | writing speed | seconds per document |
+|---|---|---|
+| 0–2 | 11.5 tok/s | 21 |
+| 2–10 | 7.1 tok/s | 38 |
+| 10–20 | 6.6 tok/s | 43 |
+| 20–30 | 6.7 tok/s | 43 |
+| 30–40 | 6.5 tok/s | 44 |
+| 40–45 | 6.5 tok/s | 43 |
+
+**Sustained speed (after 30 minutes): 6.5 tokens a second writing, 216 tokens
+a second reading the prompt, 43.4 seconds per document.** It is flat from
+minute 10 onwards, so there is no sign of it sagging further.
+
+| source | documents | seconds per document (sustained) | hours |
 |---|---|---|---|
-| `qwen2.5:7b` | 12.7 | **~21 hours** | $0 |
-| `qwen2.5:14b` | 31.7 | **~53 hours (2.2 days)** | $0 |
+| CWE | 1,342 | 48.2 | 18.0 |
+| CAPEC | 615 | 39.6 | 6.8 |
+| ATT&CK | 1,076 | 40.7 | 12.2 |
+| CVE | 3,011 | 45.1 | 37.7 |
+| **total** | 6,044 | 43.4 | **74.6 h (3.1 days)** |
 
-**The sustained (after-30-minutes) figure is still missing — the benchmark
-that was meant to give it was spoiled.** It ran for 45 minutes on the night of
-2026-10-08/09, but the laptop came off mains power **6 minutes in** (system
-power log: on battery from 00:04, benchmark started 23:58). From that moment
-it was measuring a laptop on battery, not a hot laptop. What it does tell us:
+How firm these are: the **total** is solid. The **per-source** rows each rest
+on only 5 documents from the sustained phase, so read them as ±15%. A second
+way of working it out — the 40-document sample's average prompt and reply
+length per source, at the sustained speeds — gives 72.4 hours (CWE 16.6,
+CAPEC 8.0, ATT&CK 13.6, CVE 34.3). The two agree on the total and on the
+shape: **CVEs are half the run; everything else together is the other half.**
 
-| phase of the benchmark | power | generation speed | seconds per document |
+This replaces the earlier ~52-hour figure, which came from an 8-document
+benchmark that never left the fast phase (8.9 tok/s). It also explains the
+40-document re-run's 36.8 s/doc: 25 minutes, part fast, part slow.
+
+For comparison, the same run **on battery** measured 5.4 tok/s → 89 hours.
+
+| model | basis | full corpus | money |
 |---|---|---|---|
-| first 1.5 minutes | mains | 13.5 tok/s | ~17–20 |
-| minutes 1.5–5.5 | mains | **8.5 tok/s** | **~30** |
-| minute 6 to the end (39 minutes) | **battery** | **5.4 tok/s** | **~53** |
+| `qwen2.5:14b` | sustained, measured | **~75 hours (3.1 days)** | $0 |
+| `qwen2.5:7b` | short benchmark only (12.7 s/doc) | ~21 hours at best; **not measured sustained** — if it slows by the same proportion as the 14B, about 30 hours | $0 |
 
-Three things follow:
-
-1. **The first 90 seconds are a burst** (13.5 tok/s) that no long run will
-   see. Do not plan from it.
-2. **On mains the machine settles at about 8.5 tok/s within two minutes.**
-   That matches the older 8-document benchmark (8.9 tok/s, 31.7 s/doc), so
-   the ~52-hour estimate below is the *settled* speed, not the burst. Whether
-   it holds for hours or sags further has not been measured: 4 minutes is not
-   30.
-3. **On battery the same run would take about 89 hours (3.7 days)** — 5.4
-   tok/s, rock-steady for 39 minutes. The run must never be on battery, and
-   if it is found to have been, expect it to be 1.7 times slower for that
-   stretch.
-
-So the per-source estimate **stays provisional at ~52 hours on mains**, and
-there is now a measured figure for the bad case.
-
-**One more data point (2026-10-09), not a substitute for the benchmark.** The
-40-document sample re-run took 24.5 minutes on mains: **36.8 seconds per
-document**, against 31.7 in the short benchmark. At that rate the corpus is
-about **62 hours (2.6 days)**. It is not a clean measurement — the test suite
-was run a few times on the same machine while it was going, and it is 25
-minutes rather than 45 — but it is the longest plugged-in stretch on record
-and it points above 52, not below. Plan for 2.5–3 days until the clean
-benchmark says otherwise.
-
-| source | documents | mains, settled (provisional) | on battery (measured, sustained) |
-|---|---|---|---|
-| CVE | 3,011 | ~29 s/doc → ~24 h | 53.6 s/doc → 44.9 h |
-| CWE | 1,342 | ~32 s/doc → ~12 h | 53.3 s/doc → 19.9 h |
-| ATT&CK | 1,076 | ~33 s/doc → ~10 h | 51.4 s/doc → 15.4 h |
-| CAPEC | 615 | ~33 s/doc → ~6 h | 53.5 s/doc → 9.1 h |
-| **total** | 6,044 | **~52 h (2.2 days)** | **89.2 h (3.7 days)** |
-
-The mains column is built from the 14B sample's token counts (prompt/reply
-per document: CVE 965/236, CWE 581/270, ATT&CK 561/277, CAPEC 1,462/257) at
-8.9 tok/s. The battery column is straight from the benchmark's last 17
-documents (4–5 per source — small, but they agree to within 2 seconds). Either
-way nearly all the time is the model *writing*, so every source costs about
-the same per document and half the run is CVEs.
-
-To get the real mains figure (the laptop has to stay plugged in for the whole
-45 minutes — the script now checks before every document and stops if it is
-unplugged, instead of quietly carrying on):
-
-```bash
-caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45
-```
-
-Timing log of the spoiled run, kept as the battery measurement:
-`indexes/enrichment/bench_speed_qwen2.5-14b.jsonl`.
+Timing logs: `indexes/enrichment/bench_speed_qwen2.5-14b_mains.jsonl` (clean)
+and `bench_speed_qwen2.5-14b.jsonl` (the battery one). To repeat:
+`caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`
 
 ### Running it, and picking it up after an interruption
 
 ```bash
 caffeinate -i .venv/bin/python scripts/enrich_corpus.py \
     --model qwen2.5:14b --name-scorer v2 \
+    --kinds cwe,capec,attack,cve \
     --output indexes/enrichment/corpus_full_v4_14b.jsonl
 ```
 
@@ -425,9 +409,9 @@ Decisions and paperwork:
 - [x] **Cut shape decided and built**: section-aware (see "The truncation rule").
 - [x] **Resume guard built** (open question 2): a resume under different
       settings is refused.
-- [ ] **A clean 45-minute benchmark, plugged in the whole time**, so the team
-      is told a real finishing time. The 2026-10-09 attempt lost mains power
-      at minute 6. `caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`
+- [x] **Clean 45-minute benchmark** — done 2026-10-09 on mains: 6.5 tok/s
+      sustained, **~75 hours (3.1 days)**; non-CVE entries done at ~37 hours.
+- [ ] **Tell the team those two times** before starting.
 - [x] **The 40-document 14B sample re-run under the new truncation** — done
       2026-10-09. 37 of 40 replies byte-identical to the earlier run; the
       three shortened CAPEC entries changed slightly; no finding changes
@@ -440,7 +424,7 @@ Decisions and paperwork:
       **refuses to start** if anything under `src/`, `scripts/` or `configs/`
       is uncommitted, and the manifest records the commit. Config hash must
       read **`364d30da6c75`** (unchanged by today's work).
-- [ ] **All tests pass**: `.venv/bin/python -m pytest -q` (369).
+- [ ] **All tests pass**: `.venv/bin/python -m pytest -q` (376).
 
 The machine, on the day:
 
@@ -458,11 +442,59 @@ Start it (`caffeinate -i` stops the Mac going to sleep):
 ```bash
 caffeinate -i .venv/bin/python scripts/enrich_corpus.py \
     --model qwen2.5:14b --name-scorer v2 \
+    --kinds cwe,capec,attack,cve \
     --output indexes/enrichment/corpus_full_v4_14b.jsonl
 ```
 
 (`--concurrency 1` is no longer needed on the command line: it is now the
 config default.)
+
+### Why CVEs go last, and when Modules 2/3 get something to work with
+
+`--kinds cwe,capec,attack,cve` sets the **order** the document types are
+processed in. Still one output file, still resumable: records are matched by
+document id, so the order can even be changed between sessions without
+anything being redone. (`attack` is the ATT&CK set; the data file is called
+`mitre`, and either name works.) It is a command-line option, so the config
+hash stays `364d30da6c75`.
+
+CVEs are half the run (about 38 of 75 hours) and the least interesting half
+for the grounding method — a CVE has no place in the MITRE graph. Doing the
+three catalogues first means the part Modules 2 and 3 most need exists sooner:
+
+| milestone | hours after starting | documents done |
+|---|---|---|
+| CWE finished | ~18 | 1,342 |
+| CAPEC finished | ~25 | 1,957 |
+| **ATT&CK finished — every non-CVE entry enriched** | **~37 (about a day and a half)** | **3,033** |
+| CVE finished — complete | ~75 (3.1 days) | 6,044 |
+
+(Per-source hours are ±15%; expect the non-CVE point somewhere between 32
+and 42 hours.)
+
+**To build the partial index at the ~37-hour point, without disturbing the
+run** — check `wc -l` reads at least 3033, then:
+
+```bash
+cp indexes/enrichment/corpus_full_v4_14b.jsonl indexes/enrichment/corpus_partial_noncve.jsonl
+.venv/bin/python scripts/build_index.py --stage enriched \
+    --enrichment-path indexes/enrichment/corpus_partial_noncve.jsonl \
+    --enriched-dir indexes/enriched_partial_noncve
+```
+
+Three things about this:
+
+- **Do not edit `configs/default.yaml` to point at the partial file.** That
+  changes the config hash and makes the tree dirty, and the enrichment run
+  will then refuse to resume. The two options above exist so no edit is needed.
+- **Copy first, then build from the copy.** The live file is being appended
+  to; a copy is a stable snapshot. The `.manifest.json` is not copied, so the
+  partial index will not record the model or prompt — it is a development
+  aid, not a result.
+- The partial index contains **all 6,044 documents**; the CVEs are simply not
+  enriched yet (they have no extra terms). So Modules 2/3 can run against it
+  with no missing documents. Building it takes a minute or two of the laptop's
+  attention and will slow the enrichment slightly while it runs.
 
 **If it stops for any reason, run exactly the same command again.** It skips
 what is done and carries on. If anything has changed since the file was
@@ -495,12 +527,12 @@ is the one the results are reported on.
 
 | option | time on this machine | what Modules 2/3 get |
 |---|---|---|
-| `qwen2.5:7b` | ~21 h best case | 14 ids proposed per 40 documents, all survivors copied — barely exercises the grounding gates. Fine for plumbing, poor for developing anything that depends on ids |
-| **`qwen2.5:14b`** (recommended) | ~53 h best case; sustained figure not yet measured | every gate fires (32 graph and 69 name rejections per 40 documents), so Modules 2/3 see the hard cases while they build |
+| `qwen2.5:7b` | ~21 h best case, perhaps ~30 h sustained (not measured) | 14 ids proposed per 40 documents, all survivors copied — barely exercises the grounding gates. Fine for plumbing, poor for developing anything that depends on ids |
+| **`qwen2.5:14b`** (recommended) | **~75 h (3.1 days), measured sustained**; non-CVE entries ready at ~37 h with `--kinds cwe,capec,attack,cve` | every gate fires (32 graph and 69 name rejections per 40 documents), so Modules 2/3 see the hard cases while they build |
 
 The 14B is the better *development* index precisely because it is the messier
-model. Start it as soon as the sustained benchmark has been run once, so the
-team is told a real finishing time.
+model. The sustained benchmark is done: tell the team ~75 hours in total and
+~37 hours to the non-CVE milestone.
 
 ### Stage 2 — final index (Gemini 3.1 Pro, low thinking)
 
@@ -606,7 +638,7 @@ applied to the finished full-corpus file in seconds.
 
 ## What Module 2 reuses, and the interfaces
 
-All in `src/sira_cti/`, all covered by the offline test suite (369 tests).
+All in `src/sira_cti/`, all covered by the offline test suite (376 tests).
 
 **The graph tool** — `graph.OntologyGraph`
 

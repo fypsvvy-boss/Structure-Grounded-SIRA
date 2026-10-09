@@ -143,3 +143,49 @@ def test_sample_corpus_rejects_a_non_positive_per_kind():
 
     with pytest.raises(ValueError):
         sample_corpus(CORPUS_KB_FIXTURE, per_kind=0, seed=42)
+
+
+# -- choosing the order the document types are processed in ----------------------------
+
+
+def test_order_kinds_defaults_to_the_configured_order():
+    from sira_cti.index import order_kinds
+
+    assert order_kinds(None, ["cve", "cwe", "capec", "mitre"]) == ["cve", "cwe", "capec", "mitre"]
+
+
+def test_order_kinds_takes_a_comma_separated_order_and_the_attack_alias():
+    from sira_cti.index import order_kinds
+
+    configured = ["cve", "cwe", "capec", "mitre"]
+    assert order_kinds("cwe,capec,attack,cve", configured) == ["cwe", "capec", "mitre", "cve"]
+    assert order_kinds(" CWE , Capec ", configured) == ["cwe", "capec"]          # a subset, untidy input
+    assert order_kinds(["mitre", "cve"], configured) == ["mitre", "cve"]
+
+
+def test_order_kinds_rejects_unknown_repeated_and_empty():
+    import pytest
+
+    from sira_cti.index import order_kinds
+
+    configured = ["cve", "cwe", "capec", "mitre"]
+    with pytest.raises(ValueError, match="unknown"):
+        order_kinds("cwe,reports", configured)
+    with pytest.raises(ValueError, match="more than once"):
+        order_kinds("cwe,cve,cwe", configured)
+    with pytest.raises(ValueError, match="no kinds"):
+        order_kinds(" , ", configured)
+    with pytest.raises(ValueError, match="unknown"):
+        order_kinds("mitre", ["cve", "cwe"])                 # not in *this* config
+
+
+def test_load_corpus_yields_documents_in_the_requested_kind_order():
+    from sira_cti.index import order_kinds
+
+    kinds = order_kinds("cwe,capec,attack,cve", KINDS)
+    sources = [d.source for d in load_corpus(CORPUS_KB_FIXTURE, kinds)]
+    firsts = list(dict.fromkeys(sources))                    # order of first appearance
+    assert firsts == [Source.CWE, Source.CAPEC, Source.ATTACK, Source.CVE]
+    assert sorted(d.doc_id for d in load_corpus(CORPUS_KB_FIXTURE, kinds)) == sorted(
+        d.doc_id for d in load_corpus(CORPUS_KB_FIXTURE, KINDS)
+    )                                                        # same documents, only reordered

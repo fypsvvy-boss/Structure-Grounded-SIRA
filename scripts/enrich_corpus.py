@@ -52,7 +52,7 @@ from sira_cti.enrichment.corpus_side import (
 )
 from sira_cti.enrichment.prompts.corpus_side import PROMPT_VERSION, REPLY_SCHEMA, SYSTEM_PROMPT, build_prompt
 from sira_cti.graph import OntologyGraph
-from sira_cti.index import LuceneDFLookup, load_corpus, sample_corpus
+from sira_cti.index import LuceneDFLookup, load_corpus, order_kinds, sample_corpus
 
 
 def main() -> int:
@@ -63,6 +63,11 @@ def main() -> int:
     selection.add_argument("--limit", type=int, default=None, help="first N documents in load order (CVE-only below 3,011)")
     selection.add_argument("--per-kind", type=int, default=None, help="seeded random N documents from each type")
     parser.add_argument("--seed", type=int, default=None, help="sampling seed for --per-kind (default: eval.seed)")
+    parser.add_argument(
+        "--kinds", default=None,
+        help="document types to process, in this order, e.g. cwe,capec,attack,cve "
+             "(default: config's corpus.kinds, in its order). Safe to change when resuming",
+    )
     parser.add_argument("--concurrency", type=int, default=None, help="override config's enrichment.concurrency")
     parser.add_argument("--model", default=None, help="override config's llm.model (recorded in the manifest)")
     parser.add_argument(
@@ -106,6 +111,7 @@ def main() -> int:
     # cheaply redone, so it may only start from committed code; a sample run
     # may start dirty, and its manifest says so.
     version = code_version(Path(__file__).resolve().parents[1])
+    # (A --kinds subset is still treated as a full run: it is the first leg of one.)
     is_full_run = args.limit is None and args.per_kind is None and not args.dry_run
     if is_full_run:
         blocker = full_run_blocker(version)
@@ -157,6 +163,11 @@ def main() -> int:
 
     corpus_cfg = cfg["corpus"]
     enrich_cfg = cfg["enrichment"]
+    try:
+        kinds = order_kinds(args.kinds, corpus_cfg["kinds"])
+    except ValueError as exc:
+        print(f"--kinds: {exc}")
+        return 1
 
     # enrichment.max_new_tokens used to be read by nothing at all: the cap sat
     # in the config file while every reply was generated unbounded. It now
@@ -197,10 +208,10 @@ def main() -> int:
         name_overlap = enrich_cfg.get("name_match_min_overlap")
     if args.per_kind is not None:
         seed = args.seed if args.seed is not None else cfg["eval"]["seed"]
-        docs = sample_corpus(corpus_cfg["kb_dir"], corpus_cfg["kinds"], per_kind=args.per_kind, seed=seed)
+        docs = sample_corpus(corpus_cfg["kb_dir"], kinds, per_kind=args.per_kind, seed=seed)
         sampling = {"method": "per_kind", "per_kind": args.per_kind, "seed": seed}
     else:
-        docs = load_corpus(corpus_cfg["kb_dir"], corpus_cfg["kinds"], limit=args.limit)
+        docs = load_corpus(corpus_cfg["kb_dir"], kinds, limit=args.limit)
         sampling = {"method": "prefix", "limit": args.limit}
 
     print(
@@ -289,7 +300,7 @@ def main() -> int:
             concurrency=concurrency,
             prompt_version=PROMPT_VERSION,
             config_hash=config_hash(args.config),
-            corpus_kinds=list(corpus_cfg["kinds"]),
+            corpus_kinds=kinds,
             sampling=sampling,
             llm_settings=llm_settings,
             code_version=version,

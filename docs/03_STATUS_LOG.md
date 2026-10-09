@@ -8,6 +8,15 @@
 
 ## Current headline
 
+**2026-10-09 (benchmark): the 14B full-corpus run is ~75 hours (3.1 days),
+not ~52 — measured, clean, on mains.** Sustained speed after 30 minutes is
+**6.5 tokens a second** (43.4 s/doc); the earlier estimate came from a
+benchmark too short to leave the laptop's fast first minutes. Stage 1 can now
+process sources in a chosen order (`--kinds cwe,capec,attack,cve`): **all
+non-CVE entries are enriched about 37 hours in**, and a partial index can be
+built from that point for Modules 2/3 without touching the config. Config
+hash unchanged (`364d30da6c75`). 376 tests pass. Stage 1 not started.
+
 **2026-10-09 (latest): long CVEs keep their product names, runs record their
 git commit, one-page schema sign-off, and the 14B re-run is done — no finding
 changes.** (1) A long CVE's version table is now replaced by a list of vendor
@@ -172,6 +181,53 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Clean speed benchmark; source order for Stage 1 (2026-10-09, benchmark)
+
+#### Benchmark — `qwen2.5:14b`, 45 minutes, mains throughout, nothing else running
+
+66 documents. Power log checked: no switch to battery during the run.
+
+| minutes | writing speed | s/doc |
+|---|---|---|
+| 0–2 | 11.5 tok/s | 21 |
+| 2–10 | 7.1 | 38 |
+| 10–45 | 6.5–6.7 | 43–44 |
+
+**Sustained (after 30 min): 6.5 tok/s writing, 216 tok/s reading, 43.4 s/doc.**
+
+| source | documents | s/doc | hours |
+|---|---|---|---|
+| CWE | 1,342 | 48.2 | 18.0 |
+| CAPEC | 615 | 39.6 | 6.8 |
+| ATT&CK | 1,076 | 40.7 | 12.2 |
+| CVE | 3,011 | 45.1 | 37.7 |
+| **total** | 6,044 | | **74.6 h (3.1 days)** |
+
+Per-source rows rest on 5 documents each (±15%); a cross-check from sample
+token counts at the sustained speeds gives 72.4 h. The old ~52 h figure is
+withdrawn: its 8-document benchmark only saw the fast phase. Correction for
+anyone who quoted it: **the 14B writes at 6.5 tok/s sustained, not 8.9.**
+(RQ3 note for Modules 3/4: a latency measured in the first two minutes after
+a model loads is about twice as fast as the same machine an hour later.)
+
+#### Source order
+
+`enrich_corpus.py --kinds cwe,capec,attack,cve` — it could not do this
+before. One output file; resume works across a change of order (records are
+matched by id). Command-line only, so no config-hash change. With CVEs last,
+the three catalogues are done ~37 h in.
+
+`build_index.py --enrichment-path … --enriched-dir …` (new) builds an index
+from a snapshot of the part-finished file. **Do not edit the config to do
+this mid-run** — it changes the hash and the run will refuse to resume.
+Steps: `module1-freeze.md`, "Why CVEs go last".
+
+#### Code
+
+- `index/corpus.py`: `order_kinds`. `enrich_corpus.py`: `--kinds`.
+- `build_index.py`: `--enrichment-path`, `--enriched-dir`.
+- **376 tests pass** (+7).
 
 ### Product-name summary, code version in the manifest, combined sign-off, 14B re-run (2026-10-09, latest)
 
@@ -1325,8 +1381,8 @@ Reading of this run:
       finding changes.
 - [ ] **Modules 2, 3, 4: sign `docs/proposals/schema-signoff.md`** (1.3.0,
       1.4.0, 1.5.0 on one page).
-- [ ] **RE-run the sustained-speed benchmark, plugged in for all 45 minutes**
-      (the 2026-10-09 run lost mains at minute 6):
+- [x] **Sustained-speed benchmark** — done 2026-10-09: 6.5 tok/s, ~75 h.
+      Original note (the first attempt lost mains at minute 6):
       `caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`
       and put its per-source table into `module1-freeze.md`.
 - [ ] **Owner: approve or change the two-stage plan** (`module1-freeze.md`).

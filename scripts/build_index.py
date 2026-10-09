@@ -28,6 +28,14 @@ def main() -> int:
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--stage", choices=["base", "enriched"], required=True)
     parser.add_argument("--limit", type=int, default=None, help="cap total documents (cheap iteration)")
+    parser.add_argument(
+        "--enrichment-path", default=None,
+        help="enriched stage: read this enrichment JSONL instead of config's index.enrichment_path",
+    )
+    parser.add_argument(
+        "--enriched-dir", default=None,
+        help="enriched stage: write the index here instead of config's index.enriched_dir",
+    )
     parser.add_argument("--dry-run", action="store_true", help="report what would be indexed, build nothing")
     args = parser.parse_args()
 
@@ -49,14 +57,19 @@ def main() -> int:
             print(f"Base index built -> {path}")
 
     if args.stage == "enriched":
-        enrichment_path = Path(index_cfg["enrichment_path"])
+        # Overridable on the command line so an index can be built from a
+        # part-finished enrichment file without editing the config -- an edit
+        # changes the config hash, and the enrichment run would then refuse
+        # to resume.
+        enrichment_path = Path(args.enrichment_path or index_cfg["enrichment_path"])
+        enriched_dir = args.enriched_dir or index_cfg["enriched_dir"]
         if args.dry_run:
             exists = enrichment_path.exists()
-            print(f"[dry-run] would build enriched index from {enrichment_path} (exists={exists}) -> {index_cfg['enriched_dir']}")
+            print(f"[dry-run] would build enriched index from {enrichment_path} (exists={exists}) -> {enriched_dir}")
         else:
             path = build_enriched_index(
                 kb_dir=corpus_cfg["kb_dir"], enrichment_path=enrichment_path,
-                index_dir=index_cfg["enriched_dir"], kinds=corpus_cfg["kinds"],
+                index_dir=enriched_dir, kinds=corpus_cfg["kinds"],
                 threads=index_cfg.get("threads", 2), stemmer=index_cfg.get("stemmer", "porter"),
                 limit=args.limit, config_hash=the_hash,
                 index_repaired_ids=bool(cfg["enrichment"].get("index_repaired_ids", False)),

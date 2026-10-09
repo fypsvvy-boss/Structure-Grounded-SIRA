@@ -85,9 +85,11 @@ base index built fine.
   `enrichment/truncation.py`) — and listed in the run manifest, and the
   client refuses any reply where prompt + reply cap did not fit. Do not size
   that budget from "~3.75 characters per token": CVE version tables are ~2.1.
-- **Never benchmark — or run — on battery.** Measured 2026-10-09 on the 14B:
-  8.5 tokens a second on mains, 5.4 on battery (1.7 times slower), and the
-  first 90 seconds after loading are a 13.5 tok/s burst that means nothing.
+- **Never benchmark — or run — on battery, and never trust a short
+  benchmark.** Measured 2026-10-09 on the 14B: 11–13 tokens a second for the
+  first two minutes after loading, then the laptop warms up and settles at
+  **6.5 tok/s on mains** (flat from minute 10 to minute 45) or 5.4 on
+  battery. The full corpus is ~75 hours on mains, ~89 on battery.
   `scripts/bench_enrichment_speed.py` refuses to start on battery and stops
   if the charger comes out part-way.
 

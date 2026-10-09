@@ -224,6 +224,10 @@ Added 2026-09-15:
   record gets a `truncation` field; `record_shown_text(record)` rebuilds what
   the model saw. `report_enrichment.py` and `measure_redundancy.py` now
   measure "copied from the entry" against that, not the full text.
+- **`enrich_corpus.py --kinds cwe,capec,attack,cve`** (2026-10-09) — choose
+  the order document types are processed in; one output file, resumable
+  across a change of order. **`build_index.py --enrichment-path/--enriched-dir`**
+  builds an index from a part-finished enrichment file without a config edit.
 - **Code version** (2026-10-09) — every manifest has a `code` block (git
   commit of `src/`+`scripts/`+`configs/`, and whether the tree was dirty).
   `enrich_corpus.py` refuses a full-corpus run from uncommitted code and a
@@ -258,7 +262,7 @@ Added 2026-09-15:
   approved and they move into `corpus_side.py` with tests.
 
 ### Tests
-**369 tests pass** (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+**376 tests pass** (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,

@@ -57,6 +57,38 @@ def _canonical_id(kind: str, raw: str) -> str:
     return raw if raw.upper().startswith(prefix) else f"{prefix}{raw}"
 
 
+_KIND_ALIASES = {"attack": "mitre", "att&ck": "mitre"}   # the catalogue's name vs corpus_kb's file name
+
+
+def order_kinds(requested: Optional[str | Iterable[str]], configured: Iterable[str]) -> list[str]:
+    """The kinds to process, in the order asked for.
+
+    ``requested`` is a comma-separated string (``"cwe,capec,attack,cve"``) or
+    a list; ``None`` means the configured order. Only the *order* -- or a
+    subset -- may be chosen: a kind the config does not list is an error, as
+    is naming one twice. ``attack`` is accepted for ``mitre``.
+
+    Order is safe to change between sessions of one run. Records are keyed by
+    document id, so a resume skips whatever is already in the output file
+    whichever kind it came from.
+    """
+    configured = list(configured)
+    if requested is None:
+        return configured
+    if isinstance(requested, str):
+        requested = requested.split(",")
+    kinds = [_KIND_ALIASES.get(k.strip().lower(), k.strip().lower()) for k in requested if k.strip()]
+    if not kinds:
+        raise ValueError("no kinds given")
+    unknown = [k for k in kinds if k not in configured]
+    if unknown:
+        raise ValueError(f"unknown kind(s) {unknown}; the config's corpus.kinds are {configured}")
+    repeated = sorted({k for k in kinds if kinds.count(k) > 1})
+    if repeated:
+        raise ValueError(f"kind(s) named more than once: {repeated}")
+    return kinds
+
+
 def load_kb(kb_dir: str | Path, kind: str, *, limit: Optional[int] = None) -> Iterator[CorpusDocument]:
     """Stream one knowledge base's entries as :class:`CorpusDocument`."""
     if kind not in _ID_FIELD:

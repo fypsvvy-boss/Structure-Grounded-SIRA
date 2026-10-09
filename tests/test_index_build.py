@@ -264,3 +264,26 @@ def test_a_repaired_id_is_indexed_when_the_ablation_flag_is_on(tmp_path):
 def test_a_repair_to_the_documents_own_id_is_never_indexed(tmp_path):
     record = _repair_record(doc_id="CAPEC-49", repaired_to="CAPEC-49")
     assert _expansion_of(tmp_path, record, index_repaired_ids=True) == "password spraying"
+
+
+def test_build_index_can_be_pointed_at_another_enrichment_file_without_editing_the_config(tmp_path):
+    # Needed to build an index from a part-finished run: editing the config
+    # instead would change its hash and block that run from resuming.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    snapshot = tmp_path / "snapshot.jsonl"
+    snapshot.write_text("")
+    cmd = [sys.executable, str(root / "scripts" / "build_index.py"), "--stage", "enriched", "--dry-run"]
+
+    default = subprocess.run(cmd, capture_output=True, text=True, cwd=root).stdout
+    overridden = subprocess.run(
+        cmd + ["--enrichment-path", str(snapshot), "--enriched-dir", str(tmp_path / "idx")],
+        capture_output=True, text=True, cwd=root,
+    ).stdout
+
+    assert str(snapshot) in overridden and "exists=True" in overridden
+    assert str(tmp_path / "idx") in overridden
+    assert str(snapshot) not in default and "indexes/enriched" in default
