@@ -846,8 +846,17 @@ _RESUME_TOP_LEVEL = ("prompt_version", "model", "config_hash", "sampling", "conc
 _MISSING = object()
 
 
-def check_resume(output_path: Path, current: dict[str, object]) -> None:
+def check_resume(
+    output_path: Path, current: dict[str, object], *, allow_code_change: bool = False
+) -> dict[str, object]:
     """Refuse to append to ``output_path`` unless its manifest matches ``current``.
+
+    Returns the previous manifest. The code version (``code.code_commit``) is
+    compared too, when this session knows its own: a different commit means
+    the documents already in the file and the ones about to be added were
+    produced by different programs. ``allow_code_change`` waives that one
+    check and nothing else -- for a fix that is known not to touch what a
+    reply looks like.
 
     ``current`` is the manifest this session would write. Compared: prompt
     version, model, config hash, sampling, concurrency, and every entry of
@@ -880,6 +889,17 @@ def check_resume(output_path: Path, current: dict[str, object]) -> None:
     for key in sorted(new_gates):  # type: ignore[arg-type]
         _compare(f"gates.{key}", old_gates.get(key, _MISSING), new_gates[key])  # type: ignore[index, union-attr]
 
+    new_code = current.get("code")
+    if isinstance(new_code, dict) and not allow_code_change:
+        old_code = previous.get("code")
+        old_commit = old_code.get("code_commit") if isinstance(old_code, dict) else None
+        if old_commit != new_code.get("code_commit"):
+            differences.append(
+                f"  code: the file was written by commit {str(old_commit)[:12] if old_commit else '(not recorded)'}, "
+                f"this is commit {str(new_code.get('code_commit'))[:12]}"
+                "  (pass --allow-code-change only if the change cannot affect a reply)"
+            )
+
     if differences:
         raise ResumeMismatchError(
             f"Refusing to resume into {output_path}: its settings differ from this run's.\n"
@@ -887,6 +907,7 @@ def check_resume(output_path: Path, current: dict[str, object]) -> None:
             + "\nMixing them would put two different experiments in one file. Either restore the "
             "original settings (config, model, flags) or start a new file with a different --output."
         )
+    return previous
 
 
 def _truncation_summary(docs: list[CorpusDocument], max_doc_chars: int) -> dict[str, object]:
@@ -921,6 +942,8 @@ def _write_manifest(
     usage: Optional[dict[str, object]] = None,
     truncation: Optional[dict[str, object]] = None,
     concurrency: Optional[int] = None,
+    code: Optional[dict[str, object]] = None,
+    code_previous: Optional[list[object]] = None,
     write: bool = True,
 ) -> dict[str, object]:
     manifest: dict[str, object] = {
@@ -943,6 +966,15 @@ def _write_manifest(
         # Backend settings that shape the reply but are not gates: provider,
         # thinking configuration, seed (and whether it was honoured), pricing.
         manifest["llm"] = llm
+    if code:
+        # Which commit produced this file, and whether the working tree
+        # matched it. See common/repro.py:code_version.
+        manifest["code"] = code
+    if code_previous:
+        # Earlier code versions that also wrote into this file (a resume made
+        # with --allow-code-change). Never dropped, so the file's history is
+        # readable from its manifest alone.
+        manifest["code_previous"] = code_previous
     if usage:
         manifest["usage"] = usage
     if truncation:
@@ -981,6 +1013,8 @@ def run_corpus_enrichment(
     corpus_kinds: Optional[list[str]] = None,
     sampling: Optional[dict[str, object]] = None,
     llm_settings: Optional[dict[str, object]] = None,
+    code_version: Optional[dict[str, object]] = None,
+    allow_code_change: bool = False,
     dry_run: bool = False,
     on_record: Optional[Callable[[EnrichmentRecord], None]] = None,
 ) -> EnrichmentRunSummary:
@@ -1026,6 +1060,11 @@ def run_corpus_enrichment(
     full text). The manifest lists which documents were cut, so "the model
     saw all of it" is never assumed.
 
+    ``code_version`` (``common.repro.code_version()``) is recorded in the
+    manifest as ``code`` and, on a resume, its ``code_commit`` must equal the
+    one already there unless ``allow_code_change`` is set -- in which case the
+    earlier version is kept under ``code_previous``.
+
     ``llm_settings`` is recorded in the manifest as-is under ``"llm"`` --
     the backend facts a reader needs that are not gates (provider, thinking
     configuration, seed and whether it was honoured). ``None`` writes nothing.
@@ -1047,9 +1086,13 @@ def run_corpus_enrichment(
     first_client = client_factory()
     model_name = first_client.model
 
+    code_previous: list[object] = []
+
     def _manifest(*, write: bool, with_usage: bool) -> dict[str, object]:
         return _write_manifest(
             output_path,
+            code=code_version,
+            code_previous=code_previous,
             prompt_version=prompt_version,
             model=model_name,
             config_hash=config_hash,
@@ -1086,7 +1129,17 @@ def run_corpus_enrichment(
     if not dry_run and pending:
         if done:
             # Appending to someone's earlier work: only under identical settings.
-            check_resume(output_path, _manifest(write=False, with_usage=False))
+            previous = check_resume(
+                output_path, _manifest(write=False, with_usage=False),
+                allow_code_change=allow_code_change,
+            )
+            code_previous.extend(previous.get("code_previous") or [])  # type: ignore[arg-type]
+            old_code = previous.get("code")
+            if old_code and old_code != code_version and old_code not in code_previous:
+                code_previous.append(old_code)
+            # Rewritten now, so the change of code is on record even if this
+            # session dies before it finishes a document.
+            _manifest(write=True, with_usage=False)
         else:
             # Written before the first document, not only at the end, so a
             # run that dies part-way still leaves the manifest a resume needs.

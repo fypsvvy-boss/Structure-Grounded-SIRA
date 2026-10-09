@@ -78,18 +78,98 @@ def test_sections_are_dropped_in_the_documented_order():
         previous = info["dropped"]
 
 
-def test_cve_product_tables_go_before_any_descriptive_section():
-    text = _entry(
-        "CVE-2099-0001",
-        descriptions=[{"value": "A flaw in the widget."}],
-        weaknesses=[{"description": [{"value": "CWE-79"}]}],
-        configurations=[{"nodes": [{"cpeMatch": [{"criteria": f"cpe:2.3:o:v:p:{i}"} for i in range(200)]}]}],
-    )
-    shown, info = truncate_text(text, 400)
+def _cve(n_versions=200, vendors=(("cisco", "ios_xe"),), layout="criteria", **extra) -> str:
+    matches = [
+        {"vulnerable": True, layout: f"cpe:2.3:o:{vendor}:{product}:{i}.0:*:*:*:*:*:*:*"}
+        for vendor, product in vendors for i in range(n_versions)
+    ]
+    key = "cpeMatch" if layout == "criteria" else "cpe_match"
+    sections = {
+        "descriptions": [{"value": "A flaw in the widget."}],
+        "weaknesses": [{"description": [{"value": "CWE-79"}]}],
+        "configurations": [{"nodes": [{key: matches}]}],
+    }
+    sections.update(extra)
+    return _entry("CVE-2099-0001", **sections)
 
-    assert info["dropped"] == ["configurations"]
+
+def test_a_cve_product_table_is_replaced_by_its_vendor_and_product_names():
+    text = _cve(vendors=(("cisco", "ios_xe"), ("oracle", "banking_platform")))
+    shown, info = truncate_text(text, 600)
+
+    assert _sections(shown)["affected_products"] == ["cisco ios xe", "oracle banking platform"]
+    assert "configurations" not in _sections(shown)
+    assert "cpe:2.3" not in shown and "199.0" not in shown          # no CPE strings, no versions
+    # Recorded as summarised, not as dropped.
+    assert info["summarised"] == {"configurations": {"as": "affected_products", "products": 2, "kept": 2}}
+    assert info["dropped"] == []
+    # The descriptive sections are untouched.
     assert _sections(shown)["descriptions"] == [{"value": "A flaw in the widget."}]
     assert "CWE-79" in shown
+
+
+def test_each_product_is_named_once_however_many_versions_it_has():
+    from sira_cti.enrichment.truncation import summarise_products
+
+    table = _sections(_cve(n_versions=300))["configurations"]
+    assert summarise_products(table) == ["cisco ios xe"]
+
+
+def test_both_nvd_layouts_are_read_and_first_appearance_order_is_kept():
+    from sira_cti.enrichment.truncation import summarise_products
+
+    new = _sections(_cve(n_versions=2, vendors=(("b", "two"), ("a", "one"))))["configurations"]
+    old = _sections(_cve(n_versions=2, vendors=(("b", "two"), ("a", "one")), layout="cpe23Uri"))["configurations"]
+    nested = [{"nodes": [{"children": [{"cpe_match": [{"cpe23Uri": "cpe:2.3:h:intel:core_i7:-:*:*:*:*:*:*:*"}]}]}]}]
+
+    assert summarise_products(new) == summarise_products(old) == ["b two", "a one"]
+    assert summarise_products(nested) == ["intel core i7"]
+    assert summarise_products([{"nodes": []}]) == []
+    assert summarise_products("not a table") == []
+
+
+def test_a_vendor_that_repeats_the_product_name_is_not_written_twice():
+    from sira_cti.enrichment.truncation import summarise_products
+
+    assert summarise_products([{"criteria": "cpe:2.3:a:lodash:lodash:4.17:*:*:*:*:*:*:*"}]) == ["lodash"]
+
+
+def test_the_product_list_itself_is_cut_to_stay_inside_the_budget():
+    vendors = tuple((f"vendor{i}", f"product_{i}") for i in range(300))
+    text = _cve(n_versions=3, vendors=vendors)
+    shown, info = truncate_text(text, 1000)
+
+    assert len(shown) <= 1000
+    summary = info["summarised"]["configurations"]
+    assert summary["products"] == 300 and 0 < summary["kept"] < 300
+    assert _sections(shown)["affected_products"] == [f"vendor{i} product {i}" for i in range(summary["kept"])]
+
+
+def test_when_not_even_one_name_fits_the_table_is_recorded_as_dropped():
+    text = _cve(descriptions=[{"value": "d" * 300}])
+    budget = len(_entry("CVE-2099-0001", descriptions=[{"value": "d" * 300}],
+                        weaknesses=[{"description": [{"value": "CWE-79"}]}])) + 5
+    shown, info = truncate_text(text, budget)
+
+    assert info["mode"] == "sections"
+    assert info["dropped"] == ["configurations"] and info["summarised"] == {}
+    assert "affected_products" not in _sections(shown)
+
+
+def test_the_summary_sits_where_the_table_was():
+    text = _cve(cisaExploitAdd="2024-01-01")
+    shown, _info = truncate_text(text, 700)
+    assert list(_sections(shown)) == ["descriptions", "weaknesses", "affected_products", "cisaExploitAdd"]
+
+
+def test_a_record_cut_under_the_older_rules_is_rebuilt_under_those_rules():
+    text = _cve()
+    old_shown, old_info = truncate_text(text, 600, version="sections-v1")
+
+    assert old_info["version"] == "sections-v1" and old_info["dropped"] == ["configurations"]
+    assert "affected_products" not in old_shown and "summarised" not in old_info
+    assert shown_text(text, old_info) == old_shown                 # not re-cut under v2
+    assert shown_text(text, truncate_text(text, 600)[1]) != old_shown
 
 
 # -- protected sections ---------------------------------------------------------------
@@ -209,9 +289,9 @@ def test_the_shown_text_can_be_rebuilt_from_a_saved_record():
 def test_a_record_cut_under_other_rules_is_refused_not_guessed_at():
     import pytest
 
-    with pytest.raises(ValueError, match="sections-v0"):
-        shown_text("x", {"version": "sections-v0", "max_doc_chars": 10})
-    assert TRUNCATION_VERSION != "sections-v0"
+    with pytest.raises(ValueError, match="sections-v99"):
+        shown_text("x", {"version": "sections-v99", "max_doc_chars": 10})
+    assert TRUNCATION_VERSION == "sections-v2"
 
 
 def test_record_shown_text_reads_the_field_off_a_record():

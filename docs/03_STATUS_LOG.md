@@ -8,6 +8,19 @@
 
 ## Current headline
 
+**2026-10-09 (latest): long CVEs keep their product names, runs record their
+git commit, one-page schema sign-off, and the 14B re-run is done — no finding
+changes.** (1) A long CVE's version table is now replaced by a list of vendor
+and product names (all 63; typically +1,060 characters; rules `sections-v2`).
+(2) Every manifest records the git commit and whether the tree was dirty; a
+full-corpus run will not start from uncommitted code, and a resume on a
+different commit is refused unless `--allow-code-change`. (3) Modules 2–4:
+please read and sign **`docs/proposals/schema-signoff.md`** (one page).
+(4) 14B on the same 40 documents under the new truncation: **37 of 40 replies
+byte-identical**; accepted ids 56 → 59, name rejections 69 → 66, everything
+else the same. Config hash unchanged (`364d30da6c75`). 369 tests pass. Stage 1
+not started.
+
 **2026-10-09 (later): the cut is now made by section, resumes are guarded,
 and concurrency defaults to 1. The 14B re-run under the new cut is NOT done —
 the laptop was on battery.** Over-long entries are shortened by removing whole
@@ -159,6 +172,78 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Product-name summary, code version in the manifest, combined sign-off, 14B re-run (2026-10-09, latest)
+
+#### 1. CVE product tables → vendor/product names (`sections-v2`)
+
+Applies to **all 63** long CVEs. 51 keep every name; 12 (hardware advisories
+with 150–1,300 processor models) keep the first 120–200. Typically 45 names
+and about 1,060 characters added; all 63 stay within 6,000. Recorded as
+`summarised`, not `dropped`. Records cut under `sections-v1` can still be
+rebuilt. Table: `module1-freeze.md`.
+
+#### 2. Code version
+
+`common/repro.py:code_version()` → manifest `code`: `code_commit` (last commit
+touching `src/`, `scripts/`, `configs/`), `dirty`, `head`. Scoped to those
+three folders on purpose, so writing or committing docs during a long run does
+not block resuming it. Full-corpus run + dirty tree → refuses to start. Resume
+on a different `code_commit` → refused, unless `--allow-code-change`, in which
+case the earlier version is kept under `code_previous`.
+
+#### 3. One-page sign-off: `docs/proposals/schema-signoff.md`
+
+#### 4. `qwen2.5:14b`, same 40 documents, section-aware truncation
+
+`corpus_stratified_v4_14b_sections-v2.jsonl`. On mains, concurrency 1, seed
+and `num_ctx` explicit. Scorer v1 on both sides.
+
+| | v4 14B (uncut) | re-run (section-aware) |
+|---|---|---|
+| terms proposed / accepted | 480 / 177 | 480 / 178 |
+| structural ids proposed | 157 | 157 |
+| **accepted** | 56 | **59** |
+| rejected by the existence check | 32 | 32 |
+| rejected by the name check | 69 | **66** |
+| ids in a counting run (accepted) | 51 (7) | 51 (8) |
+| accepted: copied / generated | 17 / 39 | **20** / 39 |
+| median graph distance | 2 | 2 |
+| within 2 hops | 22 of 35 | 25 of 38 |
+| generated ids: median / within 2 hops | 2.5 / 12 of 24 | 2.5 / 12 of 24 |
+
+**37 of the 40 replies are byte-for-byte the same as the earlier run** — which
+also confirms that sending the seed and `num_ctx` explicitly changed nothing
+on the 14B. The three that differ are exactly the three shortened entries:
+
+- `CAPEC-126` (References, Consequences removed): now proposes its own id
+  (accepted) where it had proposed `CAPEC-664` with the wrong name.
+- `CAPEC-24` (same sections removed): `CWE-119` is now named correctly and
+  accepted (was a name mismatch); `CWE-697`, a mismatch, is no longer proposed.
+- `CAPEC-656` (also Prerequisites, Example Instances): reply differs in
+  wording, same two ids, both accepted.
+
+**Does any finding change? No.** Three more accepted ids, all copies (own id
+or an id still visible in the entry), three fewer name mismatches. Existence
+rejections, counting runs, generated ids and their distances are untouched.
+If anything the shorter prompt made the model slightly *more* accurate on
+those three entries — on three documents that is an observation, not a result.
+
+The earlier attempt (`corpus_stratified_v4_14b_sections.jsonl`, 27 of 40
+documents, rules `sections-v1`) was interrupted and is superseded; it can be
+deleted.
+
+Timing, as a side effect: 24.5 minutes on mains = 36.8 s/doc → ~62 h for the
+corpus. Not a clean benchmark (tests ran alongside). `module1-freeze.md`.
+
+#### Code
+
+- `enrichment/truncation.py`: `summarise_products`, `sections-v2`, `version=`.
+- `common/repro.py`: `code_version`, `full_run_blocker`.
+- `corpus_side.py`: manifest `code` / `code_previous`; commit check in
+  `check_resume`; `code_version=`, `allow_code_change=`.
+- `enrich_corpus.py`: `--allow-code-change`; full-run dirty-tree refusal.
+- `tests/test_repro.py` (new). **369 tests pass** (+20).
 
 ### Section-aware truncation, shown-text copy measure, resume guard (2026-10-09, later)
 
@@ -1236,11 +1321,10 @@ Reading of this run:
       of accepted ids; rejection counts stable. Still a team call whether a
       `high`-thinking run is wanted (~$1.0–1.6).
 - [x] **Cut shape decided and built** 2026-10-09: section-aware.
-- [ ] **Re-run the 40-document sample on `qwen2.5:14b` under the new
-      truncation, plugged in**, and compare with the v4 14B numbers (command
-      in the log entry above).
-- [ ] **Sign-off now also covers schema 1.5.0** (`truncation`) —
-      `thinking-tokens.md` amendment.
+- [x] **14B sample re-run under the new truncation** — done 2026-10-09, no
+      finding changes.
+- [ ] **Modules 2, 3, 4: sign `docs/proposals/schema-signoff.md`** (1.3.0,
+      1.4.0, 1.5.0 on one page).
 - [ ] **RE-run the sustained-speed benchmark, plugged in for all 45 minutes**
       (the 2026-10-09 run lost mains at minute 6):
       `caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`

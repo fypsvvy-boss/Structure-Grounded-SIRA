@@ -95,7 +95,7 @@ removed:
 
 ## Sign-off
 
-(Covers 1.4.0 and the 1.5.0 amendment.)
+**Sign in `schema-signoff.md` instead** — one page covering 1.3.0, 1.4.0 and 1.5.0 together. The table below is kept only as history.
 
 | module | decision | date | notes |
 |---|---|---|---|

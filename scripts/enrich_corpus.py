@@ -42,7 +42,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from sira_cti.common import GeminiClient, OllamaClient, TokenUsage, config_hash, load_config, load_env_file
+from sira_cti.common import (
+    GeminiClient, OllamaClient, TokenUsage, code_version, config_hash, full_run_blocker,
+    load_config, load_env_file,
+)
 from sira_cti.common.llm import parse_json_loose
 from sira_cti.enrichment.corpus_side import (
     ResumeMismatchError, run_corpus_enrichment, summarize, summarize_by_source,
@@ -89,10 +92,26 @@ def main() -> int:
         help="USD per 1M output tokens; thinking tokens are billed at this rate too",
     )
     parser.add_argument("--cost-cap-usd", type=float, default=None, help="abort when estimated or actual spend passes this")
+    parser.add_argument(
+        "--allow-code-change", action="store_true",
+        help="resume even though the code (src/, scripts/, configs/) is at a different commit than the "
+             "one that started the output file; the earlier commit stays in the manifest",
+    )
     parser.add_argument("--dry-run", action="store_true", help="run the pipeline but write nothing to disk")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+
+    # Which commit is about to run. A full-corpus run takes days and cannot be
+    # cheaply redone, so it may only start from committed code; a sample run
+    # may start dirty, and its manifest says so.
+    version = code_version(Path(__file__).resolve().parents[1])
+    is_full_run = args.limit is None and args.per_kind is None and not args.dry_run
+    if is_full_run:
+        blocker = full_run_blocker(version)
+        if blocker:
+            print(blocker)
+            return 2
     output_path = Path(args.output) if args.output else Path(cfg["index"]["enrichment_path"])
 
     base_dir = Path(cfg["index"]["base_dir"])
@@ -273,6 +292,8 @@ def main() -> int:
             corpus_kinds=list(corpus_cfg["kinds"]),
             sampling=sampling,
             llm_settings=llm_settings,
+            code_version=version,
+            allow_code_change=args.allow_code_change,
             dry_run=args.dry_run,
             on_record=on_record,
         )

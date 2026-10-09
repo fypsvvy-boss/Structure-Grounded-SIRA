@@ -1,7 +1,8 @@
 # Proposal: make the model say what an ID *is*, and check it
 
 **Status: Module 1 implemented behind a config switch (2026-10-07) — awaiting
-Modules 2, 3 and 4 on the contract change.**
+Modules 2, 3 and 4 on the contract change. Sign in `schema-signoff.md`, the
+one-page request that covers this and the two later additions together.**
 **Needs:** agreement to add to `src/sira_cti/common/schemas.py` (the frozen
 contract Modules 1–4 share):
 

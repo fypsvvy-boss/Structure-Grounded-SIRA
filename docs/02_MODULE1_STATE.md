@@ -224,6 +224,14 @@ Added 2026-09-15:
   record gets a `truncation` field; `record_shown_text(record)` rebuilds what
   the model saw. `report_enrichment.py` and `measure_redundancy.py` now
   measure "copied from the entry" against that, not the full text.
+- **Code version** (2026-10-09) — every manifest has a `code` block (git
+  commit of `src/`+`scripts/`+`configs/`, and whether the tree was dirty).
+  `enrich_corpus.py` refuses a full-corpus run from uncommitted code and a
+  resume from a different commit (`--allow-code-change` to override).
+  `code_version()` / `full_run_blocker()` live in `common/repro.py` for the
+  other modules' runs too.
+- **Long CVEs** (2026-10-09) — the affected-products table is replaced in the
+  shown text by `affected_products`: vendor and product names, no versions.
 - **Resume guard** (2026-10-09) — resuming into a file made under different
   settings raises `ResumeMismatchError`; the manifest is written before the
   first document and now records `concurrency`.
@@ -250,7 +258,7 @@ Added 2026-09-15:
   approved and they move into `corpus_side.py` with tests.
 
 ### Tests
-**349 tests pass** (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+**369 tests pass** (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,
@@ -317,7 +325,7 @@ Modules 1 & 2 emit this; Module 3 consumes it; Module 4 audits it.
 `deprecated`, `revoked`, `malformed_id`, and (1.2.0) `name_mismatch`,
 `llm_json_error`.
 
-**Schema 1.5.0 (2026-10-09) adds the record-level `truncation` field; 1.4.0 (2026-10-08) adds `tokens.thinking`. Both are awaiting four-owner sign-off** —
+**One page to sign for 1.3.0, 1.4.0 and 1.5.0: `docs/proposals/schema-signoff.md`.** Schema 1.5.0 (2026-10-09) adds the record-level `truncation` field; 1.4.0 (2026-10-08) adds `tokens.thinking`. Both are awaiting four-owner sign-off —
 `docs/proposals/thinking-tokens.md`. Cost for a thinking model is
 `prompt` × input price + (`completion` + `thinking`) × output price.
 

@@ -42,7 +42,7 @@ days.
 | terms per document | `12` | `enrichment.max_terms_per_doc` | it is in the prompt text, so it shapes the reply |
 | JSON retry | `1`, with nudge | `enrichment.json_retries` | zero retries were needed in either `corpus-v4` run |
 | unparseable reply | recorded as `llm_json_error` | `enrichment.record_json_failures: true` | so the run can finish |
-| context handling | **section-aware truncation to `6000` characters** (rules `sections-v1`, 2026-10-09) | `enrichment.max_doc_chars`, `enrichment/truncation.py` | 171 of 6,044 documents (2.8%) are shown to the model shortened, by removing whole sections in a fixed order; description and cross-catalogue links are never removed; 0 fallbacks. Each record says what was removed. A reply to a prompt that still overflows is refused. See "The truncation rule" |
+| context handling | **section-aware truncation to `6000` characters** (rules `sections-v2`, 2026-10-09) | `enrichment.max_doc_chars`, `enrichment/truncation.py` | 171 of 6,044 documents (2.8%) are shown to the model shortened, by removing whole sections in a fixed order; description and cross-catalogue links are never removed; 0 fallbacks. Each record says what was removed. A reply to a prompt that still overflows is refused. See "The truncation rule" |
 | concurrency | **`1`** | `enrichment.concurrency` (now the default) | 2 gives no speed-up on Ollama and doubles recorded latency (open question 11) |
 | corpus | all four kinds, no sampling | `corpus.kinds`, no `--limit`/`--per-kind` | |
 | output | a **new** file, e.g. `indexes/enrichment/corpus_full_v4_14b.jsonl` | `--output` | never the default `corpus.jsonl`, which holds `corpus-v1` records (open question 2) |
@@ -71,6 +71,7 @@ can be applied to the finished full-corpus file offline.
 | # | blocker | status |
 |---|---|---|
 | 1 | Context overflow (open question 12) | **Closed in code.** `llm.num_ctx: 4096` sent explicitly + section-aware truncation to 6,000 characters + a guard that refuses a reply when prompt + reply cap did not fit |
+| 1c | Knowing which code produced a file | **Closed in code, 2026-10-09.** Every manifest records the git commit and whether the tree was dirty. A full-corpus run refuses to start from uncommitted code; a resume refuses a different commit unless `--allow-code-change` |
 | 1b | Resuming under changed settings (open question 2) | **Closed in code, 2026-10-09.** Config hash, model, prompt, scorer, concurrency and truncation are compared with the existing file's manifest; any difference is refused |
 | 2 | Explicit seed to Ollama | **Closed.** `llm.seed: 42` → `options.seed`. Verified on the real 7B (repeatable, and identical to the saved unseeded replies) |
 | 3 | Schema sign-off | **Docs written, signatures missing.** 1.3.0: `name-id-consistency.md`. 1.4.0: `thinking-tokens.md`. Only the Module 1 row is filled in on either. This one cannot be closed by Module 1 alone |
@@ -94,7 +95,7 @@ Two things to know about blocker 1:
 ## The truncation rule: cut by section, not by character count
 
 **Decided by the owner, 2026-10-09. Built the same day. Same budget (6,000
-characters, `enrichment.max_doc_chars`), same `num_ctx: 4096`. It replaces the
+characters, `enrichment.max_doc_chars`), same `num_ctx: 4096`. Current rules: `sections-v2`. It replaces the
 plain cut described further down, which is kept for the record.**
 
 **In plain words.** An entry is a title followed by a set of labelled sections
@@ -109,7 +110,7 @@ ones least useful for finding the entry, and stop as soon as it fits.
 |---|---|---|
 | 1 | references | `References` |
 | 2 | content history | `Content_History` (none in this corpus) |
-| 3 | CVE affected-products / version tables | `configurations` |
+| 3 | CVE affected-products / version tables — **replaced by a list of vendor and product names**, each once, no versions (rules `sections-v2`) | `configurations` → `affected_products` |
 | 4 | applicable-platform detail | `Applicable_Platforms` |
 | 5 | consequences | `Common_Consequences`, `Consequences` |
 | 6 | prerequisites | `Prerequisites` |
@@ -133,8 +134,8 @@ cut at 6,000 characters as before and the record says `"mode": "fallback"`.
 `truncation` field (schema 1.5.0):
 
 ```json
-"truncation": {"version": "sections-v1", "mode": "sections", "max_doc_chars": 6000,
-               "dropped": ["References", "Consequences"], "trimmed": {"Mitigations": {"kept_items": 2}},
+"truncation": {"version": "sections-v2", "mode": "sections", "max_doc_chars": 6000,
+               "dropped": ["References", "Consequences"], "trimmed": {"Mitigations": {"kept_items": 2}}, "summarised": {},
                "full_chars": 7503, "shown_chars": 5921}
 ```
 
@@ -163,18 +164,40 @@ reached step 9: `CWE-732`, `CAPEC-7`, `CAPEC-19`, `CAPEC-33`, `CAPEC-34`,
 the ten what is trimmed is the step-by-step `Execution_Flow` or a detection
 list; the description and links are intact in all of them.
 
-**Two side effects to know about.**
+### CVE product tables become a list of names (`sections-v2`, 2026-10-09)
 
-- **CVEs lose all their product names from the table.** The instruction was
-  to drop the affected-products table whole, so the 63 long CVEs are shown at
-  850–3,200 characters (typically about 1,350), well under the budget. The product is nearly
-  always named in the description too, but vendor and version detail is gone
-  for those 63. Trimming the table instead of dropping it would use the spare
-  room; not done, because it was not asked for.
-- **Whole sections go even when part would fit** (steps 1–7). Shortened CWE
-  and CAPEC entries still use most of the budget (typically 5,600 of 6,000
-  characters); it is the CVEs that end up far below it. That is the price of
-  a rule simple enough to state in one table.
+Under the first version of this rule the 63 long CVEs lost their whole
+affected-products table and with it every vendor and product name. Now the
+table is **summarised**: the model sees
+`"affected_products": ["cisco ios xe", "oracle banking platform", …]` in the
+table's place — each vendor/product pair once, in the order the table lists
+them, with no version numbers. The record says `summarised`, not `dropped`:
+
+```json
+"summarised": {"configurations": {"as": "affected_products", "products": 18, "kept": 18}}
+```
+
+| of the 63 long CVEs | |
+|---|---|
+| table replaced by a name list | **63 of 63** |
+| every name fits | 51 |
+| list itself cut to stay in budget | 12 (hardware advisories naming 150–1,300 processor models; the first 120–200 are kept) |
+| names per CVE, typical | 45 |
+| characters added, typical | **about 1,060** (smallest 39, largest 4,710) |
+| still within 6,000 characters | all 63 |
+
+The 12 with a shortened list: `CVE-2017-5715`, `CVE-2017-5753`,
+`CVE-2017-5754`, `CVE-2019-11157`, `CVE-2020-0551`, `CVE-2020-12788`,
+`CVE-2020-8694`, `CVE-2020-8695`, `CVE-2021-33150`, `CVE-2021-44228`,
+`CVE-2022-0001`, `CVE-2022-0002`. `kept` and `products` on the record show
+how many were left out. CWE and CAPEC entries are cut exactly as before.
+
+**One side effect to know about.**
+
+- **Whole sections go even when part would fit** (steps 1–7, other than the
+  CVE table). Shortened CWE and CAPEC entries still use most of the budget
+  (typically 5,600 of 6,000 characters). That is the price of a rule simple
+  enough to state in one table.
 
 ### "Copied from the entry" now means copied from what the model saw
 
@@ -320,6 +343,15 @@ Three things follow:
 So the per-source estimate **stays provisional at ~52 hours on mains**, and
 there is now a measured figure for the bad case.
 
+**One more data point (2026-10-09), not a substitute for the benchmark.** The
+40-document sample re-run took 24.5 minutes on mains: **36.8 seconds per
+document**, against 31.7 in the short benchmark. At that rate the corpus is
+about **62 hours (2.6 days)**. It is not a clean measurement — the test suite
+was run a few times on the same machine while it was going, and it is 25
+minutes rather than 45 — but it is the longest plugged-in stretch on record
+and it points above 52, not below. Plan for 2.5–3 days until the clean
+benchmark says otherwise.
+
 | source | documents | mains, settled (provisional) | on battery (measured, sustained) |
 |---|---|---|---|
 | CVE | 3,011 | ~29 s/doc → ~24 h | 53.6 s/doc → 44.9 h |
@@ -371,8 +403,8 @@ Rules while a run is unfinished:
 
 1. **Change nothing between sessions** — not the prompt, not
    `configs/default.yaml`, not the model, not `--output`. The script now
-   checks this and refuses to continue if anything differs (it cannot see
-   edits to the Python code, so do not make any).
+   checks this and refuses to continue if anything differs, including the
+   code's git commit.
 2. Plugged in, lid open, `caffeinate -i` (stops the Mac sleeping), nothing
    else using Ollama.
 3. To check progress: `wc -l indexes/enrichment/corpus_full_v4_14b.jsonl` —
@@ -396,17 +428,19 @@ Decisions and paperwork:
 - [ ] **A clean 45-minute benchmark, plugged in the whole time**, so the team
       is told a real finishing time. The 2026-10-09 attempt lost mains power
       at minute 6. `caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`
-- [ ] **The 40-document 14B sample re-run under the new truncation, and
-      looked at** (it changes what 3 of the 40 sample documents show the
-      model). See `03_STATUS_LOG.md` for whether this has been done.
-- [ ] **Schema sign-off from Modules 2, 3 and 4.** Three additions are
-      waiting, all backward compatible: 1.3.0 (`name-id-consistency.md`),
-      1.4.0 `tokens.thinking` and 1.5.0 `truncation` (both in
-      `thinking-tokens.md`). Only Module 1's row is filled in. The run *can*
+- [x] **The 40-document 14B sample re-run under the new truncation** — done
+      2026-10-09. 37 of 40 replies byte-identical to the earlier run; the
+      three shortened CAPEC entries changed slightly; no finding changes
+      (`03_STATUS_LOG.md`).
+- [ ] **Schema sign-off from Modules 2, 3 and 4** — one page to read and
+      sign: `docs/proposals/schema-signoff.md` (1.3.0, 1.4.0, 1.5.0, all
+      backward compatible). Only Module 1's row is filled in. The run *can*
       go ahead without it, but Module 3 will be reading 1.5.0 records.
-- [ ] **The code is committed**, so the run is tied to an exact version.
-      Config hash must read **`364d30da6c75`**.
-- [ ] **All tests pass**: `.venv/bin/python -m pytest -q` (349).
+- [ ] **The code is committed.** This is now enforced: a full-corpus run
+      **refuses to start** if anything under `src/`, `scripts/` or `configs/`
+      is uncommitted, and the manifest records the commit. Config hash must
+      read **`364d30da6c75`** (unchanged by today's work).
+- [ ] **All tests pass**: `.venv/bin/python -m pytest -q` (369).
 
 The machine, on the day:
 
@@ -438,9 +472,15 @@ what differs, and appends nothing. Put the setting back, or start a new
 `--output`. Progress: `wc -l indexes/enrichment/corpus_full_v4_14b.jsonl`
 (finished at 6044).
 
-**Does anything else block it?** No. One thing the guard cannot see: an edit
-to the Python code itself between sessions. Hence "commit first, and do not
-pull or edit until it is finished".
+The script also refuses if **the code** has changed: the manifest records the
+last commit that touched `src/`, `scripts/` or `configs/`, and a resume from
+a different one stops with both hashes shown. Editing or committing
+**documentation** in the meantime is fine — it is not part of that check. If
+a code change really cannot affect a reply (a typo in a log message), add
+`--allow-code-change`; the earlier commit stays in the manifest under
+`code_previous`.
+
+**Does anything else block it?** No.
 
 ## Two-stage plan: a free local index now, one Gemini index at the end
 
@@ -518,7 +558,7 @@ So anything that shapes the model's reply has to be final first:
    what the local model was shown, **so that the model is the only thing that
    differs between the two indexes.** If Gemini saw more text, a better
    Stage 2 index could be the model or the extra text and nobody could say
-   which. Stage 2 uses the identical section-aware rule (`sections-v1`). Nothing to configure: `enrichment.max_doc_chars` already
+   which. Stage 2 uses the identical section-aware rule (`sections-v2`). Nothing to configure: `enrichment.max_doc_chars` already
    applies to every backend.
 5. **Temperature 0.0 and seed 42** as now — knowing the seed is not honoured.
 6. **The resume guard** (open question 2) — built 2026-10-09. A paid run
@@ -566,7 +606,7 @@ applied to the finished full-corpus file in seconds.
 
 ## What Module 2 reuses, and the interfaces
 
-All in `src/sira_cti/`, all covered by the offline test suite (349 tests).
+All in `src/sira_cti/`, all covered by the offline test suite (369 tests).
 
 **The graph tool** — `graph.OntologyGraph`
 

@@ -1154,7 +1154,7 @@ def test_a_long_document_is_shown_to_the_model_cut_but_recorded_whole(tmp_path):
     assert records["T1078"].truncation is None
     manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
     assert manifest["gates"]["max_doc_chars"] == len(long_text) - 100
-    assert manifest["gates"]["truncation_version"] == "sections-v1"
+    assert manifest["gates"]["truncation_version"] == records["T1110"].truncation["version"]
     assert manifest["truncation"]["truncated_docs"] == ["T1110"]
     assert manifest["truncation"]["fallback_docs"] == []
     assert manifest["truncation"]["truncated_count"] == 1
@@ -1326,3 +1326,75 @@ def test_a_finished_file_can_be_rerun_under_any_settings_because_nothing_is_appe
     _resume_run(out, [_doc("T1110")])
     summary = _resume_run(out, [_doc("T1110")], config_hash="bbbb")       # nothing pending
     assert (summary.already_done, summary.processed) == (1, 0)
+
+
+# -- the code version in the manifest, and on resume ------------------------------------
+
+
+def _code(commit, dirty=False):
+    return {"head": commit, "code_commit": commit, "dirty": dirty, "dirty_files": [], "paths": ["src"]}
+
+
+def test_the_manifest_records_the_commit_and_whether_the_tree_was_dirty(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], code_version=_code("a" * 40, dirty=True))
+
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["code"]["code_commit"] == "a" * 40
+    assert manifest["code"]["dirty"] is True
+    assert "code_previous" not in manifest
+
+
+def test_resuming_on_the_same_commit_continues(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], code_version=_code("a" * 40))
+    summary = _resume_run(out, [_doc("T1110"), _doc("T1078")], code_version=_code("a" * 40))
+    assert summary.processed == 1
+
+
+def test_resuming_on_a_different_commit_is_refused(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], code_version=_code("a" * 40))
+    before = out.read_text()
+
+    with pytest.raises(ResumeMismatchError) as excinfo:
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], code_version=_code("b" * 40))
+
+    message = str(excinfo.value)
+    assert "aaaaaaaaaaaa" in message and "bbbbbbbbbbbb" in message
+    assert "--allow-code-change" in message
+    assert out.read_text() == before
+
+
+def test_allow_code_change_resumes_and_keeps_the_earlier_commit_on_record(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], code_version=_code("a" * 40))
+    summary = _resume_run(
+        out, [_doc("T1110"), _doc("T1078")], code_version=_code("b" * 40), allow_code_change=True,
+    )
+
+    assert summary.processed == 1
+    manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+    assert manifest["code"]["code_commit"] == "b" * 40
+    assert [c["code_commit"] for c in manifest["code_previous"]] == ["a" * 40]
+
+
+def test_allow_code_change_waives_only_the_code_check(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], code_version=_code("a" * 40))
+    with pytest.raises(ResumeMismatchError, match="config_hash"):
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], code_version=_code("b" * 40),
+                    allow_code_change=True, config_hash="bbbb")
+
+
+def test_a_file_whose_manifest_has_no_commit_is_refused_when_this_run_has_one(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])                              # written without a code version
+    with pytest.raises(ResumeMismatchError, match="not recorded"):
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], code_version=_code("b" * 40))

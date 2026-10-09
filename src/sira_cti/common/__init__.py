@@ -21,7 +21,7 @@ from .llm import (
     Scope,
     StubClient,
 )
-from .repro import config_hash, load_config, load_env_file
+from .repro import code_version, config_hash, full_run_blocker, load_config, load_env_file
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -43,7 +43,9 @@ __all__ = [
     "OllamaClient",
     "Scope",
     "StubClient",
+    "code_version",
     "config_hash",
+    "full_run_blocker",
     "load_config",
     "load_env_file",
 ]

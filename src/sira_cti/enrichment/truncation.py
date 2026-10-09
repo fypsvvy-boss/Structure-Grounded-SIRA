@@ -17,6 +17,11 @@ a fixed order -- least useful for finding the entry first -- until it fits:
     applicable-platform detail -> consequences -> prerequisites ->
     examples -> mitigations
 
+A CVE's affected-products table is not simply dropped: it is replaced by the
+vendor and product names it mentions, once each and without versions
+(``sections-v2``). The table is where a long CVE's length comes from, but the
+names in it are exactly what an analyst searches by.
+
 Mitigations are *trimmed* (leading items kept) rather than dropped outright
 where that is enough. Sections the instruction does not name
 (``OTHER_ORDER``: detection methods, execution flow, ...) come after
@@ -41,9 +46,21 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-TRUNCATION_VERSION = "sections-v1"
+TRUNCATION_VERSION = "sections-v2"
 """Recorded with every cut. Change it whenever the rules below change, so a
-saved record is never re-cut under rules it was not written with."""
+saved record is never re-cut under rules it was not written with.
+
+* ``sections-v1`` -- a CVE's affected-products table is dropped whole.
+* ``sections-v2`` -- it is replaced by a list of vendor and product names
+  (:func:`summarise_products`). Everything else is unchanged.
+"""
+
+_KNOWN_VERSIONS = ("sections-v1", "sections-v2")
+
+PRODUCTS_SECTION = "configurations"
+PRODUCTS_SUMMARY_KEY = "affected_products"
+"""The key the summary appears under in the shown text. Not a key that exists
+in corpus_kb, so a reader of a prompt can tell it is our summary."""
 
 DROP_ORDER: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     # (category, section keys, trim-instead-of-drop)
@@ -96,6 +113,39 @@ def _render(title: str, sections: dict[str, Any], ascii_only: bool = False) -> s
     return f"{title} {json.dumps(sections, ensure_ascii=ascii_only)}".strip()
 
 
+def summarise_products(configurations: Any) -> list[str]:
+    """``["vendor product", ...]`` named in a CVE's affected-products table.
+
+    The table is thousands of characters of CPE strings
+    (``cpe:2.3:o:cisco:ios_xe:16.9.3:*:...``) that differ only in version.
+    What an analyst searches for is the vendor and the product, so those are
+    kept -- each pair once, in order of first appearance, versions discarded.
+    Both NVD layouts are read (``criteria`` and the older ``cpe23Uri``).
+    """
+    seen: dict[str, None] = {}
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("criteria", "cpe23Uri") and isinstance(value, str):
+                    parts = value.split(":")
+                    if len(parts) > 4 and parts[0] == "cpe":
+                        vendor, product = (
+                            p.replace("\\", "").replace("_", " ").strip() for p in parts[3:5]
+                        )
+                        name = product if vendor in ("", "*", "-") or vendor == product else f"{vendor} {product}"
+                        if name and name not in ("*", "-"):
+                            seen.setdefault(name)
+                else:
+                    _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(configurations)
+    return list(seen)
+
+
 def _trim_section(value: Any, room: int, ascii_only: bool = False) -> Any:
     """The longest leading part of ``value`` whose JSON fits in ``room`` characters.
 
@@ -117,24 +167,36 @@ def _trim_section(value: Any, room: int, ascii_only: bool = False) -> Any:
     return kept or None
 
 
-def truncate_text(text: str, max_chars: Optional[int]) -> tuple[str, Optional[dict[str, Any]]]:
+def truncate_text(
+    text: str, max_chars: Optional[int], *, version: str = TRUNCATION_VERSION
+) -> tuple[str, Optional[dict[str, Any]]]:
     """``(shown_text, info)``. ``info`` is None when nothing was cut.
 
     ``info`` is what goes on the record: ``mode`` (``"sections"`` or
-    ``"fallback"``), the section keys ``dropped`` and ``trimmed`` (with how
-    many items were kept), and the character counts before and after.
+    ``"fallback"``), the section keys ``dropped``, ``trimmed`` (with how many
+    items were kept) and ``summarised`` (a CVE's product table replaced by
+    its vendor/product names), and the character counts before and after.
+
+    ``version`` exists only so a record saved under older rules can be
+    rebuilt (:func:`shown_text`); new cuts always use the current one.
     """
+    if version not in _KNOWN_VERSIONS:
+        raise ValueError(f"unknown truncation rules {version!r}; this code knows {_KNOWN_VERSIONS}")
     if max_chars is None or len(text) <= max_chars:
         return text, None
 
     info: dict[str, Any] = {
-        "version": TRUNCATION_VERSION, "mode": "sections", "max_doc_chars": max_chars,
-        "dropped": [], "trimmed": {}, "full_chars": len(text),
+        "version": version, "mode": "sections", "max_doc_chars": max_chars,
+        "dropped": [], "trimmed": {}, "summarised": {}, "full_chars": len(text),
     }
+    if version == "sections-v1":
+        del info["summarised"]      # the field did not exist; keep v1 records comparable
 
     def _fallback(reason: str) -> tuple[str, dict[str, Any]]:
         shown = text[:max_chars]
         info.update(mode="fallback", reason=reason, dropped=[], trimmed={}, shown_chars=len(shown))
+        if "summarised" in info:
+            info["summarised"] = {}
         return shown, info
 
     parsed = split_entry(text)
@@ -156,6 +218,16 @@ def truncate_text(text: str, max_chars: Optional[int]) -> tuple[str, Optional[di
     # ordered. Dropping it last (before the fallback) keeps the promise that
     # protected sections survive, without guessing where it ranks.
     plan += [(key, True) for key in sections if key not in PROTECTED and key not in dict(plan)]
+    original_order = list(parsed[1])
+
+    def put_back(secs: dict[str, Any], key: str, value: Any, *, at: str) -> dict[str, Any]:
+        """``secs`` plus ``key``, placed where section ``at`` was in the full entry."""
+        secs = {**secs, key: value}
+        where = {k: original_order.index(k) for k in secs if k in original_order}
+        where[key] = original_order.index(at)
+        where.setdefault(PRODUCTS_SUMMARY_KEY, original_order.index(PRODUCTS_SECTION)
+                         if PRODUCTS_SECTION in original_order else 0)
+        return {k: secs[k] for k in sorted(secs, key=where.__getitem__)}
 
     for key, trim in plan:
         if len(render(sections)) <= max_chars:
@@ -163,6 +235,20 @@ def truncate_text(text: str, max_chars: Optional[int]) -> tuple[str, Optional[di
         if key not in sections:
             continue
         value = sections.pop(key)
+        if key == PRODUCTS_SECTION and version != "sections-v1":
+            # Not dropped outright: the version table goes, the names stay,
+            # as many as fit in the room the table has just freed.
+            names = summarise_products(value)
+            placeholder = dict(sections)
+            placeholder[PRODUCTS_SUMMARY_KEY] = None
+            room = max_chars - (len(render(placeholder)) - len("null"))
+            kept = _trim_section(names, room, ascii_only)
+            if kept:
+                sections = put_back(sections, PRODUCTS_SUMMARY_KEY, kept, at=key)
+                info["summarised"][key] = {
+                    "as": PRODUCTS_SUMMARY_KEY, "products": len(names), "kept": len(kept),
+                }
+                continue
         if trim:
             # Room left for this section once everything else is accounted for.
             placeholder = dict(sections)
@@ -171,9 +257,7 @@ def truncate_text(text: str, max_chars: Optional[int]) -> tuple[str, Optional[di
             kept = _trim_section(value, room, ascii_only)
             if kept is not None:
                 # Re-insert at its original position so the entry reads in order.
-                order = [k for k in parsed[1] if k in sections or k == key]
-                sections[key] = kept
-                sections = {k: sections[k] for k in order}
+                sections = put_back(sections, key, kept, at=key)
                 items = kept[next(iter(kept))] if isinstance(kept, dict) else kept
                 info["trimmed"][key] = {"kept_items": len(items)}
                 continue
@@ -194,12 +278,13 @@ def shown_text(original_text: str, truncation: Optional[dict[str, Any]]) -> str:
     """
     if not truncation:
         return original_text
-    if truncation.get("version") != TRUNCATION_VERSION:
+    version = truncation.get("version")
+    if version not in _KNOWN_VERSIONS:
         raise ValueError(
-            f"record was cut under truncation rules {truncation.get('version')!r}; "
-            f"this code implements {TRUNCATION_VERSION!r} and cannot rebuild what the model saw"
+            f"record was cut under truncation rules {version!r}; this code knows "
+            f"{_KNOWN_VERSIONS} and cannot rebuild what the model saw"
         )
-    shown, _info = truncate_text(original_text, truncation.get("max_doc_chars"))
+    shown, _info = truncate_text(original_text, truncation.get("max_doc_chars"), version=version)
     return shown
 
 
