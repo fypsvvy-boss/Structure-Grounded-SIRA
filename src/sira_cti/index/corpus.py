@@ -15,6 +15,7 @@ gitignored clone, not a stable dependency of this project.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from dataclasses import dataclass
@@ -87,6 +88,52 @@ def order_kinds(requested: Optional[str | Iterable[str]], configured: Iterable[s
     if repeated:
         raise ValueError(f"kind(s) named more than once: {repeated}")
     return kinds
+
+
+def parse_shard(spec: Optional[str]) -> Optional[tuple[int, int]]:
+    """``"1/2"`` -> ``(1, 2)``: shard 1 of 2. ``None`` means no sharding.
+
+    Shards are numbered from 1, so ``--shard 2/2`` is the second half.
+    """
+    if spec is None:
+        return None
+    try:
+        index_text, of_text = str(spec).split("/")
+        index, of = int(index_text), int(of_text)
+    except ValueError:
+        raise ValueError(f"expected I/N such as 1/2, got {spec!r}") from None
+    if of < 1 or not 1 <= index <= of:
+        raise ValueError(f"shard {spec!r} is out of range: need 1 <= I <= N")
+    return index, of
+
+
+def shard_of(doc_id: str, of: int) -> int:
+    """Which of ``of`` shards (1-based) a document id belongs to.
+
+    SHA-256 of the id, not Python's ``hash()``: that one is salted per
+    process, so two machines would disagree about which documents are theirs.
+    This depends on the id alone, so it is the same on every machine and in
+    every session, whatever kinds or order a run asks for.
+    """
+    digest = hashlib.sha256(doc_id.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % of + 1
+
+
+def shard_corpus(
+    docs: Iterable[CorpusDocument], shard: Optional[tuple[int, int]]
+) -> Iterator[CorpusDocument]:
+    """Only the documents in ``shard`` (``(index, of)``); everything when it is ``None``.
+
+    Every document is in exactly one of the ``of`` shards, so processes given
+    different indexes never enrich the same document and together miss none.
+    """
+    if shard is None:
+        yield from docs
+        return
+    index, of = shard
+    for doc in docs:
+        if shard_of(doc.doc_id, of) == index:
+            yield doc
 
 
 def load_kb(kb_dir: str | Path, kind: str, *, limit: Optional[int] = None) -> Iterator[CorpusDocument]:

@@ -399,3 +399,69 @@ def test_ollama_flags_a_prompt_that_does_not_fit_the_context(monkeypatch):
     _fake_ollama(monkeypatch, prompt_eval_count=3000)
     client.generate("p")
     assert not client.last_context_overflow
+
+
+# -- Ollama: which weights, which release, and are they on the GPU -----------------------
+
+
+def _fake_ollama_api(monkeypatch, pages):
+    """Serve the server's read-only endpoints from ``pages`` (path -> body)."""
+    import io
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    def _urlopen(req, timeout=None):
+        url = req if isinstance(req, str) else req.full_url
+        path = url.split("11434", 1)[1]
+        if path not in pages:
+            raise urllib.error.URLError("connection refused")
+        return io.BytesIO(_json.dumps(pages[path]).encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+
+
+_TAGS = {"models": [
+    {"name": "qwen2.5:14b", "model": "qwen2.5:14b", "digest": "7cdf5a0187d5" + "a" * 52},
+    {"name": "qwen2.5:7b", "model": "qwen2.5:7b", "digest": "845dbda0ea48" + "b" * 52},
+]}
+
+
+def test_ollama_reports_the_digest_of_the_model_it_was_asked_for(monkeypatch):
+    from sira_cti.common import OllamaClient
+
+    _fake_ollama_api(monkeypatch, {"/api/tags": _TAGS, "/api/version": {"version": "0.33.2"}})
+    client = OllamaClient(model="qwen2.5:14b", host="http://localhost:11434")
+
+    assert client.model_digest() == "7cdf5a0187d5" + "a" * 52
+    assert client.server_version() == "0.33.2"
+    assert client.log.calls == 0                      # asking the server about itself is not a model call
+
+
+def test_ollama_has_no_digest_for_a_model_that_is_not_pulled(monkeypatch):
+    from sira_cti.common import OllamaClient
+
+    _fake_ollama_api(monkeypatch, {"/api/tags": _TAGS})
+    assert OllamaClient(model="qwen2.5:32b", host="http://localhost:11434").model_digest() is None
+
+
+def test_ollama_digest_lookup_fails_loudly_when_the_server_is_down(monkeypatch):
+    from sira_cti.common import OllamaClient
+
+    _fake_ollama_api(monkeypatch, {})
+    with pytest.raises(LLMError, match="unreachable"):
+        OllamaClient(model="qwen2.5:14b", host="http://localhost:11434").model_digest()
+
+
+def test_ollama_says_how_much_of_the_loaded_model_is_on_the_gpu(monkeypatch):
+    from sira_cti.common import OllamaClient
+
+    client = OllamaClient(model="qwen2.5:14b", host="http://localhost:11434")
+    loaded = {"name": "qwen2.5:14b", "model": "qwen2.5:14b", "size": 1000, "size_vram": 1000}
+
+    _fake_ollama_api(monkeypatch, {"/api/ps": {"models": [loaded]}})
+    assert client.gpu_fraction() == 1.0
+    _fake_ollama_api(monkeypatch, {"/api/ps": {"models": [{**loaded, "size_vram": 0}]}})
+    assert client.gpu_fraction() == 0.0               # loaded, but entirely on the CPU
+    _fake_ollama_api(monkeypatch, {"/api/ps": {"models": []}})
+    assert client.gpu_fraction() is None              # not loaded at all

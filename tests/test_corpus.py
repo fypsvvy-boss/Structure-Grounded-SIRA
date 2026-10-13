@@ -189,3 +189,49 @@ def test_load_corpus_yields_documents_in_the_requested_kind_order():
     assert sorted(d.doc_id for d in load_corpus(CORPUS_KB_FIXTURE, kinds)) == sorted(
         d.doc_id for d in load_corpus(CORPUS_KB_FIXTURE, KINDS)
     )                                                        # same documents, only reordered
+
+
+# -- sharding (--shard I/N): splitting a run across processes ---------------------------
+
+
+def test_parse_shard_reads_index_and_count_and_rejects_nonsense():
+    import pytest
+
+    from sira_cti.index import parse_shard
+
+    assert parse_shard(None) is None
+    assert parse_shard("1/2") == (1, 2)
+    assert parse_shard("3/3") == (3, 3)
+    for bad in ("0/2", "3/2", "1/0", "1", "a/b", "1/2/3", ""):
+        with pytest.raises(ValueError):
+            parse_shard(bad)
+
+
+def test_a_documents_shard_depends_only_on_its_id():
+    # Pinned values: if these ever change, two machines running different
+    # versions of the code would disagree about whose a document is.
+    from sira_cti.index import shard_of
+
+    assert [shard_of(d, 2) for d in ("CVE-2021-44228", "CWE-79", "CAPEC-126", "T1110.001")] == [1, 1, 1, 2]
+    assert shard_of("CWE-79", 1) == 1
+    assert {shard_of("CWE-79", 5) for _ in range(3)} == {shard_of("CWE-79", 5)}
+
+
+def test_shards_never_overlap_and_together_miss_nothing():
+    from sira_cti.index import shard_corpus
+
+    docs = [CorpusDocument(doc_id=f"CVE-2024-{i}", source=Source.CVE, title="t", text="x") for i in range(300)]
+    parts = [[d.doc_id for d in shard_corpus(docs, (i, 3))] for i in (1, 2, 3)]
+
+    assert sorted(sum(parts, [])) == sorted(d.doc_id for d in docs)       # nothing lost, nothing twice
+    assert all(60 < len(p) < 140 for p in parts)                          # roughly even
+    assert parts[0] == [d for d in (x.doc_id for x in docs) if d in set(parts[0])]   # order kept
+    assert [d.doc_id for d in shard_corpus(docs, None)] == [d.doc_id for d in docs]
+
+
+def test_a_documents_shard_does_not_depend_on_which_kinds_are_selected():
+    from sira_cti.index import shard_corpus
+
+    everything = {d.doc_id for d in shard_corpus(load_corpus(CORPUS_KB_FIXTURE), (1, 2))}
+    cve_only = {d.doc_id for d in shard_corpus(load_corpus(CORPUS_KB_FIXTURE, ["cve"]), (1, 2))}
+    assert cve_only == {d for d in everything if d.startswith("CVE-")}

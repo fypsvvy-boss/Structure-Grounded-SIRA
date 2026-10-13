@@ -32,19 +32,31 @@ Resumable: re-running with the same ``--output`` skips documents already in
 that file and only retries ones that previously failed to parse. Give a
 sampled run its own ``--output`` -- resuming a different sample into the same
 file mixes two populations.
+
+Split across two GPUs (``docs/kaggle-run.md``). ``--shard I/N`` keeps only the
+documents whose id hashes into slice I of N, so processes given different I
+never overlap; each needs its own ``--output`` and its own Ollama server
+(``--host``). ``--stop-after-minutes`` ends a session cleanly before a
+time-limited machine is switched off. ``scripts/merge_enrichment.py`` joins
+the files afterwards.
+
+    python scripts/enrich_corpus.py --model qwen2.5:14b --name-scorer v2 \
+        --kinds cwe,capec,attack,cve --shard 1/2 --host http://127.0.0.1:11434 \
+        --stop-after-minutes 660 --output out/corpus_full_v4_14b.shard1of2.jsonl
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sira_cti.common import (
-    GeminiClient, OllamaClient, TokenUsage, code_version, config_hash, full_run_blocker,
-    load_config, load_env_file,
+    GeminiClient, LLMError, OllamaClient, TokenUsage, code_version, config_hash, full_run_blocker,
+    load_config, load_env_file, machine_info,
 )
 from sira_cti.common.llm import parse_json_loose
 from sira_cti.enrichment.corpus_side import (
@@ -52,10 +64,11 @@ from sira_cti.enrichment.corpus_side import (
 )
 from sira_cti.enrichment.prompts.corpus_side import PROMPT_VERSION, REPLY_SCHEMA, SYSTEM_PROMPT, build_prompt
 from sira_cti.graph import OntologyGraph
-from sira_cti.index import LuceneDFLookup, load_corpus, order_kinds, sample_corpus
+from sira_cti.index import LuceneDFLookup, load_corpus, order_kinds, parse_shard, sample_corpus, shard_corpus
 
 
 def main() -> int:
+    launched = time.monotonic()     # --stop-after-minutes counts from here, set-up included
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--output", default=None, help="defaults to config's index.enrichment_path")
@@ -67,6 +80,20 @@ def main() -> int:
         "--kinds", default=None,
         help="document types to process, in this order, e.g. cwe,capec,attack,cve "
              "(default: config's corpus.kinds, in its order). Safe to change when resuming",
+    )
+    parser.add_argument(
+        "--shard", default=None, metavar="I/N",
+        help="process only slice I of N of the selected documents, e.g. 1/2. Slices are chosen by a "
+             "hash of the document id, so they never overlap. Use a separate --output per slice",
+    )
+    parser.add_argument(
+        "--host", default=None,
+        help="override config's llm.host (ollama only), e.g. http://127.0.0.1:11435 for a second server",
+    )
+    parser.add_argument(
+        "--stop-after-minutes", type=float, default=None, metavar="N",
+        help="start no new document once N minutes have passed since launch; the one in progress is "
+             "finished and written. Resume with the same command. Default: no limit",
     )
     parser.add_argument("--concurrency", type=int, default=None, help="override config's enrichment.concurrency")
     parser.add_argument("--model", default=None, help="override config's llm.model (recorded in the manifest)")
@@ -168,6 +195,14 @@ def main() -> int:
     except ValueError as exc:
         print(f"--kinds: {exc}")
         return 1
+    try:
+        shard = parse_shard(args.shard)
+    except ValueError as exc:
+        print(f"--shard: {exc}")
+        return 1
+    if args.stop_after_minutes is not None and args.stop_after_minutes <= 0:
+        print("--stop-after-minutes must be greater than 0.")
+        return 1
 
     # enrichment.max_new_tokens used to be read by nothing at all: the cap sat
     # in the config file while every reply was generated unbounded. It now
@@ -194,7 +229,7 @@ def main() -> int:
                 max_new_tokens=max_new_tokens, json_mode=json_mode, json_schema=json_schema,
             )
         return OllamaClient(
-            model=model, host=llm_cfg.get("host"),
+            model=model, host=args.host or llm_cfg.get("host"),
             temperature=llm_cfg.get("temperature", 0.0), max_retries=llm_cfg.get("max_retries", 2),
             seed=llm_cfg.get("seed"), num_ctx=llm_cfg.get("num_ctx"),
             max_new_tokens=max_new_tokens, json_mode=json_mode, json_schema=json_schema,
@@ -213,12 +248,35 @@ def main() -> int:
     else:
         docs = load_corpus(corpus_cfg["kb_dir"], kinds, limit=args.limit)
         sampling = {"method": "prefix", "limit": args.limit}
+    # The slice is taken last, from whatever was selected above, so the
+    # slices of one selection always add up to exactly that selection.
+    docs = list(shard_corpus(docs, shard))
+
+    # Which machine, and which exact weights. The model name is only a label;
+    # the digest is what shows a second machine pulled the same file.
+    machine = machine_info()
+    model_digest = None
+    if backend == "ollama":
+        probe = client_factory()
+        try:
+            model_digest = probe.model_digest()
+            machine["ollama_version"] = probe.server_version()
+        except LLMError as exc:
+            print(f"Cannot read the model digest: {exc}")
+            return 1
+        if model_digest is None:
+            print(f"The Ollama server at {probe.host} has no model named {model!r} -- pull it first.")
+            return 1
+        machine["ollama_host"] = probe.host
 
     print(
         f"Enriching -> {output_path}  (model={model}, dry_run={args.dry_run})\n"
         f"  prompt={PROMPT_VERSION}  name_check="
         + ("off" if name_overlap is None else f"overlap>={name_overlap}")
-        + f"  max_new_tokens={max_new_tokens}  decoding={json_mode_cfg}"
+        + f"  max_new_tokens={max_new_tokens}  decoding={json_mode_cfg}\n"
+        f"  documents={len(docs)}" + (f"  shard={shard[0]}/{shard[1]}" if shard else "")
+        + (f"  model_digest={model_digest[:12]}" if model_digest else "")
+        + (f"  stop_after={args.stop_after_minutes:g}min" if args.stop_after_minutes is not None else "")
     )
     concurrency = args.concurrency if args.concurrency is not None else enrich_cfg.get("concurrency", 1)
     # Sent on every Ollama request, so the manifest states them rather than
@@ -305,6 +363,13 @@ def main() -> int:
             llm_settings=llm_settings,
             code_version=version,
             allow_code_change=args.allow_code_change,
+            model_digest=model_digest,
+            shard=shard,
+            machine=machine,
+            stop_after_s=(
+                None if args.stop_after_minutes is None
+                else max(0.0, args.stop_after_minutes * 60 - (time.monotonic() - launched))
+            ),
             dry_run=args.dry_run,
             on_record=on_record,
         )
@@ -317,6 +382,13 @@ def main() -> int:
         f"{summary.processed} processed, {summary.failed} failed, "
         f"{summary.json_failures} unparseable, {summary.elapsed_s:.1f}s"
     )
+    if summary.stopped_early:
+        print(
+            f"STOPPED AT THE TIME LIMIT ({args.stop_after_minutes:g} min): {summary.remaining} documents "
+            "still to do. Nothing is lost -- run the same command again to carry on."
+        )
+    elif not summary.remaining:
+        print("COMPLETE: every selected document has a record.")
     if backend == "gemini":
         t = summary.tokens
         line = f"  tokens this run: prompt {t.prompt}, completion {t.completion}, thinking {t.thinking}"

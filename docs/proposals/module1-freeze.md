@@ -361,6 +361,16 @@ Timing logs: `indexes/enrichment/bench_speed_qwen2.5-14b_mains.jsonl` (clean)
 and `bench_speed_qwen2.5-14b.jsonl` (the battery one). To repeat:
 `caffeinate -i .venv/bin/python scripts/bench_enrichment_speed.py --model qwen2.5:14b --minutes 45`
 
+### Alternative: two free Kaggle GPUs instead of the laptop (added 2026-10-13)
+
+The same run can be split across Kaggle's two T4 GPUs: `docs/kaggle-run.md`.
+Same model (checked by digest), prompt, seed and settings; config hash
+unchanged. Each GPU takes half of every source (`--shard 1/2`, `2/2`):
+2,999 and 3,045 documents, 37.0 and 37.6 hours at the Mac's measured speeds.
+**Kaggle's own speed has not been measured** — the notebook's sample mode
+does that, and compares its 40 replies with the Mac's, before any quota is
+spent on the full run. The laptop instructions below are unchanged.
+
 ### Running it, and picking it up after an interruption
 
 ```bash
@@ -424,7 +434,7 @@ Decisions and paperwork:
       **refuses to start** if anything under `src/`, `scripts/` or `configs/`
       is uncommitted, and the manifest records the commit. Config hash must
       read **`364d30da6c75`** (unchanged by today's work).
-- [ ] **All tests pass**: `.venv/bin/python -m pytest -q` (376).
+- [ ] **All tests pass**: `.venv/bin/python -m pytest -q` (444).
 
 The machine, on the day:
 
@@ -638,7 +648,7 @@ applied to the finished full-corpus file in seconds.
 
 ## What Module 2 reuses, and the interfaces
 
-All in `src/sira_cti/`, all covered by the offline test suite (376 tests).
+All in `src/sira_cti/`, all covered by the offline test suite (444 tests).
 
 **The graph tool** — `graph.OntologyGraph`
 

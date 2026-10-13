@@ -1432,3 +1432,171 @@ def test_a_run_started_in_one_kind_order_resumes_correctly_in_another(tmp_path):
     assert [r.doc_id for r in read_jsonl(out)] == ["CWE-1", "CAPEC-1", "CVE-2024-1"]
     manifest = json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
     assert manifest["kinds"] == ["cve", "cwe", "capec"]                # the latest session's order
+
+
+# -- which machine and which weights: digest, machine, shard -----------------------------
+
+DIGEST_A = "7cdf5a0187d5" + "0" * 52
+DIGEST_B = "ffffffffffff" + "0" * 52
+
+
+def _machine(hostname, gpu="Tesla T4"):
+    return {"hostname": hostname, "platform": "Linux-test", "python": "3.11", "gpu": [gpu], "cuda_visible_devices": "0"}
+
+
+def _read_manifest(out):
+    return json.loads(out.with_suffix(out.suffix + ".manifest.json").read_text())
+
+
+def test_the_manifest_records_the_machine_the_digest_and_the_shard(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], model_digest=DIGEST_A, machine=_machine("kaggle-1"), shard=(1, 2))
+
+    manifest = _read_manifest(out)
+    assert manifest["model_digest"] == DIGEST_A
+    assert manifest["machine"]["hostname"] == "kaggle-1"
+    assert manifest["machine"]["gpu"] == ["Tesla T4"]
+    assert manifest["shard"] == {"index": 1, "of": 2}
+    assert "machine_previous" not in manifest
+
+
+def test_a_run_given_none_of_them_keeps_the_manifest_shape_it_always_had(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    assert not {"model_digest", "machine", "machine_previous", "shard"} & set(_read_manifest(out))
+
+
+def test_resuming_with_a_different_model_digest_is_refused_and_appends_nothing(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], model_digest=DIGEST_A)
+    before = out.read_bytes()
+
+    with pytest.raises(ResumeMismatchError) as excinfo:
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], model_digest=DIGEST_B)
+
+    assert "model_digest" in str(excinfo.value)
+    assert DIGEST_A in str(excinfo.value) and DIGEST_B in str(excinfo.value)
+    assert out.read_bytes() == before
+    assert _read_manifest(out)["model_digest"] == DIGEST_A               # the manifest is untouched too
+
+
+def test_a_file_with_no_recorded_digest_is_refused_when_this_run_has_one(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    with pytest.raises(ResumeMismatchError, match="not recorded"):
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], model_digest=DIGEST_A)
+
+
+def test_the_same_digest_on_another_machine_resumes_and_keeps_both_machines(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_doc("T1110"), _doc("T1078"), _doc("T1059")]
+    _resume_run(out, docs[:1], model_digest=DIGEST_A, machine=_machine("mac", gpu="Apple M5"))
+    _resume_run(out, docs[:2], model_digest=DIGEST_A, machine=_machine("kaggle-1"))
+    summary = _resume_run(out, docs, model_digest=DIGEST_A, machine=_machine("kaggle-2"))
+
+    assert (summary.already_done, summary.processed) == (2, 1)
+    manifest = _read_manifest(out)
+    assert manifest["machine"]["hostname"] == "kaggle-2"
+    assert [m["hostname"] for m in manifest["machine_previous"]] == ["mac", "kaggle-1"]
+
+
+def test_resuming_one_shards_file_as_another_shard_is_refused(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], shard=(1, 2))
+    for other in ((2, 2), None):
+        with pytest.raises(ResumeMismatchError, match="shard"):
+            _resume_run(out, [_doc("T1110"), _doc("T1078")], shard=other)
+    assert _resume_run(out, [_doc("T1110"), _doc("T1078")], shard=(1, 2)).processed == 1
+
+
+# -- the time limit (--stop-after-minutes) ------------------------------------------------
+
+
+class _Clock:
+    """A clock the test moves by hand: each model call takes ``per_call`` seconds."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def _timed_factory(clock, per_call=60.0, calls=None):
+    def responder(_prompt):
+        clock.now += per_call
+        if calls is not None:
+            calls.append(clock.now)
+        return _reply([])
+
+    return lambda: StubClient(model="m1", responder=responder)
+
+
+def test_the_run_stops_between_documents_once_the_time_limit_has_passed(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_doc(f"T{1000 + i}") for i in range(5)]
+    clock = _Clock()
+
+    summary = _resume_run(out, docs, client_factory=_timed_factory(clock), stop_after_s=150, clock=clock)
+
+    # Documents start at 0s, 60s and 120s; at 180s the limit has passed.
+    assert (summary.processed, summary.remaining, summary.stopped_early) == (3, 2, True)
+    assert [r.doc_id for r in read_jsonl(out)] == ["T1000", "T1001", "T1002"]
+    assert out.read_text().endswith("\n")                                 # every line is a whole record
+
+
+def test_a_document_already_under_way_is_finished_and_written(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    clock = _Clock()
+    # One call takes far longer than the limit: it is still written, then the run stops.
+    summary = _resume_run(
+        out, [_doc("T1110"), _doc("T1078")], client_factory=_timed_factory(clock, per_call=900),
+        stop_after_s=100, clock=clock,
+    )
+    assert (summary.processed, summary.stopped_early) == (1, True)
+    assert [r.doc_id for r in read_jsonl(out)] == ["T1110"]
+
+
+def test_a_run_stopped_by_the_limit_resumes_to_completion_without_repeating_work(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_doc(f"T{1000 + i}") for i in range(5)]
+    clock, calls = _Clock(), []
+    factory = _timed_factory(clock, calls=calls)
+
+    _resume_run(out, docs, client_factory=factory, stop_after_s=150, clock=clock, model_digest=DIGEST_A)
+    summary = _resume_run(out, docs, client_factory=factory, stop_after_s=150, clock=clock, model_digest=DIGEST_A)
+
+    assert (summary.already_done, summary.processed, summary.remaining, summary.stopped_early) == (3, 2, 0, False)
+    assert len(calls) == 5                                                 # each document asked once
+    assert [r.doc_id for r in read_jsonl(out)] == [d.doc_id for d in docs]
+
+
+def test_without_a_limit_or_within_it_the_run_is_not_marked_stopped(tmp_path):
+    clock = _Clock()
+    docs = [_doc("T1110"), _doc("T1078")]
+    unlimited = _resume_run(tmp_path / "a.jsonl", docs, client_factory=_timed_factory(clock), clock=clock)
+    roomy = _resume_run(tmp_path / "b.jsonl", docs, client_factory=_timed_factory(clock), stop_after_s=10_000, clock=clock)
+    assert (unlimited.stopped_early, unlimited.remaining) == (False, 0)
+    assert (roomy.stopped_early, roomy.processed) == (False, 2)
+
+
+def test_the_time_limit_also_stops_a_concurrent_run_without_losing_records(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_doc(f"T{1000 + i}") for i in range(6)]
+    clock = _Clock()
+
+    summary = _resume_run(
+        out, docs, client_factory=_timed_factory(clock), stop_after_s=150, clock=clock, concurrency=2,
+    )
+
+    written = [r.doc_id for r in read_jsonl(out)]
+    assert summary.stopped_early and summary.failed == 0
+    assert summary.processed == len(written) and 0 < len(written) < len(docs)
+    assert summary.remaining == len(docs) - len(written)
+    assert not (tmp_path / "enrichment.jsonl.failures.jsonl").exists()     # unstarted is not failed

@@ -360,6 +360,46 @@ class OllamaClient(LLMClient):
         self.num_ctx = num_ctx
         self.timeout_s = timeout_s
 
+    def _get(self, path: str) -> dict[str, Any]:
+        """One read-only call to the server's own API (not a model call, so not logged)."""
+        try:
+            with urllib.request.urlopen(f"{self.host}{path}", timeout=min(self.timeout_s, 30.0)) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            raise LLMError(f"Ollama unreachable at {self.host}: {exc}") from exc
+
+    def model_digest(self) -> Optional[str]:
+        """The SHA-256 digest of the weights this server holds under ``self.model``.
+
+        A model *name* is a label the registry can move: ``qwen2.5:14b``
+        pulled on another machine, or next month, need not be the same file.
+        The digest is the file's fingerprint, so it is what says two machines
+        ran the same model. ``ollama list`` prints its first 12 characters.
+        ``None`` when the server has no model of that name.
+        """
+        wanted = {self.model, f"{self.model}:latest"}
+        for entry in self._get("/api/tags").get("models") or []:
+            if entry.get("name") in wanted or entry.get("model") in wanted:
+                return str(entry.get("digest") or "") or None
+        return None
+
+    def server_version(self) -> Optional[str]:
+        """The Ollama release the server is running, e.g. ``0.33.2``."""
+        return str(self._get("/api/version").get("version") or "") or None
+
+    def gpu_fraction(self) -> Optional[float]:
+        """How much of the loaded model sits in GPU memory: 1.0 = all of it.
+
+        ``None`` when the model is not loaded right now. Anything under 1.0
+        means part of it is being run on the CPU, which is many times slower.
+        """
+        wanted = {self.model, f"{self.model}:latest"}
+        for entry in self._get("/api/ps").get("models") or []:
+            if entry.get("name") in wanted or entry.get("model") in wanted:
+                size = int(entry.get("size") or 0)
+                return (int(entry.get("size_vram") or 0) / size) if size else None
+        return None
+
     def _complete(self, prompt: str, system: Optional[str], **kwargs: Any) -> tuple[str, TokenUsage]:
         opts = self._resolved_options(kwargs)
         # Ollama reads sampling/length settings from a nested "options" object,

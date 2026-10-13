@@ -168,6 +168,25 @@ comparable across runs; the manifest records the model that actually ran.
 
 ---
 
+## Kaggle (borrowed GPUs for the long run)
+
+See `kaggle-run.md`. Two things to keep the same as this machine, both set at
+the top of the notebook: Ollama **0.33.2** and the `qwen2.5:14b` digest
+**`7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6`**
+(`curl -s localhost:11434/api/tags`; `ollama list` shows the first 12
+characters). To read the registry's current digest **without pulling**:
+
+```bash
+curl -s -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+    https://registry.ollama.ai/v2/library/qwen2.5/manifests/14b | shasum -a 256
+```
+
+**Do not `ollama pull qwen2.5:14b` on this machine "to check"** — if the
+registry has moved the name to new weights, that replaces the model every
+saved run was made with.
+
+---
+
 ## Gemini (frontier model — policy exceptions only)
 
 Development stays on local Ollama models. A Gemini run is a **logged

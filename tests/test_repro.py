@@ -78,3 +78,49 @@ def test_a_full_run_is_refused_on_a_dirty_tree_with_the_files_listed(repo):
 
     assert message.startswith("Refusing to start a full-corpus run")
     assert "src/file.txt" in message and "Commit" in message
+
+
+# -- which machine a run is on ------------------------------------------------------------
+
+
+def _fake_commands(monkeypatch, outputs):
+    """Make ``subprocess.run`` answer from ``outputs`` (program name -> stdout); others are missing."""
+    from sira_cti.common import repro
+
+    def _run(argv, **_kwargs):
+        if argv[0] not in outputs:
+            raise FileNotFoundError(argv[0])
+        return subprocess.CompletedProcess(argv, 0, stdout=outputs[argv[0]], stderr="")
+
+    monkeypatch.setattr(repro.subprocess, "run", _run)
+
+
+def test_machine_info_names_the_host_the_platform_and_each_nvidia_gpu(monkeypatch):
+    from sira_cti.common import machine_info
+
+    _fake_commands(monkeypatch, {"nvidia-smi": "Tesla T4\nTesla T4\n"})
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "1")
+    info = machine_info()
+
+    assert info["gpu"] == ["Tesla T4", "Tesla T4"]
+    assert info["cuda_visible_devices"] == "1"
+    assert info["hostname"] and info["platform"] and info["python"]
+
+
+def test_an_apple_silicon_mac_reports_its_chip_as_the_gpu(monkeypatch):
+    from sira_cti.common import gpu_names, repro
+
+    _fake_commands(monkeypatch, {"sysctl": "Apple M5\n"})
+    monkeypatch.setattr(repro.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(repro.platform, "machine", lambda: "arm64")
+    assert gpu_names() == ["Apple M5"]
+
+
+def test_a_machine_with_no_gpu_tools_reports_none_rather_than_failing(monkeypatch):
+    from sira_cti.common import machine_info, repro
+
+    _fake_commands(monkeypatch, {})
+    monkeypatch.setattr(repro.platform, "system", lambda: "Linux")
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    info = machine_info()
+    assert info["gpu"] == [] and info["cuda_visible_devices"] is None

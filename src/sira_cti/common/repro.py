@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
+import socket
 import subprocess
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -116,3 +118,50 @@ def full_run_blocker(version: Optional[dict[str, Any]]) -> Optional[str]:
             f"{files}\nCommit (or discard) them and start again."
         )
     return None
+
+
+def _command_lines(*argv: str) -> list[str]:
+    """A command's non-empty output lines, or ``[]`` if it is missing or fails."""
+    try:
+        out = subprocess.run(list(argv), capture_output=True, text=True, check=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def gpu_names() -> list[str]:
+    """The GPUs this machine has, by name; ``[]`` when none can be found.
+
+    NVIDIA cards are read from ``nvidia-smi`` (a Kaggle T4 reports
+    ``Tesla T4``), one entry per card. An Apple Silicon Mac has no separate
+    card -- the GPU is part of the chip -- so the chip's name is what is
+    recorded there (``Apple M5``).
+    """
+    names = _command_lines("nvidia-smi", "--query-gpu=name", "--format=csv,noheader")
+    if names:
+        return names
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        return _command_lines("sysctl", "-n", "machdep.cpu.brand_string")[:1]
+    return []
+
+
+def machine_info() -> dict[str, Any]:
+    """Which computer a run is on, for the run manifest.
+
+    Recorded, never compared: one output file may legitimately be written by
+    several machines (a laptop, then a rented GPU, then another session of
+    the same rented GPU under a new hostname). What must not change between
+    them -- the model's weights -- is checked separately, by digest.
+
+    ``cuda_visible_devices`` is this process's own setting. The enrichment
+    process does not use the GPU itself; the notebook starts it with the same
+    value as the Ollama server it talks to, so the manifest can say which
+    card that was.
+    """
+    return {
+        "hostname": socket.gethostname(),
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "gpu": gpu_names(),
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+    }

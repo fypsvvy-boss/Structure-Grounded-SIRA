@@ -21,7 +21,9 @@ from .llm import (
     Scope,
     StubClient,
 )
-from .repro import code_version, config_hash, full_run_blocker, load_config, load_env_file
+from .repro import (
+    code_version, config_hash, full_run_blocker, gpu_names, load_config, load_env_file, machine_info,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -46,6 +48,8 @@ __all__ = [
     "code_version",
     "config_hash",
     "full_run_blocker",
+    "gpu_names",
     "load_config",
     "load_env_file",
+    "machine_info",
 ]

@@ -261,8 +261,31 @@ Added 2026-09-15:
   `already_in_document` gate; they live in `scripts/` untested until that gate is
   approved and they move into `corpus_side.py` with tests.
 
+Added 2026-10-13 (running Stage 1 on borrowed GPUs — `docs/kaggle-run.md`):
+- **`enrich_corpus.py --shard I/N`** — only the documents whose id hashes
+  into slice I of N (`index/corpus.py`: `parse_shard`, `shard_of`,
+  `shard_corpus`; SHA-256 of the id, so every machine agrees). Recorded in the
+  manifest as `shard`; resuming a file as a different shard is refused.
+- **`--stop-after-minutes N`** — no new document is started after N minutes;
+  the one in progress is finished and written. Resume with the same command.
+- **`--host URL`** — overrides `llm.host`, for a second Ollama server.
+- **Manifest: `model_digest`, `machine`, `machine_previous`.** The digest is
+  the fingerprint of the weights (`OllamaClient.model_digest()`); a resume
+  with a different one is refused. The machine (hostname, platform, GPU,
+  Ollama version) is recorded and never compared, so a run may move between
+  computers but not between weights.
+- **`scripts/merge_enrichment.py`** — joins several output files by document
+  id. Refuses on different settings or digest, on a document that appears
+  twice with different content, and on a record in the wrong shard's file.
+  Writes one manifest listing every source file and machine.
+- **`scripts/compare_enrichment.py REFERENCE OTHER`** — replies identical
+  (n of m, with the differing documents) and which `report_enrichment.py`
+  counts move.
+- **`scripts/kaggle_stage1.py`** + **`notebooks/kaggle_stage1.ipynb`** — the
+  Kaggle session itself.
+
 ### Tests
-**376 tests pass** (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+**444 tests pass** (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,

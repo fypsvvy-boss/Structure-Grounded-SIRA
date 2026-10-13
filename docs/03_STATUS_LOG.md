@@ -8,6 +8,35 @@
 
 ## Current headline
 
+**2026-10-13: Stage 1 can now run on Kaggle's two free GPUs. Prepared and
+rehearsed on the Mac; not yet run on Kaggle. Stage 1 not started.** Full
+instructions: **`docs/kaggle-run.md`**. What was added:
+(1) `enrich_corpus.py --shard I/N` — each process takes one slice of the
+documents, chosen by a hash of the document id, so two processes never share
+one. (2) `--stop-after-minutes N` — stop cleanly between documents before a
+session limit. (3) `--host` — point a process at a second Ollama server.
+(4) Every manifest now records the **machine** (hostname, platform, GPU) and
+the **model digest** (the fingerprint of the weights file); a resume with a
+different digest is refused. (5) `scripts/merge_enrichment.py` joins the
+shard files and refuses if they were made under different settings or
+weights, or if a document appears twice with different content.
+(6) `scripts/compare_enrichment.py` — same documents on two machines: how
+many replies are identical, and which table numbers move.
+(7) `notebooks/kaggle_stage1.ipynb`, with a 40-document sample mode.
+The split: both GPUs run `--kinds cwe,capec,attack,cve`, shards 1/2 and 2/2 —
+2,999 and 3,045 documents, **37.0 and 37.6 Mac-hours**. Kaggle's own speed is
+**not measured yet**; sample mode measures it.
+Checked today: the registry's `qwen2.5:14b` digest equals the Mac's
+(`7cdf5a0187d5…`), so Kaggle should download the same weights. **Policy: not
+an exception** — same open-weight model, borrowed computer, $0
+(`06_POLICY_EXCEPTIONS.md`). Config hash unchanged (`364d30da6c75`): every
+new option is a command-line flag. No schema change. 444 tests pass (+68).
+**Still to do, in order:** commit; run the sample on Kaggle and write down
+"replies identical: n of 40" and whether the table moves; only then the full
+run. One thing for the team to know: a file written before today has no
+digest in its manifest, so it cannot be resumed or merged by the new code —
+none of the saved sample files needs either.
+
 **2026-10-09 (benchmark): the 14B full-corpus run is ~75 hours (3.1 days),
 not ~52 — measured, clean, on mains.** Sustained speed after 30 minutes is
 **6.5 tokens a second** (43.4 s/doc); the earlier estimate came from a

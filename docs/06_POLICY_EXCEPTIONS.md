@@ -11,6 +11,20 @@
 
 ---
 
+## Not an exception: Stage 1 on Kaggle's free GPUs (noted 2026-10-13)
+
+Running the Stage 1 enrichment on Kaggle is **inside** the policy, so it has
+no entry below. It is the same free, open-weight model as on the Mac
+(`qwen2.5:14b`; the weights are checked by their fingerprint, digest
+`7cdf5a0187d5…`, and the run refuses to continue on any other), with the same
+prompt, seed and settings. Only the computer is borrowed. Cost: $0. No paid
+API is called. What is uploaded to Kaggle (as a private dataset) is public
+MITRE / NVD content and CTIConnect's CC-BY-4.0 `corpus_kb`. How to run it:
+`kaggle-run.md`. Whether a borrowed GPU gives the same replies as the Mac is
+measured, not assumed — the 40-document comparison described there.
+
+---
+
 ## Running total
 
 | exception | spent (our calculation from list prices) |

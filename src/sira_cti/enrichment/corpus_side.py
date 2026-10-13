@@ -778,6 +778,12 @@ class EnrichmentRunSummary:
     """Calls and tokens of the records written by *this* invocation (a resume
     does not re-count what an earlier one already paid for). ``tokens.thinking``
     is kept apart from ``tokens.completion``."""
+    stopped_early: bool = False
+    """True when ``stop_after_s`` ran out before every pending document was
+    started. Nothing is lost: run the same command again to carry on."""
+    remaining: int = 0
+    """Documents still without a record when this invocation returned --
+    not started because of the time limit, or failed and due a retry."""
 
 
 def _append_failure(path: Path, doc_id: str, error: str) -> None:
@@ -842,8 +848,11 @@ class ResumeMismatchError(RuntimeError):
     """
 
 
-_RESUME_TOP_LEVEL = ("prompt_version", "model", "config_hash", "sampling", "concurrency")
+_RESUME_TOP_LEVEL = (
+    "prompt_version", "model", "model_digest", "config_hash", "sampling", "shard", "concurrency",
+)
 _MISSING = object()
+_NOT_STARTED = "not started: the time limit had passed"
 
 
 def check_resume(
@@ -859,11 +868,17 @@ def check_resume(
     reply looks like.
 
     ``current`` is the manifest this session would write. Compared: prompt
-    version, model, config hash, sampling, concurrency, and every entry of
+    version, model, model digest, config hash, sampling, shard, concurrency, and every entry of
     ``gates`` (name scorer and thresholds, decoding mode, reply cap,
     truncation budget and rules). A key an older manifest never recorded is
     only acceptable when the current value is "off" (``None``) -- except
     ``concurrency``, which older manifests simply did not have.
+
+    The model *digest* is compared as well as its name, because the name is
+    only a label: the same ``qwen2.5:14b`` pulled on a second machine is the
+    same model only if the digests are equal. Which machine wrote the file is
+    recorded but never compared -- moving a run between machines is allowed,
+    changing its weights is not.
     """
     manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
     if not manifest_path.exists():
@@ -944,6 +959,10 @@ def _write_manifest(
     concurrency: Optional[int] = None,
     code: Optional[dict[str, object]] = None,
     code_previous: Optional[list[object]] = None,
+    model_digest: Optional[str] = None,
+    shard: Optional[dict[str, int]] = None,
+    machine: Optional[dict[str, object]] = None,
+    machine_previous: Optional[list[object]] = None,
     write: bool = True,
 ) -> dict[str, object]:
     manifest: dict[str, object] = {
@@ -975,6 +994,19 @@ def _write_manifest(
         # with --allow-code-change). Never dropped, so the file's history is
         # readable from its manifest alone.
         manifest["code_previous"] = code_previous
+    if model_digest:
+        # The weights' fingerprint. The name above is a label a registry can
+        # re-point; this is what a resume and a merge are checked against.
+        manifest["model_digest"] = model_digest
+    if shard:
+        # This file holds one slice of the documents (index/corpus.py:shard_of).
+        manifest["shard"] = shard
+    if machine:
+        manifest["machine"] = machine
+    if machine_previous:
+        # Earlier machines that also wrote into this file (a run continued in
+        # another session or on other hardware). Never dropped.
+        manifest["machine_previous"] = machine_previous
     if usage:
         manifest["usage"] = usage
     if truncation:
@@ -1015,6 +1047,11 @@ def run_corpus_enrichment(
     llm_settings: Optional[dict[str, object]] = None,
     code_version: Optional[dict[str, object]] = None,
     allow_code_change: bool = False,
+    model_digest: Optional[str] = None,
+    shard: Optional[tuple[int, int]] = None,
+    machine: Optional[dict[str, object]] = None,
+    stop_after_s: Optional[float] = None,
+    clock: Callable[[], float] = time.monotonic,
     dry_run: bool = False,
     on_record: Optional[Callable[[EnrichmentRecord], None]] = None,
 ) -> EnrichmentRunSummary:
@@ -1065,6 +1102,23 @@ def run_corpus_enrichment(
     one already there unless ``allow_code_change`` is set -- in which case the
     earlier version is kept under ``code_previous``.
 
+    ``model_digest`` is the fingerprint of the weights (for Ollama,
+    ``OllamaClient.model_digest()``). It is recorded, and a resume whose
+    digest differs from the file's is refused. ``machine``
+    (``common.repro.machine_info()``) is recorded only; a resume from another
+    machine keeps the earlier one under ``machine_previous``.
+
+    ``shard`` is ``(index, of)`` when ``docs`` is one slice of a split run. It
+    is **recorded, not applied** -- the caller has already filtered ``docs``
+    (``index.corpus.shard_corpus``) -- and a resume under a different shard is
+    refused, so two slices can never end up in one file by accident.
+
+    ``stop_after_s`` is a time limit for this invocation. Once it has passed
+    no further document is *started*; the one in progress is finished and
+    written first, so the file never ends in half a record. The summary then
+    has ``stopped_early=True``. A document that starts just inside the limit
+    still runs to the end, so leave a margin for one slow document.
+
     ``llm_settings`` is recorded in the manifest as-is under ``"llm"`` --
     the backend facts a reader needs that are not gates (provider, thinking
     configuration, seed and whether it was honoured). ``None`` writes nothing.
@@ -1087,12 +1141,17 @@ def run_corpus_enrichment(
     model_name = first_client.model
 
     code_previous: list[object] = []
+    machine_previous: list[object] = []
 
     def _manifest(*, write: bool, with_usage: bool) -> dict[str, object]:
         return _write_manifest(
             output_path,
             code=code_version,
             code_previous=code_previous,
+            model_digest=model_digest,
+            shard={"index": shard[0], "of": shard[1]} if shard else None,
+            machine=machine,
+            machine_previous=machine_previous,
             prompt_version=prompt_version,
             model=model_name,
             config_hash=config_hash,
@@ -1137,6 +1196,10 @@ def run_corpus_enrichment(
             old_code = previous.get("code")
             if old_code and old_code != code_version and old_code not in code_previous:
                 code_previous.append(old_code)
+            machine_previous.extend(previous.get("machine_previous") or [])  # type: ignore[arg-type]
+            old_machine = previous.get("machine")
+            if old_machine and old_machine != machine and old_machine not in machine_previous:
+                machine_previous.append(old_machine)
             # Rewritten now, so the change of code is on record even if this
             # session dies before it finishes a document.
             _manifest(write=True, with_usage=False)
@@ -1146,6 +1209,10 @@ def run_corpus_enrichment(
             _manifest(write=True, with_usage=False)
 
     started = time.perf_counter()
+    limit_started = clock()
+
+    def _out_of_time() -> bool:
+        return stop_after_s is not None and clock() - limit_started >= stop_after_s
 
     def _process_one(
         doc: CorpusDocument, client: LLMClient
@@ -1228,6 +1295,9 @@ def run_corpus_enrichment(
     if concurrency <= 1:
         client = first_client
         for doc in pending:
+            if _out_of_time():
+                summary.stopped_early = True
+                break
             record, error, json_error = _process_one(doc, client)
             _handle(doc, record, error, json_error)
     else:
@@ -1243,6 +1313,10 @@ def run_corpus_enrichment(
             Optional[str],
             Optional[MalformedReplyError],
         ]:
+            # Every document is queued up front, so the limit is checked here,
+            # as each one comes up: past it, the rest are handed back unstarted.
+            if _out_of_time():
+                return doc, None, _NOT_STARTED, None
             client = getattr(local, "client", None)
             if client is None:
                 client = client_factory()
@@ -1255,9 +1329,13 @@ def run_corpus_enrichment(
 
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             for doc, record, error, json_error in pool.map(_worker, pending):
+                if error is _NOT_STARTED:
+                    summary.stopped_early = True
+                    continue
                 _handle(doc, record, error, json_error)
 
     summary.elapsed_s = time.perf_counter() - started
+    summary.remaining = len(pending) - summary.processed
 
     if not dry_run and summary.processed:
         _manifest(write=True, with_usage=True)
