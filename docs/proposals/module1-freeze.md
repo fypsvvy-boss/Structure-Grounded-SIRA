@@ -274,19 +274,37 @@ The honest position: the three models behave so differently that the choice
 is a research decision, not a tuning one. Same 40 documents, prompt
 `corpus-v4`, scorer v1.
 
-| structural ids | `qwen2.5:7b` | `qwen2.5:14b` | Gemini 3.1 Pro, run 1 | Gemini, run 2 |
-|---|---|---|---|---|
-| proposed | 14 | 157 | 73 | 72 |
-| accepted | 6 (43%) | 56 (36%) | 69 (95%) | 68 (94%) |
-| rejected at `graph` / `name` | 4 / 4 | 32 / 69 | 0 / 4 | 0 / 4 |
-| in a counting run | 0 | 51 | 0 | 0 |
-| **accepted and copied from the entry** | 6 (100%) | 17 (30%) | 20 (29%) | 24 (35%) |
-| …of those, the entry's own id | 0 | 5 | 8 | 9 |
-| **accepted and generated** (not in the entry) | 0 | 39 (70%) | 49 (71%) | 44 (65%) |
-| accepted ids with a measurable graph distance | 0 | 35 | 47 | 48 |
-| **median distance** (hops from the entry) | – | 2 | 1 | 1 |
-| **within 2 hops** (of those measurable) | – | 22 (63%) | 33 (70%) | 37 (77%) |
-| generated ids only: median distance / within 2 hops | – | 2.5 / 12 of 24 | 2.5 / 14 of 28 | 2 / 14 of 25 |
+| structural ids | `qwen2.5:7b` | `qwen2.5:14b` (uncut) | 14B, Mac, `sections-v2` | 14B, Kaggle T4, `sections-v2` | Gemini 3.1 Pro, run 1 | Gemini, run 2 |
+|---|---|---|---|---|---|---|
+| proposed | 14 | 157 | 157 | 155 | 73 | 72 |
+| accepted | 6 (43%) | 56 (36%) | 59 (38%) | 54 (35%) | 69 (95%) | 68 (94%) |
+| rejected at `graph` / `name` | 4 / 4 | 32 / 69 | 32 / 66 | 23 / 78 | 0 / 4 | 0 / 4 |
+| …at `graph`, of which deprecated | | 15 | 15 | 4 | 0 | 0 |
+| in a counting run | 0 | 51 | 51 | 47 | 0 | 0 |
+| **accepted and copied from the entry** | 6 (100%) | 17 (30%) | 20 (34%) | 20 (37%) | 20 (29%) | 24 (35%) |
+| …of those, the entry's own id | 0 | 5 | not recounted | not recounted | 8 | 9 |
+| **accepted and generated** (not in the entry) | 0 | 39 (70%) | 39 (66%) | 34 (63%) | 49 (71%) | 44 (65%) |
+| accepted ids with a measurable graph distance | 0 | 35 | 38 | 37 | 47 | 48 |
+| **median distance** (hops from the entry) | – | 2 | 2 | 2 | 1 | 1 |
+| **within 2 hops** (of those measurable) | – | 22 (63%) | 25 (66%) | 24 (65%) | 33 (70%) | 37 (77%) |
+| generated ids only: median distance / within 2 hops | – | 2.5 / 12 of 24 | 2.5 / 12 of 24 | not computed | 2.5 / 14 of 28 | 2 / 14 of 25 |
+
+**The two `sections-v2` columns are the same run on two computers** (added
+2026-10-14): identical weights, prompt, seed and settings, under the Stage 1
+truncation rules — once on the Mac, once on a Kaggle T4. Only 5 of the 40
+replies are word-for-word identical, which is expected across hardware.
+Details and the per-document differences: `03_STATUS_LOG.md` (2026-10-14) and
+`docs/results/kaggle_sample_vs_mac_14b.txt`. "Not computed" = needs the
+Kaggle `.jsonl`, which is not in the repo.
+
+**Report 14B findings as ranges across those two runs, never as one
+number** — the same way the two Gemini runs are treated. Accepted **54–59**
+of 155–157; existence rejections **23–32**; name rejections **66–78**; ids in
+a counting run **47–51**; generated and accepted **34–39**. One document can
+move a count by 11 (the Mac's `CWE-512` reply counted through eleven retired
+ids; Kaggle's did not — that is the whole of deprecated 15 → 4). What does
+not move: about a third accepted, about a third counting, and many times
+Gemini's 4 mis-named ids.
 
 *"Copied"* means the id is written somewhere in the entry's own text, or is
 the entry's own id. *"Graph distance"* is how many links apart two entries are
@@ -367,9 +385,14 @@ The same run can be split across Kaggle's two T4 GPUs: `docs/kaggle-run.md`.
 Same model (checked by digest), prompt, seed and settings; config hash
 unchanged. Each GPU takes half of every source (`--shard 1/2`, `2/2`):
 2,999 and 3,045 documents, 37.0 and 37.6 hours at the Mac's measured speeds.
-**Kaggle's own speed has not been measured** — the notebook's sample mode
-does that, and compares its 40 replies with the Mac's, before any quota is
-spent on the full run. The laptop instructions below are unchanged.
+**Measured on the 40-document sample, 2026-10-14** (seconds per document, T4
+vs Mac sustained): CVE 18.0 vs 45.1, CWE 20.6 vs 48.2, CAPEC 21.7 vs 39.6,
+ATT&CK 21.2 vs 40.7 — a little over twice the Mac. Estimated **16.3 h and
+16.5 h** for the two shards running side by side, so **about 2 Kaggle
+sessions** instead of ~75 hours. Rough: 10 documents of each kind. The same
+sample was compared with the Mac's (table in "Which model") and **the Kaggle
+output was accepted as the Stage 1 dev index**. The laptop instructions below
+are unchanged.
 
 ### Running it, and picking it up after an interruption
 

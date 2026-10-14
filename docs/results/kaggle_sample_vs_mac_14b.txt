@@ -1,0 +1,419 @@
+Kaggle sample vs Mac, qwen2.5:14b, the same 40 documents (seed 42), rules sections-v2.
+Output of scripts/compare_enrichment.py as printed by notebooks/kaggle_stage1.ipynb in
+sample mode, followed by the notebook's speed lines. Run on Kaggle (2x Tesla T4,
+Ollama 0.33.2), pasted by the Module 1 owner and saved unedited on 2026-10-14.
+'reference' = Mac, 'other' = Kaggle. Summary: docs/03_STATUS_LOG.md.
+------------------------------------------------------------------------------
+reference: /tmp/mac-reference/corpus_stratified_v4_14b_sections-v2.jsonl
+    (machine not recorded)
+other:     /kaggle/working/corpus_stratified_v4_14b_sections-v2_kaggle.jsonl
+    8e9af4f253c7  Linux-6.18.48+-x86_64-with-glibc2.39  gpu=['Tesla T4', 'Tesla T4']
+
+model digest: not recorded in one of the manifests (- / 7cdf5a0187d5); compare `ollama list` on the two machines by hand
+settings: the same in both manifests (config, prompt, gates, sampling, seed, context)
+
+documents: 40 / 40, 40 in both
+
+REPLIES IDENTICAL: 5 of 40
+  CVE-2024-4897 (cve): 12 / 12 proposals
+      reference only: 'malicious model file' [colloquial]
+      other only: 'model file upload' [colloquial]
+  CVE-2024-56180 (cve): 12 / 12 proposals
+      reference only: 'untrusted data deserialization' [colloquial]
+      reference only: 'rpc deserialization' [colloquial]
+      reference only: 'apache eventmesh' [product]
+      reference only: 'eventmesh-raft' [product]
+      reference only: 'cve-502' [misspelling]
+      reference only: 'low complexity exploit' [colloquial]
+      reference only: 'high severity vulnerability' [colloquial]
+      other only: 'untrusted data' [colloquial]
+      other only: 'eventmesh' [product]
+      other only: 'apache' [product]
+      other only: 'deserialization vulnerability' [colloquial]
+      other only: 'low complexity' [colloquial]
+      other only: 'high severity' [colloquial]
+      other only: 'rpc protocol' [colloquial]
+  CVE-2024-11170 (cve): 12 / 12 proposals
+      reference only: 'CWE-200' [structural] claimed 'Exposure of Sensitive Information to an Unauthorized Actor'
+      reference only: 'CWE-77' [structural] claimed 'Out-of-Bounds Write'
+      reference only: 'CWE-78' [structural] claimed 'OS Command Injection'
+      reference only: 'CWE-94' [structural] claimed "Improper Control of Generation of Code ('Code Injection')"
+      reference only: 'CWE-200' [structural] claimed 'Exposure of Sensitive Information to an Unauthorized Actor'
+      other only: 'CWE-200' [structural] claimed 'Information Exposure'
+      other only: 'CWE-775' [structural] claimed 'Improper Restriction of API Parameter to Authorized Range'
+      other only: 'arbitrary file write' [colloquial]
+      other only: 'remote code execution' [colloquial]
+      other only: 'directory traversal' [colloquial]
+      other only: 'librechat' [product]
+      other only: 'CWE-29' [structural] claimed 'Improper Control of Resource Identifiers'
+      accepted ids: ['CWE-200', 'CWE-200', 'CWE-22', 'CWE-22', 'CWE-73', 'CWE-73', 'CWE-78', 'CWE-94'] / ['CWE-200', 'CWE-22', 'CWE-73']
+  CVE-2025-26663 (cve): 12 / 11 proposals
+      reference only: 'windows ldap' [product]
+      reference only: 'lightweight directory access protocol' [product]
+      reference only: 'high severity' [colloquial]
+      reference only: 'remote code execution' [colloquial]
+      other only: 'windows server' [product]
+      other only: 'windows 10' [product]
+      other only: 'windows 11' [product]
+  CVE-2025-32526 (cve): 12 / 12 proposals
+      reference only: 'web application flaw' [colloquial]
+      other only: 'web content injection' [colloquial]
+  CVE-2025-7160 (cve): 12 / 12 proposals
+      reference only: 'CWE-74' [structural] claimed 'External Control of Execution Flow'
+      reference only: 'username parameter' [colloquial]
+      other only: 'CWE-74' [structural] claimed 'Unsafe Query Construction'
+      other only: 'exploit available' [colloquial]
+  CVE-2023-50458 (cve): 12 / 12 proposals
+      reference only: 'user information leakage' [colloquial]
+      reference only: 'Dradis security' [colloquial]
+      reference only: 'output console flaw' [colloquial]
+      reference only: 'confidentiality breach' [colloquial]
+      reference only: 'Dradis version' [colloquial]
+      reference only: 'job queue visibility' [colloquial]
+      reference only: 'security update' [colloquial]
+      reference only: 'Dradis 4.11.0' [colloquial]
+      other only: 'information leakage' [colloquial]
+      other only: 'user job visibility' [colloquial]
+      other only: 'Dradis security' [product]
+      other only: 'high complexity attack' [colloquial]
+      other only: 'low privilege access' [colloquial]
+      other only: 'output console security' [colloquial]
+      other only: 'Dradis version 4.11.0' [product]
+      other only: 'job queue security' [colloquial]
+  CVE-2025-6973 (cve): 12 / 12 proposals
+      reference only: 'JT file' [colloquial]
+      reference only: 'confidentiality breach' [colloquial]
+      other only: 'JT file format' [colloquial]
+      other only: 'scope unchanged' [colloquial]
+  CVE-2025-49833 (cve): 12 / 12 proposals
+      reference only: 'CWE-78' [structural] claimed 'OS Command Injection'
+      reference only: 'web application vulnerability' [colloquial]
+      reference only: 'user input validation' [colloquial]
+      reference only: 'GPT-SoVITS-WebUI' [product]
+      reference only: 'network vulnerability' [colloquial]
+      reference only: 'exploit proof of concept' [colloquial]
+      other only: 'GPT-SoVITS' [product]
+      other only: 'CWE-94' [structural] claimed 'Command Injection'
+      other only: 'user input' [colloquial]
+      other only: 'open_slice function' [product]
+      other only: 'network attack' [colloquial]
+      other only: 'proof of concept' [colloquial]
+      accepted ids: ['CWE-78'] / ['CWE-94']
+  CVE-2019-13351 (cve): 12 / 12 proposals
+      reference only: 'file corruption' [colloquial]
+      reference only: 'JACK2' [product]
+      reference only: 'cve jack' [misspelling]
+      reference only: 'cve jack2' [misspelling]
+      reference only: 'cve alsa' [misspelling]
+      reference only: 'cve libjack' [misspelling]
+      other only: 'file corruption' [symptom]
+      other only: 'failed connection attempt' [colloquial]
+      other only: 'network attack' [colloquial]
+      other only: 'cve-2019-13351' [structural]
+      other only: 'jackaudio' [product]
+      other only: 'cve' [structural]
+  CWE-1083 (cwe): 12 / 12 proposals
+      reference only: 'unauthorized data access' [colloquial]
+      reference only: 'data access control failure' [colloquial]
+      reference only: 'data security breach' [colloquial]
+      reference only: 'data integrity violation' [colloquial]
+      other only: 'data access violation' [colloquial]
+      other only: 'CWE-732' [structural] claimed "Improper Check or Handling of Exceptional (Error) Conditions ('Error Handling')"
+      other only: 'data access anomaly' [colloquial]
+      other only: 'data integrity issue' [colloquial]
+  CWE-1235 (cwe): 12 / 12 proposals
+      reference only: 'autoboxing' [colloquial]
+      reference only: 'doS' [colloquial]
+      other only: 'primitive type' [colloquial]
+      other only: 'boxing' [colloquial]
+  CWE-1321 (cwe): 12 / 12 proposals
+      reference only: 'CWE-1328' [structural] claimed "Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+      reference only: 'object prototype manipulation' [colloquial]
+      reference only: 'Map object' [colloquial]
+      reference only: 'untrusted input' [colloquial]
+      reference only: 'application integrity' [colloquial]
+      reference only: 'availability impact' [colloquial]
+      other only: 'CWE-1130' [structural] claimed "Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+      other only: 'CWE-1123' [structural] claimed 'Improper Restriction of State Changes from a Different Process'
+      other only: 'CWE-20' [structural] claimed 'Improper Input Validation'
+      other only: 'CWE-754' [structural] claimed 'Improper Check or Handling of Exceptional Conditions'
+      other only: 'CWE-775' [structural] claimed 'Improper Restriction of API Parameter to Authorized Range'
+      other only: 'CWE-937' [structural] claimed 'Improper Control of Dynamically-Managed Code Execution'
+      accepted ids: [] / ['CWE-20', 'CWE-754']
+  CWE-512 (cwe): 12 / 12 proposals
+      reference only: 'CWE-738' [structural] claimed 'Insufficient Authorization'
+      reference only: 'CWE-739' [structural] claimed 'Insufficient Authentication'
+      reference only: 'CWE-740' [structural] claimed 'Insufficient Transport Layer Protection'
+      reference only: 'CWE-741' [structural] claimed 'Insufficient Cryptographic Protection'
+      reference only: 'CWE-742' [structural] claimed 'Insufficient Control of Generation Time'
+      reference only: 'CWE-743' [structural] claimed 'Insufficient Control of Randomness'
+      reference only: 'CWE-744' [structural] claimed 'Insufficient Control of Cryptographic Key'
+      reference only: 'CWE-745' [structural] claimed 'Insufficient Control of Security Tags'
+      reference only: 'CWE-746' [structural] claimed 'Insufficient Control of Security Library'
+      reference only: 'CWE-747' [structural] claimed 'Insufficient Control of Security Mechanism'
+      reference only: 'CWE-748' [structural] claimed 'Insufficient Control of Security Parameter'
+      other only: 'CWE-717' [structural] claimed 'Improper Restriction of State Changes from External Entity'
+      other only: 'privacy violation' [symptom]
+      other only: 'data leakage' [symptom]
+      other only: 'unauthorized access' [symptom]
+      other only: 'CWE-254' [structural] claimed 'Use of Hard-coded Password'
+      other only: 'CWE-284' [structural] claimed 'Improper Access Control'
+      other only: 'CWE-287' [structural] claimed 'Improper Authentication'
+      other only: 'CWE-311' [structural] claimed 'Cryptographic Issues'
+      other only: 'CWE-312' [structural] claimed 'Cleartext Transmission of Sensitive Information'
+      other only: 'CWE-319' [structural] claimed 'Cleartext Storage of Sensitive Information'
+      other only: 'CWE-326' [structural] claimed 'Implied Privilege or Trust Boundary Violation'
+      accepted ids: [] / ['CWE-284', 'CWE-287', 'CWE-312', 'CWE-319']
+  CWE-940 (cwe): 12 / 12 proposals
+      reference only: 'cwe-200' [structural] claimed 'Exposure of Resource to Wrong Sphere'
+      reference only: 'cwe-287' [structural] claimed 'Improper Authentication'
+      other only: 'cwe-347' [structural] claimed 'Improper Verification of Source of a Communication Channel'
+      other only: 'cwe-295' [structural] claimed 'Improper Certificate Validation'
+      accepted ids: ['CWE-287'] / ['CWE-295']
+  CWE-1162 (cwe): 12 / 12 proposals
+      reference only: 'CWE-415' [structural] claimed 'Double Free or Release of Same Resource'
+      reference only: 'CWE-772' [structural] claimed 'Dangling Pointer'
+      reference only: 'memory safety' [colloquial]
+      reference only: 'CWE-416' [structural] claimed 'Use After Free'
+      reference only: 'CWE-758' [structural] claimed 'Allocation of Resources Without Limits or Throttling'
+      reference only: 'CWE-762' [structural] claimed 'Incorrect Default Resource Permissions'
+      reference only: 'CWE-775' [structural] claimed 'Missing Default Case in Switch Statement'
+      reference only: 'CWE-789' [structural] claimed 'Use of Hard-coded Token'
+      other only: 'malloc' [product]
+      other only: 'free' [product]
+      other only: 'memory allocation' [colloquial]
+      other only: 'double free' [colloquial]
+      other only: 'CWE-415' [structural] claimed 'Double Free'
+      other only: 'CWE-772' [structural] claimed 'Missing Release of Resource after Activity'
+      other only: 'CWE-761' [structural] claimed 'Type Confusion'
+      other only: 'CWE-758' [structural] claimed 'Out-of-bounds Write'
+      accepted ids: ['CWE-119', 'CWE-415', 'CWE-416'] / ['CWE-119', 'CWE-415', 'CWE-772']
+  CWE-1169 (cwe): 12 / 12 proposals
+      reference only: 'CWE-369' [structural] claimed 'Improper Control of Thread Context (Other)'
+      reference only: 'CWE-370' [structural] claimed 'Improper Control of Thread Context in Signal Handler'
+      reference only: 'CWE-371' [structural] claimed 'Improper Control of Thread Context in Asynchronous Callback'
+      other only: 'CWE-369' [structural] claimed 'Improper Control of Thread Termination'
+      other only: 'CWE-370' [structural] claimed 'Improper Control of Execution Through Communication Channel'
+      other only: 'CWE-371' [structural] claimed 'Improper Lock Management'
+  CWE-398 (cwe): 12 / 12 proposals
+      reference only: 'CWE-400' [structural] claimed 'Query Neutralization Falling Outside of Syntax'
+      reference only: 'CWE-703' [structural] claimed 'Improper Check or Handling of Exceptional (Error) Conditions'
+      reference only: 'CWE-502' [structural] claimed 'Deserialization of Untrusted Data'
+      reference only: 'CWE-754' [structural] claimed 'Improper Check of Incoming Data'
+      reference only: 'CWE-787' [structural] claimed 'Out-of-bounds Write'
+      reference only: 'CWE-809' [structural] claimed 'Incorrect Resource Transfer Between Components'
+      reference only: 'CWE-838' [structural] claimed 'Impacts to External Resources'
+      reference only: 'CWE-843' [structural] claimed 'Inclusion of Functionality from Untrusted Control Sphere'
+      reference only: 'CWE-937' [structural] claimed 'Improper Control of Generation of Code'
+      other only: 'CWE-400' [structural] claimed 'Query Neutralization Falling Outside of Scope of the Intended Database'
+      other only: 'CWE-700' [structural] claimed 'Insufficient Resolution'
+      other only: 'CWE-703' [structural] claimed 'Insufficient Review of Code Quality'
+      other only: 'CWE-704' [structural] claimed 'Insufficient Verification of Code Quality'
+      other only: 'CWE-705' [structural] claimed 'Insufficient Validation of Code Quality'
+      other only: 'CWE-706' [structural] claimed 'Insufficient Verification of Quality Assurance'
+      other only: 'CWE-707' [structural] claimed 'Insufficient Verification of Quality Control'
+      other only: 'CWE-708' [structural] claimed 'Insufficient Verification of Quality Management'
+      other only: 'CWE-709' [structural] claimed 'Insufficient Verification of Quality Metrics'
+      accepted ids: ['CWE-502', 'CWE-703', 'CWE-787'] / []
+  CAPEC-126 (capec): 12 / 12 proposals
+      reference only: 'dot-dot-slash' [colloquial]
+      reference only: 'remote file inclusion' [colloquial]
+      reference only: 'server-side request forgery' [colloquial]
+      other only: 'dot dot slash' [colloquial]
+      other only: 'CAPEC-664' [structural] claimed 'HTTP Response Splitting'
+      other only: 'OWASP Top Ten' [colloquial]
+  CAPEC-14 (capec): 12 / 12 proposals
+      reference only: 'webpage buffer overflow' [colloquial]
+      reference only: 'malicious web page' [colloquial]
+      reference only: 'hostile service' [colloquial]
+      reference only: 'source code analysis' [colloquial]
+      reference only: 'API exploitation' [colloquial]
+      reference only: 'NOP-sled' [colloquial]
+      reference only: 'shellcode injection' [colloquial]
+      other only: 'crash' [symptom]
+      other only: 'malicious code execution' [colloquial]
+      other only: 'heap overflow' [colloquial]
+      other only: 'stack overflow' [colloquial]
+      other only: 'webpage injection' [colloquial]
+      other only: 'input validation' [colloquial]
+      other only: 'CWE-120' [structural] claimed "Buffer Copy without Checking Size of Input ('Classic Buffer Overflow')"
+      accepted ids: [] / ['CWE-120']
+  CAPEC-267 (capec): 12 / 12 proposals
+      reference only: 'CWE-181' [structural] claimed 'Array Index-Based Buffer Boundary Condition (S011)'
+      other only: 'CWE-181' [structural] claimed 'Incorrect Calculation of Buffer Boundary'
+  CAPEC-422 (capec): 12 / 12 proposals
+      reference only: 'CAPEC-425' [structural] claimed 'Influence Perception of Social Proof'
+      other only: 'CAPEC-425' [structural] claimed 'Influence Perception of Consensus'
+  CAPEC-538 (capec): 12 / 12 proposals
+      reference only: 'CWE-494' [structural] claimed 'Weaknesses in the Implementation of Identifiers'
+      reference only: 'CWE-829' [structural] claimed 'Exposure of Resource to Wrong Security To-Zone'
+      other only: 'CWE-494' [structural] claimed 'Weaknesses in Open Source Libraries'
+      other only: 'CWE-829' [structural] claimed 'Inclusion of Sensitive Data in Open Source'
+  CAPEC-587 (capec): 12 / 12 proposals
+      reference only: 'iframe abuse' [colloquial]
+      reference only: 'data theft' [colloquial]
+      reference only: 'CWE-1021' [structural] claimed 'Cross-Site Scripting (XSS) via Iframe'
+      reference only: 'CAPEC-103' [structural] claimed 'Cross-Site Scripting in an iFrame'
+      reference only: 'browser security' [colloquial]
+      reference only: 'web application security' [colloquial]
+      other only: 'frame injection' [colloquial]
+      other only: 'data theft' [symptom]
+      other only: 'CWE-1021' [structural] claimed 'Improper Restriction of Excessive Authentication Attempts'
+      other only: 'CAPEC-512' [structural] claimed 'Cross-Site Request Forgery'
+      other only: 'CAPEC-103' [structural] claimed 'Cross-Site Scripting'
+      other only: 'CAPEC-587' [structural] claimed 'Cross Frame Scripting (XFS)'
+      accepted ids: [] / ['CAPEC-587']
+  CAPEC-631 (capec): 12 / 12 proposals
+      reference only: 'homograph attack' [misspelling]
+      reference only: 'phishing' [colloquial]
+      reference only: 'homophone' [symptom]
+      other only: 'phishing attack' [colloquial]
+      other only: 'homograph attack' [colloquial]
+      other only: 'homophone' [misspelling]
+  CAPEC-654 (capec): 12 / 12 proposals
+      reference only: 'task list manipulation' [colloquial]
+      reference only: 'malicious credential window' [colloquial]
+      reference only: 'credential harvesting' [colloquial]
+      reference only: 'CAPEC-504' [structural] claimed 'Credential Harvesting via Emailed Credential Harvesting Tool'
+      reference only: 'CAPEC-1021' [structural] claimed 'Improper Restriction of Operations within the Bounds of a Memory Buffer'
+      other only: 'UI spoofing' [colloquial]
+      other only: 'task hijacking' [colloquial]
+      other only: 'legitimate task spoofing' [colloquial]
+      other only: 'malicious application' [colloquial]
+      other only: 'CAPEC-504' [structural] claimed 'Impersonating Legitimate Software'
+  CAPEC-656 (capec): 12 / 12 proposals
+      reference only: 'vishing attack' [colloquial]
+      reference only: 'phishing scam' [colloquial]
+      reference only: 'impersonation' [colloquial]
+      reference only: 'legitimate-looking websites' [colloquial]
+      reference only: 'urgent requests' [colloquial]
+      other only: 'vishing' [colloquial]
+      other only: 'voip phishing' [colloquial]
+      other only: 'cold calling' [colloquial]
+      other only: 'legitimate-looking website' [colloquial]
+      other only: 'malicious website' [colloquial]
+      other only: 'urgent call' [colloquial]
+      other only: 'fraudulent calls' [colloquial]
+      accepted ids: ['CAPEC-656', 'CAPEC-656', 'CAPEC-656', 'CAPEC-98'] / ['CAPEC-656', 'CAPEC-98']
+  T1003.006 (attack): 12 / 12 proposals
+      reference only: 'T1098' [structural] claimed 'Account Discovery'
+      reference only: 'T1007' [structural] claimed 'Data from Network Shared Drive'
+      reference only: 'T1016' [structural] claimed 'System Network Configuration Discovery'
+      reference only: 'T1018' [structural] claimed 'Remote System Discovery'
+      reference only: 'T1019' [structural] claimed 'Remote Services'
+      reference only: 'T1033' [structural] claimed 'System Owner/User Discovery'
+      reference only: 'T1046' [structural] claimed 'Network Service Scanning'
+      other only: 'T1098' [structural] claimed 'Account Manipulation'
+      other only: 'T1007' [structural] claimed 'Data from Information Repositories'
+      other only: 'T1008' [structural] claimed 'Data from Network-Sent Queries'
+      other only: 'T1009' [structural] claimed 'Data from Network-Sent Queries: Kerberos Ticket'
+      other only: 'T1010' [structural] claimed 'Data from Network-Sent Queries: LDAP'
+      other only: 'T1011' [structural] claimed 'Data from Network-Sent Queries: SMB'
+      other only: 'T1012' [structural] claimed 'Data from Network-Sent Queries: SNMP'
+      accepted ids: ['T1005', 'T1016', 'T1018', 'T1033', 'T1046', 'T1098'] / ['T1005', 'T1098']
+  T1056.001 (attack): 12 / 12 proposals
+      reference only: 'T1056.005' [structural] claimed 'Input Capture: Hooking: SetWindowsHook'
+      reference only: 'T1056.006' [structural] claimed 'Input Capture: Hooking: GetKeyState'
+      reference only: 'T1056.007' [structural] claimed 'Input Capture: Hooking: GetAsyncKeyState'
+      reference only: 'T1056.008' [structural] claimed 'Input Capture: Hooking: DLL Injection'
+      reference only: 'T1056.009' [structural] claimed 'Input Capture: Hooking: Driver'
+      reference only: 'T1056.010' [structural] claimed 'Input Capture: Hooking: Registry'
+      other only: 'T1056.005' [structural] claimed 'Input Capture: Keylogging'
+      other only: 'T1056.006' [structural] claimed 'Input Capture: Keystroke Hooking'
+      other only: 'T1056.007' [structural] claimed 'Input Capture: Keystroke Logging'
+      other only: 'T1056.008' [structural] claimed 'Input Capture: Keystroke Monitoring'
+      other only: 'T1056.009' [structural] claimed 'Input Capture: Keystroke Recording'
+      other only: 'T1056.010' [structural] claimed 'Input Capture: Keystroke Sniffing'
+  T1090.003 (attack): 12 / 12 proposals
+      reference only: 'network exfiltration' [colloquial]
+      reference only: 'network anomaly' [colloquial]
+      other only: 'T1001' [structural] claimed 'Data Staged'
+      other only: 'T1095' [structural] claimed 'Proxy: Multi-hop'
+      accepted ids: ['T1090'] / ['T1001', 'T1090']
+  T1555.006 (attack): 12 / 12 proposals
+      reference only: 'cloud misconfiguration' [colloquial]
+      reference only: 'T1552' [structural] claimed 'Credential Access: Credentials in Files'
+      reference only: 'T1555' [structural] claimed 'Credential Access: Credentials from Password Stores'
+      reference only: 'T1558' [structural] claimed 'Credential Access: Credentials in Files'
+      reference only: 'T1555.004' [structural] claimed 'Credential Access: Credentials from Password Stores: Cloud Secrets Management'
+      other only: 'cloud service abuse' [colloquial]
+      other only: 'cloud platform security' [colloquial]
+      other only: 'cloud infrastructure compromise' [colloquial]
+      other only: 'cloud access keys' [colloquial]
+      other only: 'cloud identity theft' [colloquial]
+      accepted ids: ['T1552', 'T1555'] / []
+  T1666 (attack): 12 / 12 proposals
+      reference only: 'cloud configuration changes' [symptom]
+      reference only: 'cloud access escalation' [colloquial]
+      reference only: 'cloud permissions modification' [colloquial]
+      reference only: 'cloud infrastructure exploitation' [colloquial]
+      reference only: 'cloud resource hierarchy attack' [colloquial]
+      reference only: 'cloud environment tampering' [colloquial]
+      reference only: 'cloud security settings change' [symptom]
+      other only: 'cloud configuration changes' [colloquial]
+      other only: 'cloud access control evasion' [colloquial]
+      other only: 'cloud resource permissions' [colloquial]
+      other only: 'cloud infrastructure compromise' [colloquial]
+      other only: 'T1078' [structural] claimed 'Account Discovery'
+      other only: 'T1098' [structural] claimed 'Account Manipulation'
+      other only: 'T1098.004' [structural] claimed 'Modify Cloud Resource Hierarchy'
+      accepted ids: [] / ['T1098']
+  T1437 (attack): 12 / 12 proposals
+      reference only: 'application protocol misuse' [colloquial]
+      reference only: 'T1090' [structural] claimed 'Proxy'
+      other only: 'T1001' [structural] claimed 'Data Staged'
+      other only: 'T1041' [structural] claimed 'Exfiltration Over C2 Channel'
+      accepted ids: ['T1071', 'T1090'] / ['T1001', 'T1041', 'T1071']
+  T1470 (attack): 12 / 12 proposals
+      reference only: 'Google account backup' [product]
+      reference only: 'Apple iCloud backup' [product]
+      reference only: 'T1556' [structural] claimed 'Cloud Storage Object Access'
+      reference only: 'T1556.002' [structural] claimed 'Cloud Storage Object Access: Cloud Storage Object Access'
+      reference only: 'T1556.003' [structural] claimed 'Cloud Storage Object Access: Cloud Storage Object Access'
+      reference only: 'T1556.004' [structural] claimed 'Cloud Storage Object Access: Cloud Storage Object Access'
+      reference only: 'T1556.005' [structural] claimed 'Cloud Storage Object Access: Cloud Storage Object Access'
+      reference only: 'T1556.006' [structural] claimed 'Cloud Storage Object Access: Cloud Storage Object Access'
+      other only: 'Google account breach' [colloquial]
+      other only: 'Apple iCloud breach' [colloquial]
+      other only: 'remote data access' [colloquial]
+      other only: 'mobile device backup' [colloquial]
+      other only: 'cloud storage security' [colloquial]
+      other only: 'T1552' [structural] claimed 'Data from Local Data Stores Accessed'
+      other only: 'T1552.002' [structural] claimed 'Cloud Storage Accessed'
+      other only: 'T1552.003' [structural] claimed 'Local File Access'
+  T1661 (attack): 12 / 12 proposals
+      reference only: 'version info exposure' [symptom]
+      reference only: 'version info detection' [symptom]
+      other only: 'app version leak' [symptom]
+      other only: 'mobile app versioning' [colloquial]
+
+TABLE NUMBERS: 24 of 37 counts move (reference -> other):
+  accepted                                       178 -> 182   (+4)
+  accepted_generated                              39 -> 34    (-5)
+  by_reason.deprecated                            15 -> 4     (-11)
+  by_reason.malformed_id                           4 -> 6     (+2)
+  by_reason.name_mismatch                         66 -> 78    (+12)
+  by_reason.too_common                           204 -> 196   (-8)
+  by_stage.df                                    204 -> 196   (-8)
+  by_stage.graph                                  32 -> 23    (-9)
+  by_stage.name                                   66 -> 78    (+12)
+  claimed_name_missing                             4 -> 6     (+2)
+  counting_run_total                              51 -> 47    (-4)
+  distance_accepted.0                              7 -> 6     (-1)
+  distance_accepted.3                              4 -> 3     (-1)
+  distance_accepted.4                              7 -> 8     (+1)
+  distance_accepted.unreachable                   21 -> 17    (-4)
+  name_pass_on_one_word                            0 -> 1     (+1)
+  name_pass_total                                 59 -> 54    (-5)
+  proposed                                       480 -> 479   (-1)
+  provenance.labelled_field                       23 -> 26    (+3)
+  provenance.literal                              11 -> 14    (+3)
+  provenance.not_found                           115 -> 108   (-7)
+  provenance.own_id                                8 -> 7     (-1)
+  structural_accepted                             59 -> 54    (-5)
+  structural_proposed                            157 -> 155   (-2)
+
+Measured here, seconds per document: {'cve': 18.0, 'cwe': 20.6, 'capec': 21.7, 'mitre': 21.2}  (Mac, sustained: {'cwe': 48.2, 'capec': 39.6, 'mitre': 40.7, 'cve': 45.1} )
+  GPU 0 shard 1/2: 2999 documents, about 16.3 hours here = 1.5 sessions of 10.8 usable hours
+  GPU 1 shard 2/2: 3045 documents, about 16.5 hours here = 1.5 sessions of 10.8 usable hours
+Read this as a rough guide: it rests on 10 documents of each kind, with the GPU to itself.

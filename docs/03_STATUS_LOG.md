@@ -8,6 +8,25 @@
 
 ## Current headline
 
+**2026-10-14: the Kaggle sample has been run. Decision: the Kaggle output is
+accepted as the Stage 1 dev index; the full run goes ahead. Full run not
+started.** Same 40 documents as the Mac's `sections-v2` sample, same model
+(`qwen2.5:14b`, digest `7cdf5a0187d5…`), prompt, seed 42 and settings, config
+hash `364d30da6c75`, on 2× Tesla T4 with Ollama 0.33.2.
+**Replies identical to the Mac's: 5 of 40.** That is expected on different
+hardware (a Mac and an NVIDIA card round their arithmetic differently, and one
+changed word changes everything after it) and it is **not the acceptance
+test**. The test is whether the *kind* of output is the same, and it is:
+name rejections 66 → 78, existence rejections 32 → 23, ids in a counting run
+51 → 47, structural ids accepted 59 → 54 of 157 → 155 proposed. Same habits
+(counting through id numbers, real ids with wrong names), different documents.
+**From now on every 14B number is quoted as a range across the two runs**
+(e.g. name rejections 66–78), the way the two Gemini runs are.
+**Speed on a T4: about 20 s per document, a little over twice the Mac** —
+estimated 16.3 h and 16.5 h for the two shards, so about 2 sessions. Details
+in the log entry below; the full comparison is kept in
+`docs/results/kaggle_sample_vs_mac_14b.txt`.
+
 **2026-10-13: Stage 1 can now run on Kaggle's two free GPUs. Prepared and
 rehearsed on the Mac; not yet run on Kaggle. Stage 1 not started.** Full
 instructions: **`docs/kaggle-run.md`**. What was added:
@@ -210,6 +229,140 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Kaggle sample run: 14B on 2× T4 against the Mac (2026-10-14)
+
+Run by the Module 1 owner in the notebook's sample mode; the printed output
+was pasted in and is saved unedited as
+**`docs/results/kaggle_sample_vs_mac_14b.txt`**. The Kaggle `.jsonl` itself is
+not in the repo, so everything below comes from that printout plus the Mac
+file.
+
+| | |
+|---|---|
+| machine | Kaggle, 2× Tesla T4 (sample mode uses one), Linux, Ollama 0.33.2 |
+| model | `qwen2.5:14b` |
+| rules | prompt `corpus-v4`, truncation `sections-v2`, scorer v1, seed 42, `num_ctx` 4096 |
+| config hash | `364d30da6c75` |
+| compared with | `indexes/enrichment/corpus_stratified_v4_14b_sections-v2.jsonl` (Mac, 2026-10-09) |
+| settings check | "the same in both manifests (config, prompt, gates, sampling, seed, context)" |
+
+**Model digest.** The comparison could not check it by itself: the Mac file
+was written before manifests recorded the digest (the fingerprint of the
+weights file). The Kaggle manifest says `7cdf5a0187d5`; the Module 1 owner
+confirmed by hand (`ollama list`) that the Mac has the same `7cdf5a0187d5…`.
+So: same weights, checked by a person, not by the script.
+
+#### 1. Replies identical: 5 of 40
+
+**In plain words:** we asked the same model the same 40 questions on two
+different computers. Five answers came back word for word the same; 35 did
+not. That sounds alarming and is not. The two chips do the same sums with
+tiny rounding differences; the model picks one word at a time, so the first
+time a rounding difference tips a choice, the rest of that answer goes a
+different way. (On the *same* Mac, re-running gave back all 37 replies whose
+prompt had not changed.)
+
+**This number is not the acceptance test.** Nobody needs the two machines to
+write the same sentences. What matters is whether the output is the same
+*kind* of thing — same amounts, same mistakes — and that is section 2.
+
+#### 2. The table numbers, Mac → Kaggle
+
+24 of the report's 37 counts move; the ones that carry findings:
+
+| | Mac | Kaggle T4 |
+|---|---|---|
+| terms proposed / accepted | 480 / 178 | 479 / 182 |
+| structural ids proposed | 157 | 155 |
+| **accepted** | 59 | **54** |
+| rejected by the existence check (stage `graph`) | 32 | **23** |
+| …of which deprecated (a retired id) | 15 | **4** |
+| …of which malformed | 4 | 6 |
+| …not in the graph / revoked | 8 / 5 | 8 / 5 |
+| rejected by the name check | 66 | **78** |
+| ids in a counting run (accepted) | 51 (8) | 47 (8) |
+| accepted: copied / generated | 20 / 39 | 20 / 34 |
+| accepted ids with a measurable distance | 38 | 37 |
+| median graph distance | 2 | 2 |
+| within 2 hops | 25 of 38 | 24 of 37 |
+| rejected as too common (all terms) | 204 | 196 |
+
+The Kaggle distance figures are worked out from the printed counts (0 hops:
+6, 1: 11, 2: 7, 3: 3, 4: 8, 5: 2, no path: 17). "Generated ids only: median
+distance" needs the Kaggle file and has **not** been computed.
+
+#### 3. What it means: the same habits, on different documents
+
+- **Counting.** The model still lists ids by counting upwards and inventing a
+  name for each. Which document it does it on changes. On the Mac, `CWE-512`
+  got `CWE-738`…`CWE-748` (eleven in a row); on Kaggle that document got a
+  scattered list instead, and `CWE-398` got `CWE-703`…`CWE-709`. `T1056.001`
+  got `T1056.005`…`.010` on **both** machines, with different made-up names
+  each time. `T1003.006` got `T1007`…`T1012` on Kaggle.
+- **Wrong names for real ids.** Same on both. On `CAPEC-587`, `CWE-1021` is
+  called "Cross-Site Scripting (XSS) via Iframe" on the Mac and "Improper
+  Restriction of Excessive Authentication Attempts" on Kaggle — a real id,
+  and neither is its name.
+- **The drop in "deprecated" (15 → 4) is one document, not the hardware.**
+  Checked against the Mac file: 11 of the Mac's 15 deprecated rejections are
+  that single `CWE-738`…`748` run on `CWE-512`, which happens to pass through
+  retired ids. Kaggle did not count on that document, so 11 disappear. The
+  same lump explains most of the fall in existence rejections (32 → 23).
+- **Name rejections went up (66 → 78)**, most likely because where Kaggle
+  counted it went through ids that exist (`CWE-703`…`709`), which fail on the
+  name instead of on existence. That is a reading of the printout, not a
+  per-id check. Existence + name rejections together: 98 → 101 — the total
+  of "wrong ids" barely moves; it is how they are caught that shifts.
+
+So one document can move a headline count by 11. **A count from 40 documents
+is good to about ±10, and no 14B finding should be quoted as a single
+number.** Use the range across the two runs: accepted 54–59 of 155–157,
+existence rejections 23–32, name rejections 66–78, counting-run ids 47–51.
+The findings themselves (about a third of proposed ids accepted; about a
+third in counting runs; far more mis-named than Gemini's 4) hold at both ends.
+
+#### 4. Also seen: CVE ids proposed as structural terms
+
+On `CVE-2019-13351` the Kaggle reply proposed `cve-2019-13351` and the bare
+word `cve` as *structural* terms, which the prompt tells it not to do. The
+malformed-id gate catches them (malformed 4 → 6 is these two). It is not new:
+3 of the Mac's 4 malformed rejections are also CVE ids (`CVE-2023-50458`,
+`CVE-2024-34359`, `cve-2025-26663`). Noted under open question 6; **to be
+counted in the full run for RQ4.**
+
+#### 5. Speed on a T4
+
+| seconds per document | cve | cwe | capec | attack |
+|---|---|---|---|---|
+| Kaggle T4 (this sample) | 18.0 | 20.6 | 21.7 | 21.2 |
+| Mac, sustained | 45.1 | 48.2 | 39.6 | 40.7 |
+
+A little over twice as fast. Estimated for the full run: **about 16.3 h for
+shard 1/2 (2,999 documents) and 16.5 h for shard 2/2 (3,045)**, the two
+running side by side. A session has about 10.8 usable hours, so **about 2
+sessions**, the second ending roughly half-way through. **This rests on 10
+documents of each kind** on a GPU with nothing else to do — a rough guide,
+not a benchmark. Session 1's progress lines will give the real figure.
+
+#### 6. Decision
+
+**The Kaggle output is accepted as the Stage 1 dev index. Proceed to the
+full run** (`docs/kaggle-run.md`, "Session 1"). Decided by the Module 1 owner
+on the evidence above. Not started as of this entry.
+
+Still untested, because sample mode uses one GPU: two Ollama servers each
+pinned to its own T4, and chaining one session into the next.
+
+#### Docs
+
+- `docs/results/kaggle_sample_vs_mac_14b.txt` (new): the full printout.
+- `proposals/module1-freeze.md`: Kaggle column in "Which model"; ranges note;
+  measured T4 speed.
+- `04_OPEN_QUESTIONS.md`: ranges note (questions 10, 13); CVE ids as
+  structural terms (question 6).
+- `kaggle-run.md`: status, measured speed, what is still untested.
+- No code change. Tests not re-run (444 as of 2026-10-13).
 
 ### Clean speed benchmark; source order for Stage 1 (2026-10-09, benchmark)
 

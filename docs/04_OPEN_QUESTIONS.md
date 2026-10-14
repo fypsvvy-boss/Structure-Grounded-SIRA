@@ -277,6 +277,19 @@ needs a deliberate call. Note this interacts with Module 2: query-side
 enrichment is specified to *avoid* guessing a specific CVE identifier, so
 whatever is decided here should be consistent with that.
 
+**Seen again, 2026-10-14 — count it in the full run (RQ4).** The 14B
+sometimes proposes a CVE id, or just the word `cve`, as a *structural* term,
+although the prompt tells it not to. On the Kaggle sample, `CVE-2019-13351`
+got both `cve-2019-13351` and `cve` labelled structural. The malformed-id
+gate catches them, so nothing wrong reaches the index — but each one is
+booked as `malformed_id`, i.e. as if the model had invented an id. On 40
+documents that is most of the malformed count: 3 of 4 on the Mac
+(`CVE-2023-50458`, `CVE-2024-34359`, `cve-2025-26663`), and the two above
+account for the rise to 6 on Kaggle. **To do after the full run:** count how
+many `malformed_id` rejections are CVE ids or the bare word, and report RQ4's
+malformed rate with and without them. No code or gate change now — Stage 1
+runs as frozen.
+
 
 ---
 
@@ -771,6 +784,17 @@ copying — ~30% of accepted ids are copied from the entry, the same as the 14B.
 Still true: 40 documents, `low` thinking, and a different model family, so
 "size" and "family" are mixed.
 
+**The 14B has now been run twice too (2026-10-14) — quote its numbers as
+ranges.** The second run is the same 40 documents on a Kaggle T4 (same
+weights and settings, Stage 1 truncation rules; `03_STATUS_LOG.md`). The 14B
+column in the table above is the first, uncut run. Across the two
+`sections-v2` runs: proposed 155–157, accepted **54–59**, existence
+rejections **23–32**, name rejections **66–78**, in a counting run **47–51**.
+Treat these exactly like Gemini's two runs: the pattern is solid, a single
+count is not — one document moved the existence count by 11. The answer to
+this question does not change: at either end of every range the 14B invents
+and counts, and Gemini (0 and 4) does neither.
+
 **Cost table below is now wrong for a thinking model.** Measured: $0.447 for
 the 40 documents, of which two thirds was thinking tokens; the full corpus at
 the same setting would be roughly **$68**, not $9–35.
@@ -939,6 +963,12 @@ stronger model is more *correct*, not more *relevant*.
   useless; only retrieval results (Module 4) can say whether distance
   predicts usefulness.
 - Accepted ids only, one prompt, 40 documents, Gemini at `low` thinking.
+- The 14B column is one run. A second 14B run (Kaggle T4, 2026-10-14) gives
+  ranges instead: accepted 54–59 of 155–157, existence-type rejections
+  23–32, wrong-meaning rejections 66–78. Its relatedness figure for
+  *generated* ids has not been computed (the file is not in the repo); over
+  all accepted ids the median is 2 hops on both runs (25 of 38 and 24 of 37
+  within 2 hops). Quote the 14B as ranges, as with the two Gemini runs.
 
 ---
 

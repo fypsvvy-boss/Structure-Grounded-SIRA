@@ -1,10 +1,13 @@
 # Running Stage 1 enrichment on Kaggle
 
-> **Status, 2026-10-13: prepared, not yet run on Kaggle.** The notebook's own
-> code was rehearsed on the Mac with stand-in folders (sample mode, then two
-> chained "sessions" of full mode with two Ollama servers). What could **not**
-> be tried from the Mac is listed at the bottom — expect to fix something
-> small the first time.
+> **Status, 2026-10-14: the sample (Session 0) has been run on Kaggle and
+> accepted; the full run has not been started.** Result: 5 of 40 replies
+> identical to the Mac's (expected across hardware, not the test), the same
+> patterns in the table, about 20 s per document. Write-up:
+> `03_STATUS_LOG.md` (2026-10-14); full printout:
+> `docs/results/kaggle_sample_vs_mac_14b.txt`. Full mode (two GPUs, chained
+> sessions) has only been rehearsed on the Mac — what is still untried is
+> listed at the bottom.
 
 **The idea.** The full run is ~75 hours on the Mac. Kaggle lends two GPUs for
 free. We split the documents in half, give each GPU one half, and stop each
@@ -35,8 +38,10 @@ other `--shard 2/2`. A document's shard is worked out from its id alone
 
 "Mac-hours" = documents × the Mac's measured seconds per document for that
 source (`module1-freeze.md`, "Time and cost"). They show the two shares are
-equal; they are **not** Kaggle's clock time. A T4 has not been timed —
-sample mode measures it and prints the estimate.
+equal; they are **not** Kaggle's clock time. **Measured on the sample
+(2026-10-14): 18.0–21.7 s per document on a T4, so about 16.3 h for shard 1/2
+and 16.5 h for shard 2/2 — about 2 sessions.** That rests on 10 documents of
+each kind; session 1's progress lines will show the real pace.
 
 Why not "CVEs on one GPU, the rest on the other"? That is also balanced on
 paper (37.7 vs 37.0 Mac-hours), but it leans on per-source figures that are
@@ -162,13 +167,16 @@ if a document appears twice with different content.
 | `Refusing to resume …` | something changed since the file was started; the message names it |
 | the version shows **Failed** or **Timeout** | that session's output is lost. Re-run with the same input attached; only that session's work is redone |
 
-## Not tested from the Mac
+## Still not tested on Kaggle
 
-- The install cell (apt, the Ollama installer pinned to `0.33.2`, `pip install
-  pyserini==2.3.0` on Kaggle's Python).
-- Reading the token from Kaggle Secrets, and cloning a private repository.
-- `CUDA_VISIBLE_DEVICES` really pinning each server to one T4 (cell 6 prints
-  `nvidia-smi`: both cards should show about 10 GB in use).
-- How Kaggle lays out the uploaded folder. The notebook finds files by name
-  and re-zips the CWE file if Kaggle unpacked it, so this should not matter.
-- Speed. No T4 figure exists yet.
+The sample session (2026-10-14) ran from start to finish, so the install
+cell, the clone, finding the uploaded files, the digest check and the
+model-on-GPU check all worked there. Sample mode uses **one** GPU and one
+session, so these remain untried:
+
+- `CUDA_VISIBLE_DEVICES` really pinning each of the two servers to its own T4
+  (cell 6 prints `nvidia-smi`: both cards should show about 10 GB in use).
+- Two enrichment processes side by side — the speed estimate assumes each
+  runs as fast as one did alone.
+- Chaining: attaching a finished version and resuming from it.
+- A committed "Save & Run All" run, as opposed to the editor.

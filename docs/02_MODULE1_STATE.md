@@ -284,7 +284,13 @@ Added 2026-10-13 (running Stage 1 on borrowed GPUs — `docs/kaggle-run.md`):
 - **`scripts/kaggle_stage1.py`** + **`notebooks/kaggle_stage1.ipynb`** — the
   Kaggle session itself.
 
+Kaggle sample run, 2026-10-14: same 40 documents as the Mac's `sections-v2`
+sample; 5 of 40 replies identical, same patterns; accepted as the Stage 1 dev
+index. Quote 14B numbers as ranges across the two runs. `03_STATUS_LOG.md`;
+printout in `docs/results/kaggle_sample_vs_mac_14b.txt`.
+
 ### Tests
+
 **444 tests pass** (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
