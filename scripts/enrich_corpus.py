@@ -64,7 +64,9 @@ from sira_cti.enrichment.corpus_side import (
 )
 from sira_cti.enrichment.prompts.corpus_side import PROMPT_VERSION, REPLY_SCHEMA, SYSTEM_PROMPT, build_prompt
 from sira_cti.graph import OntologyGraph
-from sira_cti.index import LuceneDFLookup, load_corpus, order_kinds, parse_shard, sample_corpus, shard_corpus
+from sira_cti.index import (
+    LuceneDFLookup, load_corpus, order_kinds, parse_shard, sample_corpus, shard_corpus, source_of_kind,
+)
 
 
 def main() -> int:
@@ -418,13 +420,34 @@ def main() -> int:
         print(f"  staleness_rate: {rate:.3f}" if rate is not None else "  staleness_rate: n/a")
 
         print("\nBy source document type:")
-        for source, s in sorted(summarize_by_source(output_path).items()):
-            print(f"  {source}: {s['docs']} docs, {s['proposed']} proposed, {s['accepted']} accepted")
-            print(f"    rejected: {s['rejected_by_reason'] or '{}'}")
-            print(f"    structural proposed by catalogue: {s['structural_proposed_by_namespace'] or '{}'}")
-            print(f"    structural accepted by catalogue: {s['structural_accepted_by_namespace'] or '{}'}")
+        for line in by_source_lines(output_path, kinds):
+            print(line)
 
     return 0
+
+
+def by_source_lines(output_path: Path, kinds) -> list[str]:
+    """The per-type block of the end-of-run summary, one entry for every kind.
+
+    Ordered as ``kinds`` (corpus_kb file names, ``mitre`` for ATT&CK), each
+    shown under its record ``source`` name. A kind with no records yet is
+    printed as 0 rather than left out, so a missing kind is visible; a source
+    in the file that ``kinds`` does not name is appended at the end.
+    """
+    stats = summarize_by_source(output_path)
+    order = [source_of_kind(k).value for k in kinds]
+    order += sorted(set(stats) - set(order))
+    lines: list[str] = []
+    for source in order:
+        s = stats.get(source)
+        if s is None:
+            lines.append(f"  {source}: 0 docs")
+            continue
+        lines.append(f"  {source}: {s['docs']} docs, {s['proposed']} proposed, {s['accepted']} accepted")
+        lines.append(f"    rejected: {s['rejected_by_reason'] or '{}'}")
+        lines.append(f"    structural proposed by catalogue: {s['structural_proposed_by_namespace'] or '{}'}")
+        lines.append(f"    structural accepted by catalogue: {s['structural_accepted_by_namespace'] or '{}'}")
+    return lines
 
 
 def _gemini_preflight(client, doc, *, max_terms, cost_usd):

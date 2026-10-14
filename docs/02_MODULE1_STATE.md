@@ -289,9 +289,17 @@ sample; 5 of 40 replies identical, same patterns; accepted as the Stage 1 dev
 index. Quote 14B numbers as ranges across the two runs. `03_STATUS_LOG.md`;
 printout in `docs/results/kaggle_sample_vs_mac_14b.txt`.
 
+Kaggle Session 1, 2026-10-14: 4,457 of 6,044 done (all non-CVE entries);
+Session 2 running. ATT&CK was missing only from the notebook's printout (a
+12-line log tail). Fixed on `main`; the run stays on `6b4eece`. **ATT&CK has
+two fixed names** — kind `mitre` (the `corpus_kb` file, in the config) and
+source `attack` (the schema) — translate only with
+`index.corpus.source_of_kind()` / `kind_of_source()`, never a local dict.
+Provisional RQ4 numbers: `04_OPEN_QUESTIONS.md` question 14.
+
 ### Tests
 
-**444 tests pass** (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+**455 tests pass** (+11 on 2026-10-14: `tests/test_report_kinds.py` — every kind in the session summary, the notebook printout and `report_enrichment.py`, zero rows shown, the kind/source translation). 444 before that (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,

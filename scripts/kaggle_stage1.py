@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from sira_cti.common import OllamaClient, read_jsonl  # noqa: E402
-from sira_cti.index.corpus import load_kb, order_kinds, parse_shard, shard_of  # noqa: E402
+from sira_cti.index.corpus import kind_of_source, load_kb, order_kinds, parse_shard, shard_of  # noqa: E402
 
 SIDECARS = (".manifest.json", ".failures.jsonl", ".raw_failures.jsonl")
 
@@ -45,7 +45,10 @@ MAC_SECONDS_PER_DOC = {"cwe": 48.2, "capec": 39.6, "mitre": 40.7, "cve": 45.1}
 documents, so +/-15%. Used to size the two GPUs' shares against each other,
 not to predict Kaggle's clock time -- a T4 is not the Mac."""
 
-SOURCE_TO_KIND = {"attack": "mitre"}     # a record's ``source`` vs corpus_kb's file name
+SUMMARY_START = " docs total, "
+"""The first line of ``enrich_corpus.py``'s end-of-run summary. Everything from
+the last such line in a log is printed when a job ends: a fixed tail of 12
+lines cut off the first kind of the four (``attack``, sorted first) in session 1."""
 
 
 class StageError(RuntimeError):
@@ -276,7 +279,7 @@ def seconds_per_doc_from(sample_jsonl: str | Path) -> dict[str, float]:
     """Mean seconds per document by kind, measured from a finished sample run."""
     totals: dict[str, list[float]] = {}
     for record in read_jsonl(sample_jsonl):
-        kind = SOURCE_TO_KIND.get(record.source.value, record.source.value)
+        kind = kind_of_source(record.source)
         totals.setdefault(kind, []).append(record.latency_ms / 1000)
     return {kind: sum(v) / len(v) for kind, v in totals.items()}
 
@@ -383,6 +386,18 @@ def progress_line(label: str, done: int, total: int, done_at_start: int, elapsed
     return line
 
 
+def summary_block(log_text: str, *, fallback_lines: int = 12) -> list[str]:
+    """The end-of-run summary in an ``enrich_corpus.py`` log, whole.
+
+    From the last line containing :data:`SUMMARY_START` to the end. A log with
+    no such line (the process died before printing it) gives its last
+    ``fallback_lines`` lines, which is where the traceback is.
+    """
+    lines = log_text.splitlines()
+    starts = [i for i, line in enumerate(lines) if SUMMARY_START in line]
+    return lines[starts[-1]:] if starts else lines[-fallback_lines:]
+
+
 def run_and_watch(
     jobs: list[dict[str, Any]], *, cwd: str | Path, every_minutes: float = 10,
     log: Callable[[str], None] = print, sleep: Callable[[float], None] = time.sleep,
@@ -421,7 +436,7 @@ def run_and_watch(
         job["returncode"] = job["process"].returncode
         job["done"] = count_lines(job["output"])
         job["complete"] = job["done"] >= job["total"]
-        tail = Path(job["log_path"]).read_text(encoding="utf-8", errors="replace").splitlines()[-12:]
+        tail = summary_block(Path(job["log_path"]).read_text(encoding="utf-8", errors="replace"))
         state = "COMPLETE" if job["complete"] else f"{job['total'] - job['done']} documents still to do"
         log(f"\n{job['label']}: exit status {job['returncode']}, {job['done']}/{job['total']} -- {state}")
         for line in tail:

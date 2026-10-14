@@ -8,6 +8,26 @@
 
 ## Current headline
 
+**2026-10-14 (later): Kaggle Session 1 finished — 4,457 of 6,044 documents
+done; Session 2 is running.** Every CWE, CAPEC and ATT&CK entry is done on
+both shards; 670 + 917 CVEs are left. About 190–210 documents an hour per
+T4. Commit `6b4eecedf1cd`, digest `7cdf5a0187d5`, Ollama 0.33.2, both
+manifests otherwise identical. Three things found:
+(1) **The end-of-session printout hid ATT&CK** — not a naming bug: the
+notebook printed only the last 12 lines of each log and the 4-line `attack`
+block, sorted first, fell off. The records were all there (557 + 519). Fixed
+on `main` (whole summary printed, every kind always listed, one shared
+`mitre` ↔ `attack` translation, 11 new tests); **the running run stays on
+`6b4eece`** — do not move `COMMIT` mid-run.
+(2) **3 unparseable replies** (T1064, T1542.001, CVE-2022-47378), all cut off
+by the 512-token cap while the model counted ids past the 12-term limit.
+Already written as permanent failures: they count as done, will not be
+retried, and `--expect 6044` stays right.
+(3) **Provisional RQ4 numbers** (new open question 14): 38% of 17,552
+structural ids accepted (the sample said 35–38%); **68% of CWE ids on CWE
+entries carry the wrong name**; **CVE ids proposed as structural on 25% of
+CVE entries** (365 malformed, 347 of them the entry's own id).
+
 **2026-10-14: the Kaggle sample has been run. Decision: the Kaggle output is
 accepted as the Stage 1 dev index; the full run goes ahead. Full run not
 started.** Same 40 documents as the Mac's `sections-v2` sample, same model
@@ -229,6 +249,108 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Kaggle Session 1: the first full session (2026-10-14)
+
+Run by the Module 1 owner as a committed "Save & Run All", `MODE = "full"`.
+Output downloaded to the Mac and read there, read-only; the log tail was
+pasted in. Session 2 was started from this version's output and is running.
+
+| | |
+|---|---|
+| machine | Kaggle, 2× Tesla T4, one Ollama server per card (`cuda_visible_devices` 0 and 1), Ollama 0.33.2 |
+| code | commit `6b4eecedf1cd` (clean), both shards |
+| model | `qwen2.5:14b`, digest `7cdf5a0187d5…` in both manifests |
+| rules | prompt `corpus-v4`, scorer **v2** (`--name-scorer v2`), truncation `sections-v2`, seed 42, `num_ctx` 4096, config hash `364d30da6c75` |
+| shard 1/2 | 2,329 of 2,999 done in 40,204 s (11.2 h) — **208 docs/h**; stopped at the 669.9-minute limit; 670 CVEs left |
+| shard 2/2 | 2,128 of 3,045 done in 40,193 s (11.2 h) — **191 docs/h**; 917 CVEs left |
+| together | **4,457 of 6,044**; all 1,342 CWE, 615 CAPEC and 1,076 ATT&CK entries; 1,424 of 3,011 CVEs |
+| unparseable | 3 (1 + 2), see below; 0 other failures (no `.failures.jsonl`) |
+
+4,457 records, 4,457 distinct ids, no overlap between the shards. Faster than
+the sample's estimate (~20 s/doc → ~180/h): ~17–19 s/doc with both cards
+busy. Session 2's remaining CVEs, at the same rates: about 3.2 h and 4.8 h,
+so it should finish in this session if CVEs run at the average speed (on the
+Mac CVEs were a little slower than average; not measured here by kind).
+
+#### 1. "ATT&CK missing from the summary" — a cut-off printout, not lost work
+
+The end-of-session lines showed `capec`, `cve` and `cwe` per shard and no
+`attack`. The records are there: 2,329 − (298 + 807 + 667) = 557 and
+2,128 − (317 + 617 + 675) = 519, and the downloaded `logs/enrich_gpu0.log`
+holds the `attack` block in full.
+
+**Cause.** `run_and_watch` printed each log's **last 12 lines**. The
+per-type block is 4 lines × 4 types = 16, sorted by name, so the first type —
+`attack` — always fell off.
+
+**Not the cause, but looked into because it was suspected:** the two names
+for ATT&CK. A *kind* is a `corpus_kb` file name (`mitre.jsonl`; it is in the
+config, so renaming it changes the config hash and a resume would be
+refused). A record's *source* is `Source.ATTACK` = `"attack"` in the frozen
+schema. Neither can change. Every place that crosses between them was
+checked — `plan_shares`, `seconds_per_doc_from`, `load_corpus`,
+`build_enriched`, `merge_enrichment`, `compare_enrichment`,
+`measure_redundancy`, `bench_enrichment_speed`, `report_enrichment` — and
+none drops a kind; they translated with two separate private tables.
+
+**Fixed (on `main`, not in the running run):**
+- `index/corpus.py`: `source_of_kind()` / `kind_of_source()`, the one
+  translation; `kaggle_stage1.py`'s private `SOURCE_TO_KIND` removed.
+- `kaggle_stage1.summary_block()`: prints from the summary's first line
+  (`N docs total, …`) to the end; falls back to the last 12 lines if the
+  process died before printing one.
+- `enrich_corpus.by_source_lines()`: one entry per kind in the run's order
+  (`cwe, capec, attack, cve` for Stage 1), and `attack: 0 docs` rather than
+  nothing for a kind with no records yet.
+- `report_enrichment.py`: `documents:` lists every kind the manifest names,
+  0 included.
+- `tests/test_report_kinds.py` (11): every kind round-trips; every kind is in
+  the summary, the notebook printout and the report; a kind with no records
+  shows as 0. 455 tests pass.
+
+No config, schema or prompt change; config hash unchanged. **The running
+run is pinned to `6b4eece` and must stay there** (a different commit is
+refused on resume). The fix is display-only, so nothing is lost by waiting:
+read the full block in `logs/enrich_gpu*.log` or run `report_enrichment.py`.
+
+#### 2. The three unparseable replies
+
+| shard | document | what happened |
+|---|---|---|
+| 1 | `T1064` (ATT&CK) | listed `T1059.001`, `.005`, `.006` … `.020` with invented names; cut off at 1,338 characters |
+| 2 | `T1542.001` (ATT&CK) | counted `T1070, T1071, T1072, T1074` … `T1121`, a made-up name each; cut off at 1,562 characters |
+| 2 | `CVE-2022-47378` (CVE) | listed a dozen CODESYS products, then CWE ids; cut off at 1,586 characters |
+
+All three: `truncated_by_token_cap: true`, 2 calls each (the reply and the
+one retry with a nudge). The model ignored "at most 12 terms" and ran into
+the 512-token reply cap mid-list, so the JSON never closed. Shard 1's
+failure is an ATT&CK document, which is why it did not show in the cut-off
+printout; shard 2's printout showed only the CVE one for the same reason.
+
+**Do they count as done? Yes.** `record_json_failures: true` writes each as a
+record with one `llm_json_error` term. Resume skips any id already in the
+file, so **Session 2 will not retry them**. At temperature 0 with seed 42 the
+same prompt gives the same reply, so a retry would fail the same way. **No
+code change needed**; they are already permanent failures, and
+**`--expect 6044` stays correct** — they are among the 4,457. The raw replies
+travel with the shard into Session 2 (`restore_previous` copies the
+sidecars) and the merge joins them into one `.raw_failures.jsonl`.
+
+Whether 512 tokens is too tight is a method question, not a run question:
+3 of 4,457 (0.07%) so far, all from counting. Not changed — changing it would
+change the config hash mid-run.
+
+#### 3. RQ4, provisional
+
+New open question 14, with every table in
+`docs/results/stage1_session1_breakdown.txt`. Headlines: 17,552 structural
+ids, **38% accepted**, 12% rejected for not existing, 50% for a wrong name,
+23% in counting runs. **CWE ids on CWE entries: 68% of those that exist carry
+the wrong name.** **CVE entries: 365 malformed ids on 360 of 1,424 (25%)**,
+347 of them the entry's own CVE id — mislabelled, not invented. Revoked
+ATT&CK ids (677) turned out not to be stale knowledge: the names given are
+not what those numbers used to mean.
 
 ### Kaggle sample run: 14B on 2× T4 against the Mac (2026-10-14)
 

@@ -1,13 +1,12 @@
 # Running Stage 1 enrichment on Kaggle
 
-> **Status, 2026-10-14: the sample (Session 0) has been run on Kaggle and
-> accepted; the full run has not been started.** Result: 5 of 40 replies
-> identical to the Mac's (expected across hardware, not the test), the same
-> patterns in the table, about 20 s per document. Write-up:
-> `03_STATUS_LOG.md` (2026-10-14); full printout:
-> `docs/results/kaggle_sample_vs_mac_14b.txt`. Full mode (two GPUs, chained
-> sessions) has only been rehearsed on the Mac — what is still untried is
-> listed at the bottom.
+> **Status, 2026-10-14 (later): Session 1 has finished; Session 2 is
+> running.** 4,457 of 6,044 documents done: every CWE, CAPEC and ATT&CK entry
+> on both shards; 670 + 917 CVEs left. About 190–210 documents an hour per
+> T4. Two GPUs side by side, a committed run and the time limit all worked.
+> Session 1 write-up: `03_STATUS_LOG.md` (2026-10-14, Session 1). Earlier:
+> the sample (Session 0) was accepted — 5 of 40 replies identical to the
+> Mac's, the same patterns, `docs/results/kaggle_sample_vs_mac_14b.txt`.
 
 **The idea.** The full run is ~75 hours on the Mac. Kaggle lends two GPUs for
 free. We split the documents in half, give each GPU one half, and stop each
@@ -120,7 +119,18 @@ into `indexes/enrichment/` and run:
    log every 10 minutes (`GPU 0 shard 1/2: 812/2999 … about 21 h left`).
 4. When it shows **Complete**, open the version → Output. There should be
    `corpus_full_v4_14b.shard1of2.jsonl`, `…shard2of2.jsonl`, a
-   `.manifest.json` for each, and `logs/`.
+   `.manifest.json` for each, and `logs/`. A `…raw_failures.jsonl` beside a
+   shard is normal — see "Unparseable replies" below.
+
+**Reading the end-of-session summary.** At commit `6b4eece` (the one this
+run is pinned to) the notebook prints only the **last 12 lines** of each
+process's log. The per-type block has 4 lines per type, so the first type
+is cut off — in Session 1 that was `attack`, which made it look as if no
+ATT&CK documents had been done. They had (557 + 519). The whole block is in
+`logs/enrich_gpu0.log` and `enrich_gpu1.log`, or run
+`scripts/report_enrichment.py` on the downloaded shard. Fixed on `main`
+after Session 1 (the notebook now prints from the summary's first line);
+**do not move `COMMIT` to pick the fix up mid-run** — see below.
 
 ## Chaining sessions
 
@@ -136,6 +146,16 @@ into `indexes/enrichment/` and run:
 Each session is about 11¼ quota hours. Check your weekly GPU quota before
 starting one: a session that runs out of quota part-way can be stopped by Kaggle,
 and a stopped session saves nothing.
+
+**Unparseable replies.** A document whose reply still will not parse after
+the one retry is written as a record holding a single `llm_json_error` term,
+and its raw reply goes to `…raw_failures.jsonl` (one line per document). It
+**counts as done**: it is not retried by the next session, it is in the
+6,044, and `--expect 6044` is still the right number. At temperature 0 with
+seed 42 a retry would get the same reply again. Session 1 had 3 (T1064,
+T1542.001, CVE-2022-47378); all three were cut off by the 512-token reply cap
+— the model kept listing ids past the 12-term limit. The sidecars are copied
+into the next session and joined by the merge, so nothing is lost.
 
 **Change nothing between sessions** — not the commit, the model, or the
 flags. The run refuses to continue if the config, prompt, scorer, truncation,
@@ -171,12 +191,12 @@ if a document appears twice with different content.
 
 The sample session (2026-10-14) ran from start to finish, so the install
 cell, the clone, finding the uploaded files, the digest check and the
-model-on-GPU check all worked there. Sample mode uses **one** GPU and one
-session, so these remain untried:
+model-on-GPU check all worked there. Session 1 (full mode, committed run) then
+showed these working: one Ollama server per T4 (manifests record
+`cuda_visible_devices` 0 and 1), two enrichment processes side by side at
+about 190–210 documents an hour each, `--stop-after-minutes` stopping both
+cleanly at ~670 minutes, and the output kept after a committed "Save & Run
+All". Still untried until Session 2 ends:
 
-- `CUDA_VISIBLE_DEVICES` really pinning each of the two servers to its own T4
-  (cell 6 prints `nvidia-smi`: both cards should show about 10 GB in use).
-- Two enrichment processes side by side — the speed estimate assumes each
-  runs as fast as one did alone.
 - Chaining: attaching a finished version and resuming from it.
-- A committed "Save & Run All" run, as opposed to the editor.
+- The in-notebook merge with `--expect 6044` on ALL DONE.

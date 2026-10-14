@@ -35,6 +35,7 @@ from sira_cti.common import read_jsonl  # noqa: E402
 from sira_cti.enrichment.corpus_side import flag_counting_runs  # noqa: E402
 from sira_cti.enrichment.truncation import record_shown_text  # noqa: E402
 from sira_cti.graph import name_tokens  # noqa: E402
+from sira_cti.index import source_of_kind  # noqa: E402
 
 PROVENANCE_ORDER = ["literal", "labelled_field", "own_id", "not_found"]
 
@@ -75,7 +76,9 @@ def summarise(path: Path) -> dict:
         "prompt_version": m.get("prompt_version", "?"),
         "gates": m.get("gates", {}),
         "docs": 0,
-        "docs_by_source": {},
+        # Every kind the run was asked for, in its order, at 0 until counted:
+        # a kind with no records shows as 0 instead of vanishing.
+        "docs_by_source": {source_of_kind(k).value: 0 for k in m.get("kinds") or []},
         "proposed": 0,
         "accepted": 0,
         "by_reason": {},

@@ -1,0 +1,102 @@
+Stage 1, Kaggle session 1 (2026-10-14): rejection breakdown of the two shard files, PROVISIONAL
+Files: corpus_full_v4_14b.shard1of2.jsonl (2,329 records), .shard2of2.jsonl (2,128 records)
+qwen2.5:14b, digest 7cdf5a0187d5, prompt corpus-v4, name scorer v2, config 364d30da6c75, commit 6b4eecedf1cd
+4,457 of 6,044 documents: all CWE, CAPEC and ATT&CK; 1,424 of 3,011 CVEs (the CVEs are a hash-chosen part, not the first ones)
+Computed on the Mac from the downloaded records (read-only), 2026-10-14. Printed output, unedited.
+
+== 1. Records, totals, rejections by stage and by reason, per source document type ==
+1 {'model': 'qwen2.5:14b', 'prompt_version': 'corpus-v4', 'config_hash': '364d30da6c75', 'kinds': ['cwe', 'capec', 'mitre', 'cve'], 'shard': {'index': 1, 'of': 2}, 'model_digest': '7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6'} 6b4eecedf1cd56e5ff9d23bf5b89beb0cbcd5332
+2 {'model': 'qwen2.5:14b', 'prompt_version': 'corpus-v4', 'config_hash': '364d30da6c75', 'kinds': ['cwe', 'capec', 'mitre', 'cve'], 'shard': {'index': 2, 'of': 2}, 'model_digest': '7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6'} 6b4eecedf1cd56e5ff9d23bf5b89beb0cbcd5332
+records 4457 unique 4457
+[((1, 'attack'), 557), ((1, 'capec'), 298), ((1, 'cve'), 807), ((1, 'cwe'), 667), ((2, 'attack'), 519), ((2, 'capec'), 317), ((2, 'cve'), 617), ((2, 'cwe'), 675)]
+by source total Counter({'cve': 1424, 'cwe': 1342, 'attack': 1076, 'capec': 615})
+json_error record: 1 T1064 attack llm_calls 2 terms 1
+json_error record: 2 T1542.001 attack llm_calls 2 terms 1
+json_error record: 2 CVE-2022-47378 cve llm_calls 2 terms 1
+
+TOTALS
+cwe {'docs': 1342, 'proposed': 15860, 'accepted': 5941}
+capec {'docs': 615, 'proposed': 7302, 'accepted': 3415}
+attack {'docs': 1076, 'proposed': 12846, 'accepted': 5466}
+cve {'docs': 1424, 'proposed': 17025, 'accepted': 6781}
+
+BY STAGE
+cwe {'parse': 0, 'graph': 510, 'name': 4665, 'df': 4744}
+capec {'parse': 0, 'graph': 142, 'name': 816, 'df': 2929}
+attack {'parse': 2, 'graph': 1034, 'name': 2087, 'df': 4257}
+cve {'parse': 1, 'graph': 491, 'name': 1150, 'df': 8602}
+
+BY REASON
+cwe {'deprecated': 472, 'malformed_id': 10, 'name_mismatch': 4665, 'not_in_graph': 14, 'revoked': 14, 'too_common': 4744}
+capec {'deprecated': 50, 'malformed_id': 3, 'name_mismatch': 816, 'not_in_graph': 78, 'revoked': 11, 'too_common': 2929}
+attack {'deprecated': 32, 'llm_json_error': 2, 'malformed_id': 67, 'name_mismatch': 2087, 'not_in_graph': 339, 'revoked': 596, 'too_common': 4257}
+cve {'deprecated': 57, 'llm_json_error': 1, 'malformed_id': 365, 'name_mismatch': 1150, 'not_in_graph': 13, 'revoked': 56, 'too_common': 8602}
+
+STRUCTURAL by source doc x catalogue
+attack attack {'proposed': 5199, 'name_mismatch': 2041, 'counting': 1133, 'accepted': 2194, 'deprecated': 30, 'revoked': 596, 'not_in_graph': 338}
+attack capec {'proposed': 23, 'name_mismatch': 20, 'not_in_graph': 1, 'counting': 6, 'deprecated': 1, 'accepted': 1}
+attack cwe {'proposed': 44, 'accepted': 17, 'name_mismatch': 26, 'deprecated': 1, 'counting': 10}
+attack other {'proposed': 67, 'malformed_id': 67}
+capec attack {'proposed': 205, 'name_mismatch': 49, 'accepted': 141, 'not_in_graph': 3, 'counting': 9, 'revoked': 11, 'deprecated': 1}
+capec capec {'proposed': 837, 'accepted': 385, 'name_mismatch': 332, 'not_in_graph': 75, 'counting': 106, 'deprecated': 45}
+capec cwe {'proposed': 630, 'accepted': 191, 'counting': 35, 'name_mismatch': 435, 'deprecated': 4}
+capec other {'proposed': 3, 'malformed_id': 3}
+cve attack {'proposed': 502, 'accepted': 101, 'name_mismatch': 323, 'revoked': 56, 'counting': 70, 'deprecated': 9, 'not_in_graph': 13}
+cve capec {'proposed': 59, 'deprecated': 14, 'name_mismatch': 43, 'counting': 19, 'accepted': 2}
+cve cwe {'proposed': 2248, 'accepted': 1430, 'deprecated': 34, 'name_mismatch': 784, 'counting': 70}
+cve other {'proposed': 365, 'malformed_id': 365}
+cwe attack {'proposed': 85, 'accepted': 15, 'counting': 42, 'name_mismatch': 53, 'not_in_graph': 3, 'revoked': 14}
+cwe capec {'proposed': 4, 'name_mismatch': 4, 'counting': 3}
+cwe cwe {'proposed': 7271, 'accepted': 2180, 'deprecated': 472, 'name_mismatch': 4608, 'counting': 2614, 'not_in_graph': 11}
+cwe other {'proposed': 10, 'malformed_id': 10}
+
+STRUCTURAL per source doc
+cwe {'proposed': 7370, 'accepted': 2195, 'deprecated': 472, 'name_mismatch': 4665, 'counting': 2659, 'not_in_graph': 14, 'revoked': 14, 'malformed_id': 10}
+capec {'proposed': 1675, 'accepted': 717, 'counting': 150, 'name_mismatch': 816, 'deprecated': 50, 'not_in_graph': 78, 'revoked': 11, 'malformed_id': 3}
+attack {'proposed': 5333, 'malformed_id': 67, 'name_mismatch': 2087, 'counting': 1149, 'accepted': 2212, 'deprecated': 32, 'revoked': 596, 'not_in_graph': 339}
+cve {'proposed': 3174, 'accepted': 1533, 'deprecated': 57, 'name_mismatch': 1150, 'counting': 159, 'malformed_id': 365, 'revoked': 56, 'not_in_graph': 13}
+
+STRUCTURAL per catalogue (all docs)
+cwe {'proposed': 10193, 'accepted': 3818, 'deprecated': 511, 'name_mismatch': 5853, 'counting': 2729, 'not_in_graph': 11}
+capec {'proposed': 923, 'accepted': 388, 'name_mismatch': 399, 'not_in_graph': 76, 'counting': 134, 'deprecated': 60}
+attack {'proposed': 5991, 'accepted': 2451, 'counting': 1254, 'name_mismatch': 2466, 'not_in_graph': 357, 'revoked': 677, 'deprecated': 40}
+other {'proposed': 445, 'malformed_id': 445}
+
+malformed on CVE docs: {'own CVE id': 347, "bare 'cve'": 1, 'other CVE id': 12, 'other': 5} docs affected 360
+
+== 2. Structural ids: document type x catalogue the id belongs to ==
+graph = rejected at the existence stage (deprecated + revoked + not_in_graph + malformed_id)
+name/reached = name mismatches / ids that passed the existence check and so reached the name check
+count = ids in a counting run (3+ consecutive numbers); measured, never gated. df = rejected as too common
+doc     ns       prop    acc  acc%  graph   name  name/reached  count  dep  rev  nig  mal   df
+ALL     ALL     17552   6657   38%   2177   8718  8718/15375 57%   4117  611  677  444  445    0
+ALL     attack   5991   2451   41%   1074   2466  2466/4917  50%   1254   40  677  357    0    0
+ALL     capec     923    388   42%    136    399   399/787   51%    134   60    0   76    0    0
+ALL     cwe     10193   3818   37%    522   5853  5853/9671  61%   2729  511    0   11    0    0
+ALL     other     445      0    0%    445      0     0/0       -      0    0    0    0  445    0
+attack  ALL      5333   2212   41%   1034   2087  2087/4299  49%   1149   32  596  339   67    0
+attack  attack   5199   2194   42%    964   2041  2041/4235  48%   1133   30  596  338    0    0
+attack  capec      23      1    4%      2     20    20/21    95%      6    1    0    1    0    0
+attack  cwe        44     17   39%      1     26    26/43    60%     10    1    0    0    0    0
+attack  other      67      0    0%     67      0     0/0       -      0    0    0    0   67    0
+capec   ALL      1675    717   43%    142    816   816/1533  53%    150   50   11   78    3    0
+capec   attack    205    141   69%     15     49    49/190   26%      9    1   11    3    0    0
+capec   capec     837    385   46%    120    332   332/717   46%    106   45    0   75    0    0
+capec   cwe       630    191   30%      4    435   435/626   69%     35    4    0    0    0    0
+capec   other       3      0    0%      3      0     0/0       -      0    0    0    0    3    0
+cve     ALL      3174   1533   48%    491   1150  1150/2683  43%    159   57   56   13  365    0
+cve     attack    502    101   20%     78    323   323/424   76%     70    9   56   13    0    0
+cve     capec      59      2    3%     14     43    43/45    96%     19   14    0    0    0    0
+cve     cwe      2248   1430   64%     34    784   784/2214  35%     70   34    0    0    0    0
+cve     other     365      0    0%    365      0     0/0       -      0    0    0    0  365    0
+cwe     ALL      7370   2195   30%    510   4665  4665/6860  68%   2659  472   14   14   10    0
+cwe     attack     85     15   18%     17     53    53/68    78%     42    0   14    3    0    0
+cwe     capec       4      0    0%      0      4     4/4    100%      3    0    0    0    0    0
+cwe     cwe      7271   2180   30%    483   4608  4608/6788  68%   2614  472    0   11    0    0
+cwe     other      10      0    0%     10      0     0/0       -      0    0    0    0   10    0
+
+== 3. malformed_id outside the CVE-id cases, by shape (digits shown as 9) ==
+cwe [('CVE-9999-9999', 3), ('CVE-9999-99999', 1), ('cwe-ics', 1), ('cwe-ics-engineering', 1), ('CWE-9PK', 1), ('cwe-9999 top 99', 1), ('cwe-java', 1), ('cwe-sec', 1)]
+attack [('MITRE ATT&CK', 40), ('mitre-attack', 5), ('mitre attack persistence', 3), ('mitre-ics-attack', 3), ('mitre attack', 2), ('mitre-attack persistence', 2), ('MITRE ICS', 2), ('mitre attack defense evasion', 1), ('mitre attack privilege escalation', 1), ('mitre-attack privilege-escalation', 1), ('MITRE ATT&CK ICS', 1), ('Mitre Mobile Attack', 1)]
+cve [('T99999.999', 4), ('T99999', 1)]
+capec [('ATT&CK', 2), ('cve-9999-9999', 1)]

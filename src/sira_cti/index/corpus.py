@@ -60,6 +60,27 @@ def _canonical_id(kind: str, raw: str) -> str:
 
 _KIND_ALIASES = {"attack": "mitre", "att&ck": "mitre"}   # the catalogue's name vs corpus_kb's file name
 
+# Two names for ATT&CK, both fixed: a *kind* is a corpus_kb file name
+# (``mitre.jsonl``, in the config, so in the config hash) and a record's
+# ``source`` is the frozen schema's ``Source.ATTACK`` (``"attack"``). Translate
+# with these two functions -- never a local dict -- so no report can lose a
+# kind by grouping on one name and listing the other.
+_KIND_OF_SOURCE = {source.value: kind for kind, source in _SOURCE.items()}
+
+
+def source_of_kind(kind: str) -> Source:
+    """``"mitre"`` (or ``"attack"``) -> ``Source.ATTACK``; ``"cve"`` -> ``Source.CVE``."""
+    key = _KIND_ALIASES.get(kind.strip().lower(), kind.strip().lower())
+    if key not in _SOURCE:
+        raise ValueError(f"unknown corpus kind {kind!r}; valid: {list(_SOURCE)}")
+    return _SOURCE[key]
+
+
+def kind_of_source(source: Source | str) -> str:
+    """``Source.ATTACK`` / ``"attack"`` -> ``"mitre"``. A source with no corpus file is returned as is."""
+    value = source.value if isinstance(source, Source) else str(source)
+    return _KIND_OF_SOURCE.get(value, value)
+
 
 def order_kinds(requested: Optional[str | Iterable[str]], configured: Iterable[str]) -> list[str]:
     """The kinds to process, in the order asked for.
