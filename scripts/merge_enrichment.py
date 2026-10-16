@@ -40,7 +40,7 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from sira_cti.index.corpus import shard_of  # noqa: E402
+from sira_cti.index.corpus import shard_of, source_of_kind  # noqa: E402
 
 MUST_AGREE = ("config_hash", "model", "model_digest", "prompt_version", "sampling", "gates")
 """Manifest entries every source file must share. ``gates`` holds the name
@@ -49,6 +49,11 @@ scorer and the truncation budget and rules; ``sampling`` holds the sampling seed
 LLM_MUST_AGREE = ("backend", "temperature", "seed_sent", "num_ctx")
 """The parts of the manifest's ``llm`` block that shape a reply. The rest of
 that block (token usage, pricing) describes one session, not the method."""
+
+PROCESS_FIELDS = ("cuda_visible_devices", "ollama_host")
+"""Fields of a manifest's ``machine`` that describe one process, not the machine.
+A Kaggle session runs one process per GPU, so the same machine appears once per
+GPU with only these two differing."""
 
 SIDECARS = (".failures.jsonl", ".raw_failures.jsonl")
 _MISSING = "(not recorded)"
@@ -196,6 +201,28 @@ def _machines(manifest: dict[str, Any]) -> list[Any]:
     return out
 
 
+def machines_by_host(machines: list[Any]) -> list[dict[str, Any]]:
+    """One entry per machine, with the processes that ran on it under ``processes``.
+
+    Two entries are the same machine when everything but :data:`PROCESS_FIELDS`
+    matches. Kaggle session 1 and session 2 each ran a process on GPU 0 and one
+    on GPU 1, so four process entries become two machines with two processes each.
+    """
+    out: list[dict[str, Any]] = []
+    for machine in machines:
+        if not isinstance(machine, dict):
+            continue
+        host = {k: v for k, v in machine.items() if k not in PROCESS_FIELDS}
+        process = {k: machine[k] for k in PROCESS_FIELDS if k in machine}
+        entry = next((e for e in out if {k: v for k, v in e.items() if k != "processes"} == host), None)
+        if entry is None:
+            entry = {**host, "processes": []}
+            out.append(entry)
+        if process and process not in entry["processes"]:
+            entry["processes"].append(process)
+    return out
+
+
 def _codes(manifest: dict[str, Any]) -> list[Any]:
     out = list(manifest.get("code_previous") or [])
     if manifest.get("code"):
@@ -240,7 +267,9 @@ def build_manifest(
     # Recounted from the records. A source manifest's own "usage" covers only
     # its last session, so adding those up would undercount a resumed run.
     calls = prompt = completion = thinking = 0
-    by_source: dict[str, int] = {}
+    # Every kind the manifests name, at 0 until counted: a kind with no records
+    # must show as 0, not vanish from the summary.
+    by_source: dict[str, int] = {source_of_kind(k).value: 0 for k in kinds}
     for line in lines:
         record = json.loads(line)
         calls += int(record.get("llm_calls") or 0)
@@ -272,7 +301,8 @@ def build_manifest(
         manifest["code"] = codes[-1]
         if len(codes) > 1:
             manifest["code_previous"] = codes[:-1]
-    manifest["machines"] = _distinct([machine for m in manifests for machine in _machines(m)])
+    # Per machine; each source below keeps its own full per-process list.
+    manifest["machines"] = machines_by_host([machine for m in manifests for machine in _machines(m)])
     manifest["merged"] = {
         **counts,
         "documents_by_source": by_source,
@@ -356,7 +386,12 @@ def main() -> int:
           f"config {manifest['config_hash']}  prompt {manifest['prompt_version']}")
     print("  machines:")
     for machine in manifest["machines"]:
-        print(f"    {machine.get('hostname')}  {machine.get('platform')}  gpu={machine.get('gpu')}")
+        processes = ", ".join(
+            f"CUDA_VISIBLE_DEVICES={p.get('cuda_visible_devices')} {p.get('ollama_host')}"
+            for p in machine.get("processes") or []
+        )
+        print(f"    {machine.get('hostname')}  {machine.get('platform')}  gpu={machine.get('gpu')}"
+              + (f"  processes: {processes}" if processes else ""))
     commits = _distinct([c for s in merged["sources"] for c in s["code_commits"]])
     if len(commits) > 1:
         print(f"  NOTE: the source files were written by more than one code commit: {[c[:12] for c in commits]}")

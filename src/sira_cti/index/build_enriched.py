@@ -32,9 +32,9 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
-from ..common.schemas import EnrichmentRecord, read_jsonl
+from ..common.schemas import EnrichmentRecord, RejectReason, read_jsonl
 from .build_base import _run_pyserini_index
 from .corpus import KINDS, load_corpus
 
@@ -64,13 +64,7 @@ def write_json_collection_with_expansion(
     rather than silently dropping the document from the enriched index and
     making the two indexes' doc sets diverge.
     """
-    expansions: dict[str, str] = {}
-    for rec in read_jsonl(enrichment_path):
-        expansion = rec.expansion_query()
-        if index_repaired_ids:
-            repaired = " ".join(repaired_ids(rec))
-            expansion = f"{expansion} {repaired}".strip()
-        expansions[rec.doc_id] = expansion
+    expansions = read_expansions(enrichment_path, index_repaired_ids=index_repaired_ids)
 
     staging_dir = Path(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -88,6 +82,46 @@ def write_json_collection_with_expansion(
     if n == 0:
         raise ValueError(f"no documents written to {out_file} -- check kb_dir/kinds")
     return out_file
+
+
+def read_expansions(enrichment_path: str | Path, *, index_repaired_ids: bool = False) -> dict[str, str]:
+    """``doc_id -> expansion text``: each record's accepted terms, space-joined.
+
+    A reply that could not be parsed is stored as one rejected placeholder
+    term (``reject_reason=llm_json_error``) holding the start of the raw
+    reply. It is not accepted, so its document gets an empty expansion, the
+    same as a document the model had nothing to add to.
+    """
+    expansions: dict[str, str] = {}
+    for rec in read_jsonl(enrichment_path):
+        expansion = rec.expansion_query()
+        if index_repaired_ids:
+            repaired = " ".join(repaired_ids(rec))
+            expansion = f"{expansion} {repaired}".strip()
+        expansions[rec.doc_id] = expansion
+    return expansions
+
+
+def enrichment_summary(enrichment_path: str | Path) -> dict[str, Any]:
+    """What the index manifest says about the enrichment file it was built from."""
+    records = accepted = with_expansion = 0
+    schema_versions: set[str] = set()
+    parse_failures: list[str] = []
+    for rec in read_jsonl(enrichment_path):
+        records += 1
+        n = len(rec.accepted_terms)
+        accepted += n
+        with_expansion += n > 0
+        schema_versions.add(rec.schema_version)
+        if any(t.reject_reason is RejectReason.LLM_JSON_ERROR for t in rec.proposed_terms):
+            parse_failures.append(rec.doc_id)
+    return {
+        "records": records,
+        "accepted_terms": accepted,
+        "documents_with_expansion": with_expansion,
+        "schema_versions": sorted(schema_versions),
+        "parse_failures": parse_failures,
+    }
 
 
 def repaired_ids(record: EnrichmentRecord) -> list[str]:
@@ -138,10 +172,12 @@ def build_enriched_index(
     index_dir = Path(index_dir)
     staging = Path(staging_dir) if staging_dir else index_dir.parent / f"{index_dir.name}_staging"
 
-    write_json_collection_with_expansion(
+    docs_file = write_json_collection_with_expansion(
         kb_dir, enrichment_path, staging, kinds=kinds, limit=limit,
         index_repaired_ids=index_repaired_ids,
     )
+    with docs_file.open(encoding="utf-8") as fh:
+        doc_ids = {json.loads(line)["id"] for line in fh if line.strip()}
     _run_pyserini_index(
         input_dir=staging, index_dir=index_dir, threads=threads, stemmer=stemmer,
         extra_fields=[EXPANSION_FIELD],
@@ -152,13 +188,30 @@ def build_enriched_index(
         json.loads(enrichment_manifest_path.read_text()) if enrichment_manifest_path.exists() else {}
     )
 
+    summary = enrichment_summary(enrichment_path)
+    enriched_ids = {rec.doc_id for rec in read_jsonl(enrichment_path)}
+    code = enrichment_manifest.get("code") or {}
     manifest = {
         "kind": "enriched",
         "kb_dir": str(kb_dir),
         "kinds": list(kinds),
+        "doc_count": len(doc_ids),
         "enrichment_path": str(enrichment_path),
         "enrichment_prompt_version": enrichment_manifest.get("prompt_version"),
         "enrichment_model": enrichment_manifest.get("model"),
+        "enrichment_model_digest": enrichment_manifest.get("model_digest"),
+        "enrichment_config_hash": enrichment_manifest.get("config_hash"),
+        "enrichment_code_commit": code.get("code_commit") if isinstance(code, dict) else None,
+        "enrichment_schema_versions": summary["schema_versions"],
+        "enrichment_records": summary["records"],
+        # Corpus documents the enrichment file has no record for: they are in
+        # the index with an empty expansion field. 0 for a finished run.
+        "documents_not_enriched": len(doc_ids - enriched_ids),
+        # Enrichment records whose id is not in the corpus: never indexed.
+        "records_not_in_corpus": len(enriched_ids - doc_ids),
+        "documents_with_expansion": summary["documents_with_expansion"],
+        "accepted_terms": summary["accepted_terms"],
+        "parse_failures": summary["parse_failures"],
         "stemmer": stemmer,
         "config_hash": config_hash,
         "index_repaired_ids": index_repaired_ids,

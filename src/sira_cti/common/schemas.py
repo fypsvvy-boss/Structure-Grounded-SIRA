@@ -531,8 +531,18 @@ class EnrichmentRecord:
         return stale / len(pool)
 
     def expansion_query(self) -> str:
-        """The ``q_exp`` half of ``score(d) = BM25(q_orig,d) + w*BM25(q_exp,d)``."""
-        return " ".join(t.term for t in self.accepted_terms)
+        """The ``q_exp`` half of ``score(d) = BM25(q_orig,d) + w*BM25(q_exp,d)``.
+
+        A structural term contributes its normalised id, not the text the model
+        wrote: ``"mitre attack t1499"`` resolves to ``T1499`` and only ``T1499``
+        is added. Structural ids skip the document-frequency gate, so the raw
+        text would carry "mitre" and "attack" into the index unchecked. The
+        query side (``retrieval.weighted_bm25._query_text``) does the same.
+        """
+        return " ".join(
+            t.structural_id if t.kind is TermKind.STRUCTURAL and t.structural_id else t.term
+            for t in self.accepted_terms
+        )
 
     # -- serialisation ------------------------------------------------------------
 

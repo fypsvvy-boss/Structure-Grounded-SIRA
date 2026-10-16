@@ -97,6 +97,41 @@ def test_a_file_continued_on_a_second_machine_brings_both_machines(tmp_path):
     assert [m["hostname"] for m in manifest["merged"]["sources"][0]["machines"]] == ["mac", "kaggle-1"]
 
 
+def test_one_machine_running_two_gpus_is_listed_once_with_both_processes(tmp_path):
+    """The Kaggle shape: two sessions, each running shard 1 on GPU 0 and shard 2 on GPU 1.
+
+    Stage 1's merged manifest listed each session's machine twice: the two
+    entries differ only in which GPU and port the process used.
+    """
+    def machine(hostname, gpu):
+        return {**_machine(hostname), "cuda_visible_devices": str(gpu),
+                "ollama_host": f"http://127.0.0.1:{11434 + gpu}"}
+
+    paths = []
+    for index, gpu in ((1, 0), (2, 1)):
+        path = tmp_path / f"full.shard{index}of2.jsonl"
+        _run(path, DOCS[:12], shard=(index, 2), machine=machine("session-1", gpu))
+        _run(path, DOCS, shard=(index, 2), machine=machine("session-2", gpu))
+        paths.append(path)
+
+    manifest = merge(paths, tmp_path / "merged.jsonl", expect=len(DOCS))
+    assert [m["hostname"] for m in manifest["machines"]] == ["session-1", "session-2"]
+    for entry in manifest["machines"]:
+        assert entry["processes"] == [
+            {"cuda_visible_devices": "0", "ollama_host": "http://127.0.0.1:11434"},
+            {"cuda_visible_devices": "1", "ollama_host": "http://127.0.0.1:11435"},
+        ]
+        assert "cuda_visible_devices" not in entry
+    # Each source file still names every process that wrote it, in full.
+    assert [m["cuda_visible_devices"] for m in manifest["merged"]["sources"][1]["machines"]] == ["1", "1"]
+
+
+def test_a_kind_with_no_records_is_counted_as_zero_not_left_out(tmp_path):
+    only_cve = _run(tmp_path / "cve.jsonl", DOCS[12:])
+    manifest = merge([only_cve], tmp_path / "merged.jsonl")
+    assert manifest["merged"]["documents_by_source"] == {"attack": 0, "cve": 12}
+
+
 @pytest.mark.parametrize(
     "override, label",
     [

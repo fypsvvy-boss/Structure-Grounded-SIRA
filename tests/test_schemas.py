@@ -207,6 +207,18 @@ def test_expansion_query_uses_accepted_terms_only():
     assert "T9999" not in q_exp
 
 
+def test_expansion_query_adds_a_structural_terms_id_not_the_models_wording():
+    """Stage 1: 18 accepted ids were written like "ATT&CK T1499" or "capec 112"."""
+    rec = EnrichmentRecord(
+        doc_id="T1499.004", source=Source.ATTACK, original_text="x",
+        proposed_terms=[
+            ProposedTerm.accept("mitre attack t1499", TermKind.STRUCTURAL, structural_id="T1499", doc_freq=5),
+            ProposedTerm.accept("dos on endpoint", TermKind.COLLOQUIAL, doc_freq=40),
+        ],
+    )
+    assert rec.expansion_query() == "T1499 dos on endpoint"
+
+
 def test_json_round_trip_is_lossless():
     original = _record()
     restored = EnrichmentRecord.from_json(original.to_json())

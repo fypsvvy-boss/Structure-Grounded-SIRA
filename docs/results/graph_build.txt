@@ -1,0 +1,75 @@
+Ontology graph build log (2026-10-16). Printed output of scripts/build_graph.py --config configs/default.yaml, unedited below the ---.
+Run on the Mac at commit 8e2023f10851 (graph code unchanged since 6b4eece, the Stage 1 commit). The Kaggle logs do not record the graph build.
+Pinned inputs (SHA-256):
+  0d1c347a4d584cf7e11ef46556c33b7689341443bf86299188d46c307274323b  data/raw/attack/enterprise-attack.json
+  cb207f963ca270994d9dabefe52237d46cf25056f154057f4b961f1c0803a8f3  data/raw/attack/ics-attack.json
+  33968697b94a5ff5568016a28bbcc93f7869dc2f2b2653ead833758867ab5bc9  data/raw/attack/mobile-attack.json
+  70279a2dff0cb0ad79e546adb07828335a704ad5210e047e09e986172fc9e34d  data/raw/capec/capec_latest.xml
+  3976f599e5e5200219a3108bb896d06e2a88fbb293369e1883cb423a5e9d7d50  data/raw/cwe/cwec_latest.xml.zip
+---
+{
+  "nodes": 4486,
+  "edges": 11514,
+  "nodes_by_namespace": {
+    "attack": 2421,
+    "cwe": 1450,
+    "capec": 615
+  },
+  "nodes_by_type": {
+    "mitigation": 110,
+    "software": 887,
+    "tactic": 40,
+    "subtechnique": 518,
+    "technique": 588,
+    "group": 185,
+    "campaign": 51,
+    "data_source": 42,
+    "weakness": 969,
+    "weakness_category": 422,
+    "weakness_view": 59,
+    "attack_pattern": 615
+  },
+  "nodes_by_status": {
+    "active": 4013,
+    "revoked": 193,
+    "deprecated": 280
+  },
+  "edges_by_type": {
+    "revoked_by": 190,
+    "in_tactic": 1396,
+    "subtechnique_of": 516,
+    "child_of": 1693,
+    "member_of": 5024,
+    "maps_to": 2695
+  },
+  "dangling_edges": 0,
+  "warnings": 224
+}
+
+224 loader warning(s):
+  skipped legacy course-of-action 'T1174' ('Password Filter DLL Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1151' ('Space after Filename Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1148' ('HISTCONTROL Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1081' ('Credentials in Files Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1212' ('Exploitation for Credential Access Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1012' ('Query Registry Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1162' ('Login Item Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1166' ('Setuid and Setgid Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1223' ('Compiled HTML File Mitigation'): id belongs to technique-namespace, not mitigation
+  skipped legacy course-of-action 'T1488' ('Data Destruction Mitigation'): id belongs to technique-namespace, not mitigation
+
+Spot checks:
+  [ok ] T1110                valid            Brute Force — the running example throughout the proposal
+  [ok ] t1110/001            valid            sloppy sub-technique spelling must still resolve
+  [ok ] CWE-307              valid            Improper Restriction of Excessive Authentication Attempts
+  [ok ] CAPEC-49             valid            Password Brute Forcing
+  [ok ] T9999                not_in_graph     well-formed but invented — the hallucination case
+  [ok ] T1110.099            not_in_graph     real parent, invented child
+  [ok ] T99                  malformed_id     malformed
+  [ok ] brute force login    malformed_id     plain language is not a structural term
+
+Cross-namespace spine:
+  CWE-307 -> ['CAPEC-16', 'CAPEC-49', 'CAPEC-560', 'CAPEC-565', 'CAPEC-600', 'CAPEC-652', 'CAPEC-653']
+  CAPEC-49 -> ['CWE-257', 'CWE-262', 'CWE-263', 'CWE-307', 'CWE-308', 'CWE-309', 'CWE-521', 'CWE-654', 'T1110.001']
+
+PASSED — 8/8 spot checks

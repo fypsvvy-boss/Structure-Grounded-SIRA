@@ -297,9 +297,20 @@ source `attack` (the schema) — translate only with
 `index.corpus.source_of_kind()` / `kind_of_source()`, never a local dict.
 Provisional RQ4 numbers: `04_OPEN_QUESTIONS.md` question 14.
 
+**Stage 1 complete, 2026-10-14; Phase 1 complete.** Session 2 finished both
+shards; merged file `indexes/enrichment/corpus_full_v4_14b.jsonl` (6,044
+records, verified against the corpus and the shards); enriched index built
+into `indexes/enriched/` and checked. The shard files are kept in
+`indexes/enrichment/kaggle_stage1_shards/` for provenance only. **Modules 2
+and 3 start from `07_PHASE1_HANDOFF.md`.** Final RQ4 numbers: question 14 and
+`docs/results/stage1_full_breakdown.txt` (`scripts/rq4_breakdown.py`).
+`expansion_query()` now indexes a structural term's normalised id, not the
+model's wording. The merged manifest lists each machine once, with its
+per-GPU processes under `processes`.
+
 ### Tests
 
-**455 tests pass** (+11 on 2026-10-14: `tests/test_report_kinds.py` — every kind in the session summary, the notebook printout and `report_enrichment.py`, zero rows shown, the kind/source translation). 444 before that (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+**472 tests pass** (+17 on 2026-10-14, Stage 1 complete: `tests/test_rq4_breakdown.py` (11), every kind in every summary, machines listed once per host, a kind with no records counted as 0, unparseable replies give an empty expansion, the index manifest's counts, structural ids indexed by id). 455 before that (+11 on 2026-10-14: `tests/test_report_kinds.py` — every kind in the session summary, the notebook printout and `report_enrichment.py`, zero rows shown, the kind/source translation). 444 before that (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,

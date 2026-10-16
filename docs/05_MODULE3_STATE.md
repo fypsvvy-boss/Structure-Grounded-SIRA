@@ -61,8 +61,10 @@ untuned at 1.0** and should be set on the held-out slice alongside `w`.
 
 Read-time filtering, as `schemas.py` requires: accepted terms only, deduped. A
 structural term contributes its `structural_id` (the post-repair id), not the
-model's literal text — this differs from `EnrichmentRecord.expansion_query()`,
-which joins `term`. `--no-grounding` also admits terms rejected for a graph
+model's literal text. Since 2026-10-14 `EnrichmentRecord.expansion_query()`
+(the corpus side, what the enriched index's `expansion` field holds) follows
+the same rule; before, it joined `term`, and an id written as
+`"mitre attack t1499"` put "mitre" and "attack" into the index. `--no-grounding` also admits terms rejected for a graph
 reason (`not_in_graph`, `deprecated`, `revoked`, `malformed_id`), which gives
 the "without graph-grounding" ablation from the same records with no second LLM
 pass. Corpus-statistics rejections (`too_common`, `not_in_index`) stay out
@@ -84,6 +86,16 @@ turning it on for SIRA-CTI only is an advantage the baselines don't get, and
 should be reported as such. The alternative is for Module 2 to add the node's
 *name* to `q_exp` (`OntologyGraph.expansion_terms`), which matches the entry's
 title with no special handling.
+
+**Already partly true in the enriched index (found 2026-10-14).** Corpus-side
+enrichment accepted an entry's own id on **305 entries**: 209 of 615 CAPEC, 59
+of 1,342 CWE, 37 of 1,076 ATT&CK (CVE 0 — a CVE id is never accepted as
+structural). The prompt does not show the id, but the entry's text often
+contains it (CAPEC especially). So with `id_boost: 0.0`, a query naming
+`CAPEC-112` can still find the CAPEC-112 entry through its `expansion` field,
+for a third of CAPEC entries and few others. Not changed: whether to strip
+own ids from `expansion`, or to accept it and report it, is part of this
+decision. Details: `07_PHASE1_HANDOFF.md`.
 
 ### 5. Synthesis is evidence-blind by construction
 
@@ -118,6 +130,9 @@ agent's.
 
 ## Open items
 
+- [x] Full enriched index from Module 1 (2026-10-14): `indexes/enriched/`,
+      6,044 documents. What it holds and how to use it:
+      `07_PHASE1_HANDOFF.md`.
 - [ ] Run all four systems on the real corpus and CTIConnect queries.
 - [ ] Tune `w` and the field boosts on a held-out slice (README assigns weight
       tuning to Module 2; the sweep is `--w` on the runner).

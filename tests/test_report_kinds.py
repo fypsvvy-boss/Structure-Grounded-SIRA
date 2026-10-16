@@ -20,6 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import enrich_corpus  # noqa: E402
+import merge_enrichment  # noqa: E402
 import kaggle_stage1 as ks  # noqa: E402
 import report_enrichment  # noqa: E402
 
@@ -102,3 +103,34 @@ def test_report_enrichment_counts_and_prints_every_kind(tmp_path):
 
 def test_seconds_per_doc_keys_are_kinds_for_every_source(tmp_path):
     assert set(ks.seconds_per_doc_from(_run_file(tmp_path / "run.jsonl"))) == set(RUN_KINDS)
+
+
+def test_every_kind_appears_in_every_summary(tmp_path, capsys, monkeypatch):
+    """One file holding all four kinds, through every summary a Stage 1 run prints.
+
+    ``mitre`` (the corpus file and config kind) and ``attack`` (the record
+    source) are both kept on purpose: renaming either would change the config
+    hash or the frozen schema. Each summary prints the source name, so every
+    one of them must show ``attack``.
+    """
+    path = _run_file(tmp_path / "run.jsonl")
+    side = path.with_suffix(path.suffix + ".manifest.json")
+    side.write_text(json.dumps({"kinds": RUN_KINDS, "model_digest": "7cdf5a0187d5"}))   # merge requires one
+    shown: dict[str, str] = {}
+
+    shown["enrich_corpus.by_source_lines"] = "\n".join(enrich_corpus.by_source_lines(path, RUN_KINDS))
+    log = "1 docs total, 0 already done, 4 processed, 0 failed, 0 unparseable, 1.0s\n" + shown["enrich_corpus.by_source_lines"]
+    shown["kaggle_stage1.summary_block"] = "\n".join(ks.summary_block(log))
+
+    report_enrichment._print(report_enrichment.summarise(path))
+    shown["report_enrichment"] = capsys.readouterr().out
+
+    manifest = merge_enrichment.merge([path], tmp_path / "merged.jsonl")
+    shown["merge_enrichment manifest"] = json.dumps(manifest["merged"]["documents_by_source"])
+    monkeypatch.setattr(sys, "argv", ["merge_enrichment.py", str(path), "--output", str(tmp_path / "merged2.jsonl")])
+    assert merge_enrichment.main() == 0
+    shown["merge_enrichment printout"] = capsys.readouterr().out
+
+    for name, text in shown.items():
+        for source in ALL_SOURCES:
+            assert source in text, f"{source} missing from {name}:\n{text}"

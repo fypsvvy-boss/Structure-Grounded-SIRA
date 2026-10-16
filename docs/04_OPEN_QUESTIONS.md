@@ -290,6 +290,12 @@ many `malformed_id` rejections are CVE ids or the bare word, and report RQ4's
 malformed rate with and without them. No code or gate change now — Stage 1
 runs as frozen.
 
+**Counted on the full corpus (2026-10-14):** 813 `malformed_id` rejections on
+CVE entries, in 804 of 3,011 (27%) — 777 the entry's own id, 25 another CVE
+id, 2 the bare word. Malformed rate 4.3% of structural proposals with them,
+0.4% without. Question 14 has the table. This question (count it as
+structural, or keep it out of scope) is still open.
+
 
 ---
 
@@ -1047,40 +1053,49 @@ whose token count Ollama reports as larger than the context allows.
 
 ---
 
-## 14. (Results, PROVISIONAL, 2026-10-14) RQ4 on the full corpus, first look — Kaggle Session 1
+## 14. (Results, FINAL for this run, 2026-10-14; checked again 2026-10-16) RQ4 on the full corpus
 
-**Provisional:** 4,457 of 6,044 documents — every CWE (1,342), CAPEC (615)
-and ATT&CK (1,076) entry, and 1,424 of 3,011 CVEs. The CVE numbers will move
-when Session 2 adds the other 1,587; the non-CVE numbers are final for this
-run. `qwen2.5:14b`, prompt `corpus-v4`, **name scorer v2**, one run (no
-second run to give a range yet). Every table, unedited:
-**`docs/results/stage1_session1_breakdown.txt`**.
+**Final for this run:** all 6,044 documents — 1,342 CWE, 615 CAPEC, 1,076
+ATT&CK, 3,011 CVE — from the merged file
+`indexes/enrichment/corpus_full_v4_14b.jsonl`. `qwen2.5:14b`, prompt
+`corpus-v4`, **name scorer v2**, one run (no second full run, so no range yet).
+Every table, unedited, with the 40-document sample beside it:
+**`docs/results/stage1_full_breakdown.txt`**. To recompute:
+`.venv/bin/python scripts/rq4_breakdown.py indexes/enrichment/corpus_full_v4_14b.jsonl`.
+The Session 1 numbers this replaces (4,457 documents) are kept in
+`docs/results/stage1_session1_breakdown.txt`; the non-CVE rows did not change,
+because Session 2 enriched only CVEs.
 
 **In plain words:** the model is asked for up to 12 search terms per entry;
 some are *structural* ids such as `CWE-79`. Each id goes through two checks
 in turn — does it **exist** in MITRE's catalogues (stage `graph`), and is the
 name the model gave it MITRE's name for it (stage `name`)?
 
-### Structural ids, all documents so far
+### Structural ids, all documents
 
 | | proposed | accepted | rejected: does not exist | rejected: wrong name | in a counting run |
 |---|---|---|---|---|---|
-| all | 17,552 | 6,657 (38%) | 2,177 (12%) | 8,718 (50%) | 4,117 (23%) |
+| full corpus | 20,588 | **8,031 (39%)** | 2,705 (13%) | 9,852 (48%) | 4,237 (21%) |
+| 40-doc sample, Mac v1 / Kaggle v1 / Mac re-scored v2 | 157 / 155 / 157 | 59 / 54 / 57 | 32 / 23 / 32 | 66 / 78 / 68 | 51 / 47 / 51 |
 
-The **40-document sample** gave 35–38% accepted, so the full corpus agrees
-with it. Counting runs are lower than the sample's ~30–33% (23%).
+The sample gave 35–38% accepted, so the full corpus agrees with it. Counting
+runs are lower than the sample's ~30–33% (21%). Of the ids that exist, 55%
+carry the wrong name (9,852 of 17,883; sample 53–54%).
 
 ### By stage and by type of document (all terms, not only ids)
 
 | document type | docs | proposed | accepted | parse | `graph` | `name` | too common |
 |---|---|---|---|---|---|---|---|
-| CWE | 1,342 | 15,860 | 5,941 | 0 | 510 | **4,665** | 4,744 |
-| CAPEC | 615 | 7,302 | 3,415 | 0 | 142 | 816 | 2,929 |
-| ATT&CK | 1,076 | 12,846 | 5,466 | 2 | 1,034 | 2,087 | 4,257 |
-| CVE (part) | 1,424 | 17,025 | 6,781 | 1 | 491 | 1,150 | 8,602 |
+| CWE | 1,342 | 15,860 | 5,941 (37%) | 0 | 510 | **4,665** | 4,744 |
+| CAPEC | 615 | 7,302 | 3,415 (47%) | 0 | 142 | 816 | 2,929 |
+| ATT&CK | 1,076 | 12,846 | 5,466 (43%) | 2 | 1,034 | 2,087 | 4,257 |
+| CVE | 3,011 | 34,678 | 13,883 (40%) | 1 | 1,019 | 2,284 | 17,491 |
+| all | 6,044 | 70,686 | 28,705 (41%) | 3 | 2,705 | 9,852 | 29,421 |
 
 `graph` = deprecated + revoked + not in the graph + malformed. No structural
-id was rejected as too common; that gate only removes phrases.
+id was rejected as too common; that gate only removes phrases. "parse" is the
+three unparseable replies, one placeholder term each (not real proposals —
+leave them out of any "proposed" count).
 
 ### Highlight 1: CWE name mismatches
 
@@ -1092,62 +1107,82 @@ counting habit from question 8 at full scale: the model reads `CWE-512`, lists
 ~940 live entries into 1..1425), so the existence check passes them; the name
 check is what stops them.
 
-The same CWE ids proposed **for a CVE** fare much better — 35% wrong names
-(784 of 2,214), 64% accepted — because a CVE usually names its CWE in its own
-text, and copying an id brings its correct name with it.
+The same CWE ids proposed **for a CVE** fare much better — 39% wrong names
+(1,714 of 4,450), 61% accepted — because a CVE usually names its CWE in its
+own text, and copying an id brings its correct name with it.
 
 | CWE ids (the catalogue) proposed on … | reached the name check | wrong name |
 |---|---|---|
 | CWE entries | 6,788 | 4,608 (**68%**) |
 | CAPEC entries | 626 | 435 (69%) |
-| CVE entries | 2,214 | 784 (35%) |
-| all | 9,671 | 5,853 (61%) |
+| CVE entries | 4,450 | 1,714 (39%) |
+| ATT&CK entries | 43 | 26 (60%) |
+| all | 11,907 | 6,783 (57%) |
 
-For comparison, ATT&CK ids: 50% wrong names (2,466 of 4,917); CAPEC ids: 51%.
+For comparison, ATT&CK ids: 51% wrong names (2,651 of 5,170); CAPEC ids: 52%
+(418 of 806). The 40-document sample: 21–22 of 30 CWE ids on CWE entries.
 
 ### Highlight 2: `malformed_id` on CVE entries — CVE ids proposed as structural terms
 
-**365 malformed ids on 1,424 CVE entries, in 360 of them (25%).** 347 are the
-CVE's **own id** (`CVE-2019-13351` proposed for `CVE-2019-13351`), 12 another
-CVE id, 1 the bare word `cve`, and 5 five-digit ATT&CK-shaped ids
-(`T99999.999`). The prompt says not to propose CVE ids; the model does it on
-a quarter of CVE entries anyway. The 40-document sample had shown this at a
-small scale (3–5 cases); now it is a pattern.
+**813 malformed ids on CVE entries, in 804 of 3,011 (27%).** 777 are the
+CVE's **own id** (`CVE-2019-13351` proposed for `CVE-2019-13351`), 25 another
+CVE id, 2 the bare word `cve`, and 9 other shapes (5 five-digit ATT&CK-shaped
+ids like `T99999.999`, 3 cut-off CVE ids, 1 `cwe`). The prompt says not to
+propose CVE ids; the model does it on more than a quarter of CVE entries
+anyway. The 40-document sample had 3.
 
-**They are not hallucinations,** and they must not be counted as such in RQ4
-(question 3 drew the same line for form-filling slips). The id is real and is
-the document's own; the slip is calling it "structural", which our gates
-reserve for CWE / CAPEC / ATT&CK. Question 6 (should a CVE id count as
-structural?) decides whether these are mislabelled or simply out of scope.
-Either way they never reach the index.
+**They are not hallucinations,** and must not be counted as such in RQ4
+(question 3 drew the same line for form-filling slips; question 6 asked for
+this count). The id is real and almost always the document's own; the slip
+is calling it "structural", which our gates reserve for CWE / CAPEC / ATT&CK.
+Either way they never reach the index. **Malformed rate: 4.3% of structural
+proposals with them (893 of 20,588), 0.4% without the 813 on CVE entries.**
 
 The other malformed ids, also not invented ids: on ATT&CK entries, 67 that
 are the catalogue's *name* labelled structural (`MITRE ATT&CK` 40 times,
 `mitre-attack`, `MITRE ICS` …); on CWE entries 10 (`cwe-java`, `CWE-9PK`, a
-stray CVE id).
+stray CVE id); on CAPEC entries 3.
+
+### Counting runs (3+ consecutive ids from one catalogue in one reply)
+
+| document type | ids in runs | of which accepted | documents with a run |
+|---|---|---|---|
+| CWE | 2,659 | 357 | 444 of 1,342 |
+| CAPEC | 150 | 57 | 32 of 615 |
+| ATT&CK | 1,149 | 183 | 229 of 1,076 |
+| CVE | 279 | 52 | 68 of 3,011 |
+
+Measured, never gated. 4,237 in all (21% of structural ids), 649 accepted.
+
+### Copied vs generated, and distance in the graph
+
+Of the 8,031 accepted ids, **2,991 (37%) were copied** from the text the
+model was shown and 5,040 (63%) generated (sample 20 of 39 / 20 of 34
+copied). 2,639 of the 4,585 accepted ids that have a path to the document's
+own node are within 2 hops (58%), median 2 (sample 25 of 38 / 24 of 37).
+From `scripts/report_enrichment.py`, Part D of the results file.
 
 ### Also worth noting
 
-- **Revoked ATT&CK ids: 596 on ATT&CK entries** (677 in all, 88 distinct
-  ids), all old `T10xx` numbers MITRE has withdrawn. It is **not** out-of-date
-  knowledge, as it first looks: the names the model gives are not what those
-  numbers used to mean. `T1075` (55 times) was Pass the Hash; the model calls
-  it "Data from Information Repositories". `T1093` (55) was Process Hollowing;
-  the model says "External Remote Services". It looks like the same numbering
-  habit in a range where many numbers are retired. Only 198 of the 677 sit in
-  a detected counting run (the detector needs 3 consecutive numbers, and gaps
-  break a run), so this is a reading, not a measurement.
+- **Revoked ATT&CK ids: 596 on ATT&CK entries** (713 in all), old `T10xx`
+  numbers MITRE has withdrawn. It is **not** out-of-date knowledge, as it
+  first looks: the names the model gives are not what those numbers used to
+  mean. `T1075` was Pass the Hash; the model calls it "Data from Information
+  Repositories". `T1093` was Process Hollowing; the model says "External
+  Remote Services". It looks like the same numbering habit in a range where
+  many numbers are retired. (Session 1 count: 88 distinct ids; only some sit
+  in a detected counting run, since gaps break a run. A reading, not a
+  measurement.)
 - **Deprecated CWEs: 472 on CWE entries**, mostly counting runs that pass
   through retired numbers.
 - **3 replies never parsed** (T1064, T1542.001, CVE-2022-47378). All three
   hit the 512-token reply cap because the model kept counting ids past the
-  12-term limit — `T1059.001`…`.020`, `T1070`…`T1121`. Recorded as
-  permanent failures (one `llm_json_error` term each); see `kaggle-run.md`.
+  12-term limit. Each is one `llm_json_error` placeholder in the merged file
+  and has an empty `expansion` in the enriched index.
+- **Own id accepted** on 209 of 615 CAPEC, 59 of 1,342 CWE and 37 of 1,076
+  ATT&CK entries (CVE 0: all 773 were rejected as malformed). Module 3's
+  decision 4 — see `05_MODULE3_STATE.md`.
 
 ### Still to do
 
-- Re-run these tables on the merged file once Session 2 finishes; the CVE rows
-  will change.
 - A second full run would give ranges; until then quote these as one run.
-- Copied vs generated, and graph distance, for the full corpus
-  (`scripts/report_enrichment.py` does it per shard; not yet run).

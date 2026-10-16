@@ -1,12 +1,15 @@
 # Running Stage 1 enrichment on Kaggle
 
-> **Status, 2026-10-14 (later): Session 1 has finished; Session 2 is
-> running.** 4,457 of 6,044 documents done: every CWE, CAPEC and ATT&CK entry
-> on both shards; 670 + 917 CVEs left. About 190–210 documents an hour per
-> T4. Two GPUs side by side, a committed run and the time limit all worked.
-> Session 1 write-up: `03_STATUS_LOG.md` (2026-10-14, Session 1). Earlier:
-> the sample (Session 0) was accepted — 5 of 40 replies identical to the
-> Mac's, the same patterns, `docs/results/kaggle_sample_vs_mac_14b.txt`.
+> **Status, 2026-10-14 (latest): Stage 1 is complete.** Session 2 finished
+> both shards (2,999/2,999 and 3,045/3,045, exit 0) and merged them on
+> Kaggle: 6,044 documents. Downloaded and verified on the Mac; the merged
+> file is `indexes/enrichment/corpus_full_v4_14b.jsonl`, and the shard files
+> and logs are kept in `indexes/enrichment/kaggle_stage1_shards/` for
+> provenance only. Write-up: `03_STATUS_LOG.md` (2026-10-14, Stage 1
+> complete); what Modules 2 and 3 use: `07_PHASE1_HANDOFF.md`. Earlier:
+> Session 1 did 4,457 documents at about 190–210 an hour per T4; the sample
+> (Session 0) matched the Mac's patterns,
+> `docs/results/kaggle_sample_vs_mac_14b.txt`.
 
 **The idea.** The full run is ~75 hours on the Mac. Kaggle lends two GPUs for
 free. We split the documents in half, give each GPU one half, and stop each
@@ -196,7 +199,16 @@ showed these working: one Ollama server per T4 (manifests record
 `cuda_visible_devices` 0 and 1), two enrichment processes side by side at
 about 190–210 documents an hour each, `--stop-after-minutes` stopping both
 cleanly at ~670 minutes, and the output kept after a committed "Save & Run
-All". Still untried until Session 2 ends:
+All". Session 2 showed the rest:
 
-- Chaining: attaching a finished version and resuming from it.
-- The in-notebook merge with `--expect 6044` on ALL DONE.
+- Chaining: it attached Session 1's version and resumed from it (each shard's
+  manifest names both sessions' machines, `012405a098e7` then
+  `82a890aa1ef2`; the merged file has every id exactly once).
+- The in-notebook merge with `--expect 6044` on ALL DONE: 6,044 documents,
+  byte for byte the two shard files one after the other (checked on the Mac).
+
+Two printout faults seen in Session 2, both cosmetic and both fixed after the
+run's commit: the end-of-session summary showed no ATT&CK (the pinned code
+printed the last 12 lines of each log, and `attack` sorts first; the logs
+have it in full), and the merge listed each machine twice (once per GPU
+process). The data were not affected.

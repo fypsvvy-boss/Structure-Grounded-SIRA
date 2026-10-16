@@ -1,0 +1,113 @@
+Enriched index smoke test (2026-10-14). NOT an evaluation: 5 made-up queries, no gold answers, top 5 only.
+Index: indexes/enriched, built by scripts/build_index.py --stage enriched --enrichment-path indexes/enrichment/corpus_full_v4_14b.jsonl
+
+Part 1 checks the index holds what the records say: document count, and for 5 records (3 chosen, 2 random
+CVEs with seed 42) each accepted term's analysed tokens looked up as postings of the expansion field.
+
+Part 2 compares, with the same scorer (sira_cti.retrieval.WeightedBM25Retriever, k1=0.9 b=0.4, w unused):
+  base     = indexes/base, orig_fields={contents: 1.0}            (plain BM25, Module 3's baseline)
+  enriched = indexes/enriched, default fields {contents: 1.0, expansion: 1.0}
+No query-side enrichment on either side, so every difference comes from the corpus-side expansion field.
+'via-expansion' = query tokens that matched the hit's expansion field.
+
+== Part 1 ==
+doc counts: base 6044  enriched 6044
+
+CWE-416: 7 accepted: ['memory corruption', 'heap corruption', 'fuzz testing', 'heap management', 'C++', 'C', 'NULL pointer dereference']
+  stored expansion field equals the record's expansion_query(): True
+   'memory corruption' -> {'memori': True, 'corrupt': True}
+   'heap corruption' -> {'heap': True, 'corrupt': True}
+   'fuzz testing' -> {'fuzz': True, 'test': True}
+   'heap management' -> {'heap': True, 'manag': True}
+   'C++' -> {'c': True}
+   'C' -> {'c': True}
+
+T1110: 10 accepted: ['password guessing', 'T1110', 'T1078', 'credential stuffing', 'login attempts', 'failed logins', 'account lockouts', 'password cracking', 'hash cracking', 'password spray']
+  stored expansion field equals the record's expansion_query(): True
+   'password guessing' -> {'password': True, 'guess': True}
+   'T1110' -> {'t1110': True}
+   'T1078' -> {'t1078': True}
+   'credential stuffing' -> {'credenti': True, 'stuf': True}
+   'login attempts' -> {'login': True, 'attempt': True}
+   'failed logins' -> {'fail': True, 'login': True}
+
+CAPEC-112: 8 accepted: ['password guessing', 'credential stuffing', 'T1110', 'login attempts', 'account lockouts', 'secret cracking', 'search space reduction', 'cryptanalysis']
+  stored expansion field equals the record's expansion_query(): True
+   'password guessing' -> {'password': True, 'guess': True}
+   'credential stuffing' -> {'credenti': True, 'stuf': True}
+   'T1110' -> {'t1110': True}
+   'login attempts' -> {'login': True, 'attempt': True}
+   'account lockouts' -> {'account': True, 'lockout': True}
+   'secret cracking' -> {'secret': True, 'crack': True}
+
+CVE-2025-54043: 3 accepted: ['CWE-89', 'yaycommerce', 'amazon ses']
+  stored expansion field equals the record's expansion_query(): True
+   'CWE-89' -> {'cwe': True, '89': True}
+   'yaycommerce' -> {'yaycommerc': True}
+   'amazon ses' -> {'amazon': True, 'se': True}
+
+CVE-2025-5568: 5 accepted: ['wp evently', 'wordpress plugin', 'stored xss', 'CWE-79', 'output escaping']
+  stored expansion field equals the record's expansion_query(): True
+   'wp evently' -> {'wp': True, 'event': True}
+   'wordpress plugin' -> {'wordpress': True, 'plugin': True}
+   'stored xss' -> {'store': True, 'xss': True}
+   'CWE-79' -> {'cwe': True, '79': True}
+   'output escaping' -> {'output': True, 'escap': True}
+
+postings found: 46/46
+T1064 expansion = ''
+T1542.001 expansion = ''
+CVE-2022-47378 expansion = ''
+
+== Part 2 ==
+
+### repeated login failures from one IP
+  1. base CAPEC-227        Sustained Client Engagement            | enriched T1621            Multi-Factor Authentication Request Ge via-expansion=['login', 'repeat']
+  2. base CAPEC-600        Credential Stuffing                    | enriched T1110.003        Password Spraying                      via-expansion=['failur', 'login']
+  3. base CAPEC-187        Malicious Automated Software Update vi | enriched CAPEC-227        Sustained Client Engagement            via-expansion=['login']
+  4. base CAPEC-24         Filter Failure through Buffer Overflow | enriched T1110.004        Credential Stuffing                    via-expansion=['failur', 'login']
+  5. base T1110.003        Password Spraying                      | enriched T1110            Brute Force                            via-expansion=['login']
+
+### attacker reads memory after it's freed
+  1. base CWE-415          Double Free                            | enriched CWE-415          Double Free                            via-expansion=['memori']
+  2. base CWE-416          Use After Free                         | enriched CVE-2025-43587   CVE-2025-43587                         via-expansion=['after', 'memori']
+  3. base CAPEC-131        Resource Leak Exposure                 | enriched CWE-416          Use After Free                         via-expansion=['memori']
+  4. base CWE-825          Expired Pointer Dereference            | enriched CAPEC-131        Resource Leak Exposure                 via-expansion=['memori']
+  5. base CWE-1330         Remanent Data Readable after Memory Er | enriched CWE-825          Expired Pointer Dereference            via-expansion=['memori']
+
+### malware hides in a scheduled task to survive reboot
+  1. base T1053.005        Scheduled Task                         | enriched T1053.005        Scheduled Task                         via-expansion=['schedul', 'task']
+  2. base T1053.002        At                                     | enriched T1603            Scheduled Task/Job                     via-expansion=['schedul', 'task']
+  3. base T1053            Scheduled Task/Job                     | enriched CAPEC-504        Task Impersonation                     via-expansion=['malwar', 'task']
+  4. base T1036.004        Masquerade Task or Service             | enriched T1053.001        At (Linux)                             via-expansion=['schedul', 'task']
+  5. base T1053.003        Cron                                   | enriched CAPEC-557        DEPRECATED: Schedule Software To Run   via-expansion=['schedul', 'task']
+
+### tricking users into clicking a fake login page
+  1. base CAPEC-98         Phishing                               | enriched CWE-206          Observable Internal Behavioral Discrep via-expansion=['login', 'page']
+  2. base CAPEC-222        iFrame Overlay                         | enriched CVE-2024-11405   CVE-2024-11405                         via-expansion=['login']
+  3. base CAPEC-103        Clickjacking                           | enriched CAPEC-98         Phishing                               via-expansion=[]
+  4. base CAPEC-630        TypoSquatting                          | enriched CAPEC-222        iFrame Overlay                         via-expansion=[]
+  5. base CVE-2024-11405   CVE-2024-11405                         | enriched CVE-2025-7667    CVE-2025-7667                          via-expansion=['trick']
+
+### server lets attacker read files outside the web folder
+  1. base CVE-2024-2178    CVE-2024-2178                          | enriched CVE-2025-7699    CVE-2025-7699                          via-expansion=['folder']
+  2. base T1051            Shared Webroot                         | enriched T1569.001        Launchctl                              via-expansion=['folder']
+  3. base CAPEC-41         Using Meta-characters in E-mail Header | enriched CVE-2025-49830   CVE-2025-49830                         via-expansion=['folder']
+  4. base CVE-2025-5961    CVE-2025-5961                          | enriched CVE-2025-52786   CVE-2025-52786                         via-expansion=['folder']
+  5. base CVE-2025-7699    CVE-2025-7699                          | enriched T1074.001        Local Data Staging                     via-expansion=['folder']
+
+== Reading (written by hand, 2026-10-14) ==
+- Part 1 passes: 6,044 documents in both indexes; 46/46 tokens found; each stored expansion field is
+  exactly the record's expansion_query(); the three unparseable replies have an empty expansion.
+- Part 2 is mixed, which is what plain field summing at boost 1.0 predicts. Login failures: the brute-force
+  family (T1110, T1110.003, T1110.004) moves into the top 5 through "login"/"failure" in their expansion.
+  Scheduled task: T1053.005 stays first. Use-after-free and phishing: the right entry drops one or two places
+  because a CVE or a CWE with a matching expansion word overtakes it. Path traversal: neither index finds a
+  CWE-22-style entry in the top 5, and in the enriched one "folder" in short expansion fields decides the order.
+- Why: the expansion field is a handful of words, and BM25 normalises by field length, so one word matched
+  there scores like several in a long description. 05_MODULE3_STATE.md already names the field boosts
+  (retrieval.fields) as the knob; this is the first sight of it on the real index. Tuning belongs to Module 3,
+  on the dev queries, not on these five.
+- Found by this test and fixed before the final build: 18 accepted structural ids written by the model as
+  "ATT&CK T1499" / "mitre attack t1499" / "capec 112" had that text indexed, putting "mitre" and "attack" into
+  12 expansion fields. expansion_query() now adds the normalised id only (T1499.004 left query 5's top 5).

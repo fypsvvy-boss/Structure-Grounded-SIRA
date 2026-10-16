@@ -287,3 +287,56 @@ def test_build_index_can_be_pointed_at_another_enrichment_file_without_editing_t
     assert str(snapshot) in overridden and "exists=True" in overridden
     assert str(tmp_path / "idx") in overridden
     assert str(snapshot) not in default and "indexes/enriched" in default
+
+
+# -- unparseable replies ---------------------------------------------------------------
+
+
+def _record(doc_id, source, terms):
+    return {"doc_id": doc_id, "source": source, "original_text": "x", "proposed_terms": terms,
+            "llm_calls": 2, "tokens": {"prompt": 1, "completion": 1024}, "latency_ms": 1,
+            "model": "qwen2.5:14b", "schema_version": "1.5.0"}
+
+
+def _term(term, *, accepted, reason=None, stage=None, kind="colloquial"):
+    return {"term": term, "kind": kind, "structural_id": None, "graph_validated": None, "doc_freq": None,
+            "accepted": accepted, "reject_reason": reason, "repaired_from_id": None, "claimed_name": None,
+            "official_name": None, "rejected_at_stage": stage, "in_counting_run": False,
+            "graph_distance": None, "name_scorer": None, "repaired_to": None}
+
+
+def test_an_unparseable_reply_gives_an_empty_expansion_and_is_listed(tmp_path):
+    """Stage 1's three llm_json_error records (T1064, T1542.001, CVE-2022-47378).
+
+    The record holds one rejected placeholder whose "term" is the start of the
+    cut-off reply. None of that text may reach the index.
+    """
+    from sira_cti.index.build_enriched import enrichment_summary, read_expansions
+
+    path = tmp_path / "e.jsonl"
+    placeholder = _term('[ {"term": "malicious scripts", "kind": "colloquial"}, {"term": "T1059.001"',
+                        accepted=False, reason="llm_json_error", stage="parse")
+    rows = [
+        _record("T1064", "attack", [placeholder]),
+        _record("T1110", "attack", [_term("password spraying", accepted=True),
+                                    _term("attack", accepted=False, reason="too_common", stage="df")]),
+    ]
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    assert read_expansions(path) == {"T1064": "", "T1110": "password spraying"}
+    summary = enrichment_summary(path)
+    assert summary["parse_failures"] == ["T1064"]
+    assert summary["records"] == 2 and summary["accepted_terms"] == 1 and summary["documents_with_expansion"] == 1
+    assert summary["schema_versions"] == ["1.5.0"]
+
+
+def test_enriched_index_manifest_counts_documents_and_failures(enriched_index):
+    index_dir, _ = enriched_index
+    manifest = json.loads((index_dir / "manifest.json").read_text())
+    assert manifest["doc_count"] == 6
+    assert manifest["enrichment_records"] == 6
+    assert manifest["documents_not_enriched"] == 0 and manifest["records_not_in_corpus"] == 0
+    assert manifest["documents_with_expansion"] == 1 and manifest["accepted_terms"] == 1   # the canary
+    assert manifest["parse_failures"] == []
+    # The fixture run records no config hash, digest or commit; the manifest says so rather than guessing.
+    assert manifest["enrichment_config_hash"] is manifest["enrichment_model_digest"] is manifest["enrichment_code_commit"] is None

@@ -1,0 +1,290 @@
+Stage 1, full corpus (2026-10-14): RQ4 rejection breakdown of the merged file, FINAL
+File: indexes/enrichment/corpus_full_v4_14b.jsonl (6,044 records = shard 1/2 2,999 + shard 2/2 3,045, two Kaggle sessions)
+qwen2.5:14b, digest 7cdf5a0187d5, prompt corpus-v4, name scorer v2, config 364d30da6c75, commit 6b4eecedf1cd
+Produced on the Mac by scripts/rq4_breakdown.py (read-only). Printed output, unedited.
+Check: the same script on session 1's records alone (the first 2,329 + 2,128 lines of the shards)
+reproduces docs/results/stage1_session1_breakdown.txt number for number.
+
+Part A: the full corpus. Part B: the 40-document Mac sample as run (scorer v1).
+Part C: the same 40 replies re-scored under v2 (scripts/rescore_enrichment.py --name-scorer v2;
+its replay under v1 gave identical verdicts, so graph and index are unchanged), for a like-for-like comparison.
+Summary and reading: docs/03_STATUS_LOG.md (2026-10-14, Stage 1 complete) and docs/04_OPEN_QUESTIONS.md question 14.
+
+################################ PART A: FULL CORPUS ################################
+
+indexes/enrichment/corpus_full_v4_14b.jsonl
+  model qwen2.5:14b  digest 7cdf5a0187d5  prompt corpus-v4  name scorer v2  config 364d30da6c75  commit 6b4eecedf1cd
+  records 6044  {'cwe': 1342, 'capec': 615, 'attack': 1076, 'cve': 3011}
+
+== 1. Proposals, acceptances and rejections per source document type ==
+source   docs  proposed  accepted  acc%  parse  graph   name     df
+cwe      1342     15860      5941   37%      0    510   4665   4744
+capec     615      7302      3415   47%      0    142    816   2929
+attack   1076     12846      5466   43%      2   1034   2087   4257
+cve      3011     34678     13883   40%      1   1019   2284  17491
+ALL      6044     70686     28705   41%      3   2705   9852  29421
+
+By reason:
+  cwe     {'deprecated': 472, 'malformed_id': 10, 'name_mismatch': 4665, 'not_in_graph': 14, 'revoked': 14, 'too_common': 4744}
+  capec   {'deprecated': 50, 'malformed_id': 3, 'name_mismatch': 816, 'not_in_graph': 78, 'revoked': 11, 'too_common': 2929}
+  attack  {'deprecated': 32, 'llm_json_error': 2, 'malformed_id': 67, 'name_mismatch': 2087, 'not_in_graph': 339, 'revoked': 596, 'too_common': 4257}
+  cve     {'deprecated': 95, 'llm_json_error': 1, 'malformed_id': 813, 'name_mismatch': 2284, 'not_in_graph': 19, 'revoked': 92, 'too_common': 17491}
+  ALL     {'deprecated': 649, 'llm_json_error': 3, 'malformed_id': 893, 'name_mismatch': 9852, 'not_in_graph': 450, 'revoked': 713, 'too_common': 29421}
+
+== 2. Proposals by term kind (all document types) ==
+  colloquial   proposed  41071  accepted  14525 (35%)  {'too_common': 26543, 'llm_json_error': 3}
+  misspelling  proposed    305  accepted    193 (63%)  {'too_common': 112}
+  product      proposed   6542  accepted   5244 (80%)  {'too_common': 1298}
+  structural   proposed  20588  accepted   8031 (39%)  {'deprecated': 649, 'name_mismatch': 9852, 'not_in_graph': 450, 'malformed_id': 893, 'revoked': 713}
+  symptom      proposed   2180  accepted    712 (33%)  {'too_common': 1468}
+
+== 3. Structural ids: document type x catalogue the id belongs to ==
+graph = rejected at the existence stage (deprecated + revoked + not_in_graph + malformed_id)
+name/reached = name mismatches / ids that passed the existence check and so reached the name check
+count = ids in a counting run (3+ consecutive numbers); measured, never gated
+doc     ns        prop    acc  acc%  graph   name name/reached       count  dep  rev  nig  mal
+ALL     ALL      20588   8031   39%   2705   9852  9852/17883  55%   4237  649  713  450  893
+ALL     attack    6289   2519   40%   1119   2651   2651/5170  51%   1312   44  713  362    0
+ALL     capec      949    388   41%    143    418     418/806  52%    134   66    0   77    0
+ALL     cwe      12457   5124   41%    550   6783  6783/11907  57%   2791  539    0   11    0
+ALL     other      893      0    0%    893      0         0/0    -      0    0    0    0  893
+cwe     ALL       7370   2195   30%    510   4665   4665/6860  68%   2659  472   14   14   10
+cwe     attack      85     15   18%     17     53       53/68  78%     42    0   14    3    0
+cwe     capec        4      0    0%      0      4         4/4 100%      3    0    0    0    0
+cwe     cwe       7271   2180   30%    483   4608   4608/6788  68%   2614  472    0   11    0
+cwe     other       10      0    0%     10      0         0/0    -      0    0    0    0   10
+capec   ALL       1675    717   43%    142    816    816/1533  53%    150   50   11   78    3
+capec   attack     205    141   69%     15     49      49/190  26%      9    1   11    3    0
+capec   capec      837    385   46%    120    332     332/717  46%    106   45    0   75    0
+capec   cwe        630    191   30%      4    435     435/626  69%     35    4    0    0    0
+capec   other        3      0    0%      3      0         0/0    -      0    0    0    0    3
+attack  ALL       5333   2212   41%   1034   2087   2087/4299  49%   1149   32  596  339   67
+attack  attack    5199   2194   42%    964   2041   2041/4235  48%   1133   30  596  338    0
+attack  capec       23      1    4%      2     20       20/21  95%      6    1    0    1    0
+attack  cwe         44     17   39%      1     26       26/43  60%     10    1    0    0    0
+attack  other       67      0    0%     67      0         0/0    -      0    0    0    0   67
+cve     ALL       6210   2907   47%   1019   2284   2284/5191  44%    279   95   92   19  813
+cve     attack     800    169   21%    123    508     508/677  75%    128   13   92   18    0
+cve     capec       85      2    2%     21     62       62/64  97%     19   20    0    1    0
+cve     cwe       4512   2736   61%     62   1714   1714/4450  39%    132   62    0    0    0
+cve     other      813      0    0%    813      0         0/0    -      0    0    0    0  813
+
+== 4. malformed_id on CVE documents (a CVE id proposed as a structural term) ==
+  {'own CVE id': 777, "bare 'cve'": 2, 'other CVE id': 25, 'other': 9}  total 813
+  CVE documents affected: 804 of 3011 (27%)
+
+== 5. Other malformed_id shapes (digits shown as 9) ==
+  cwe [('CVE-9999-9999', 3), ('CVE-9999-99999', 1), ('cwe-ics', 1), ('cwe-ics-engineering', 1), ('CWE-9PK', 1), ('cwe-9999 top 99', 1), ('cwe-java', 1), ('cwe-sec', 1)]
+  attack [('MITRE ATT&CK', 40), ('mitre-attack', 5), ('mitre attack persistence', 3), ('mitre-ics-attack', 3), ('mitre attack', 2), ('mitre-attack persistence', 2), ('MITRE ICS', 2), ('mitre attack defense evasion', 1), ('mitre attack privilege escalation', 1), ('mitre-attack privilege-escalation', 1), ('MITRE ATT&CK ICS', 1), ('Mitre Mobile Attack', 1), ('mitre attack impact', 1), ('mitre attack reconnaissance', 1), ('mitre-mobile-attack', 1)] ... and 2 more shapes
+  cve [('T99999.999', 4), ('T99999', 1), ('CVE-999', 1), ('cve-999', 1), ('cve-9999', 1), ('cwe', 1)]
+  capec [('ATT&CK', 2), ('cve-9999-9999', 1)]
+
+== 6. Counting runs (3+ consecutive ids from one catalogue in one reply) ==
+  cwe     ids in runs  2659  of which accepted   357  documents with a run   444 of 1342
+  capec   ids in runs   150  of which accepted    57  documents with a run    32 of 615
+  attack  ids in runs  1149  of which accepted   183  documents with a run   229 of 1076
+  cve     ids in runs   279  of which accepted    52  documents with a run    68 of 3011
+
+== 7. A document's own id among its proposals ==
+  cwe     proposed    83  accepted    59  of 1342 documents
+  capec   proposed   235  accepted   209  of 615 documents
+  attack  proposed    54  accepted    37  of 1076 documents
+  cve     proposed   773  accepted     0  of 3011 documents
+
+== 8. Replies that could not be parsed (one llm_json_error placeholder each) ==
+  {'doc_id': 'T1064', 'source': 'attack', 'llm_calls': 2, 'completion_tokens': 1024}
+  {'doc_id': 'T1542.001', 'source': 'attack', 'llm_calls': 2, 'completion_tokens': 1024}
+  {'doc_id': 'CVE-2022-47378', 'source': 'cve', 'llm_calls': 2, 'completion_tokens': 1024}
+
+################################ PART B: 40-DOC SAMPLE, SCORER v1 (as run) ################################
+
+indexes/enrichment/corpus_stratified_v4_14b_sections-v2.jsonl
+  model qwen2.5:14b  digest None  prompt corpus-v4  name scorer v1  config 364d30da6c75  commit None
+  records 40  {'cve': 10, 'cwe': 10, 'capec': 10, 'attack': 10}
+
+== 1. Proposals, acceptances and rejections per source document type ==
+source   docs  proposed  accepted  acc%  parse  graph   name     df
+cve        10       120        50   42%      0      3      3     64
+cwe        10       120        34   28%      0     15     21     50
+capec      10       120        53   44%      0      1     17     49
+attack     10       120        41   34%      0     13     25     41
+ALL        40       480       178   37%      0     32     66    204
+
+By reason:
+  cve     {'malformed_id': 3, 'name_mismatch': 3, 'too_common': 64}
+  cwe     {'deprecated': 15, 'name_mismatch': 21, 'too_common': 50}
+  capec   {'name_mismatch': 17, 'not_in_graph': 1, 'too_common': 49}
+  attack  {'malformed_id': 1, 'name_mismatch': 25, 'not_in_graph': 7, 'revoked': 5, 'too_common': 41}
+  ALL     {'deprecated': 15, 'malformed_id': 4, 'name_mismatch': 66, 'not_in_graph': 8, 'revoked': 5, 'too_common': 204}
+
+== 2. Proposals by term kind (all document types) ==
+  colloquial   proposed    278  accepted     96 (35%)  {'too_common': 182}
+  misspelling  proposed      6  accepted      0 (0%)  {'too_common': 6}
+  product      proposed     24  accepted     20 (83%)  {'too_common': 4}
+  structural   proposed    157  accepted     59 (38%)  {'name_mismatch': 66, 'malformed_id': 4, 'deprecated': 15, 'not_in_graph': 8, 'revoked': 5}
+  symptom      proposed     15  accepted      3 (20%)  {'too_common': 12}
+
+== 3. Structural ids: document type x catalogue the id belongs to ==
+graph = rejected at the existence stage (deprecated + revoked + not_in_graph + malformed_id)
+name/reached = name mismatches / ids that passed the existence check and so reached the name check
+count = ids in a counting run (3+ consecutive numbers); measured, never gated
+doc     ns        prop    acc  acc%  graph   name name/reached       count  dep  rev  nig  mal
+ALL     ALL        157     59   38%     32     66      66/125  53%     51   15    5    8    4
+ALL     attack      56     19   34%     12     25       25/44  57%     23    0    5    7    0
+ALL     capec       19     12   63%      1      6        6/18  33%      4    0    0    1    0
+ALL     cwe         78     28   36%     15     35       35/63  56%     24   15    0    0    0
+ALL     other        4      0    0%      4      0         0/0    -      0    0    0    0    4
+cve     ALL         21     15   71%      3      3        3/18  17%      0    0    0    0    3
+cve     cwe         18     15   83%      0      3        3/18  17%      0    0    0    0    0
+cve     other        3      0    0%      3      0         0/0    -      0    0    0    0    3
+cwe     ALL         45      9   20%     15     21       21/30  70%     21   15    0    0    0
+cwe     cwe         45      9   20%     15     21       21/30  70%     21   15    0    0    0
+capec   ALL         34     16   47%      1     17       17/33  52%      7    0    0    1    0
+capec   capec       19     12   63%      1      6        6/18  33%      4    0    0    1    0
+capec   cwe         15      4   27%      0     11       11/15  73%      3    0    0    0    0
+attack  ALL         57     19   33%     13     25       25/44  57%     23    0    5    7    1
+attack  attack      56     19   34%     12     25       25/44  57%     23    0    5    7    0
+attack  other        1      0    0%      1      0         0/0    -      0    0    0    0    1
+
+== 4. malformed_id on CVE documents (a CVE id proposed as a structural term) ==
+  {'other CVE id': 1, 'own CVE id': 2}  total 3
+  CVE documents affected: 3 of 10 (30%)
+
+== 5. Other malformed_id shapes (digits shown as 9) ==
+  attack [('MITRE ATT&CK', 1)]
+
+== 6. Counting runs (3+ consecutive ids from one catalogue in one reply) ==
+  cve     ids in runs     0  of which accepted     0  documents with a run     0 of 10
+  cwe     ids in runs    21  of which accepted     1  documents with a run     2 of 10
+  capec   ids in runs     7  of which accepted     5  documents with a run     2 of 10
+  attack  ids in runs    23  of which accepted     2  documents with a run     4 of 10
+
+== 7. A document's own id among its proposals ==
+  cve     proposed     2  accepted     0  of 10 documents
+  cwe     proposed     0  accepted     0  of 10 documents
+  capec   proposed     5  accepted     5  of 10 documents
+  attack  proposed     1  accepted     0  of 10 documents
+
+== 8. Replies that could not be parsed (one llm_json_error placeholder each) ==
+  none
+
+################################ PART C: SAME 40 REPLIES, RE-SCORED v2 ################################
+
+indexes/enrichment/corpus_stratified_v4_14b_sections-v2.jsonl, re-scored v2 (scratch copy, not kept)
+  model qwen2.5:14b  digest None  prompt corpus-v4  name scorer v2  config 364d30da6c75  commit None
+  records 40  {'cve': 10, 'cwe': 10, 'capec': 10, 'attack': 10}
+
+== 1. Proposals, acceptances and rejections per source document type ==
+source   docs  proposed  accepted  acc%  parse  graph   name     df
+cve        10       120        49   41%      0      3      4     64
+cwe        10       120        33   28%      0     15     22     50
+capec      10       120        53   44%      0      1     17     49
+attack     10       120        41   34%      0     13     25     41
+ALL        40       480       176   37%      0     32     68    204
+
+By reason:
+  cve     {'malformed_id': 3, 'name_mismatch': 4, 'too_common': 64}
+  cwe     {'deprecated': 15, 'name_mismatch': 22, 'too_common': 50}
+  capec   {'name_mismatch': 17, 'not_in_graph': 1, 'too_common': 49}
+  attack  {'malformed_id': 1, 'name_mismatch': 25, 'not_in_graph': 7, 'revoked': 5, 'too_common': 41}
+  ALL     {'deprecated': 15, 'malformed_id': 4, 'name_mismatch': 68, 'not_in_graph': 8, 'revoked': 5, 'too_common': 204}
+
+== 2. Proposals by term kind (all document types) ==
+  colloquial   proposed    278  accepted     96 (35%)  {'too_common': 182}
+  misspelling  proposed      6  accepted      0 (0%)  {'too_common': 6}
+  product      proposed     24  accepted     20 (83%)  {'too_common': 4}
+  structural   proposed    157  accepted     57 (36%)  {'name_mismatch': 68, 'malformed_id': 4, 'deprecated': 15, 'not_in_graph': 8, 'revoked': 5}
+  symptom      proposed     15  accepted      3 (20%)  {'too_common': 12}
+
+== 3. Structural ids: document type x catalogue the id belongs to ==
+graph = rejected at the existence stage (deprecated + revoked + not_in_graph + malformed_id)
+name/reached = name mismatches / ids that passed the existence check and so reached the name check
+count = ids in a counting run (3+ consecutive numbers); measured, never gated
+doc     ns        prop    acc  acc%  graph   name name/reached       count  dep  rev  nig  mal
+ALL     ALL        157     57   36%     32     68      68/125  54%     51   15    5    8    4
+ALL     attack      56     19   34%     12     25       25/44  57%     23    0    5    7    0
+ALL     capec       19     12   63%      1      6        6/18  33%      4    0    0    1    0
+ALL     cwe         78     26   33%     15     37       37/63  59%     24   15    0    0    0
+ALL     other        4      0    0%      4      0         0/0    -      0    0    0    0    4
+cve     ALL         21     14   67%      3      4        4/18  22%      0    0    0    0    3
+cve     cwe         18     14   78%      0      4        4/18  22%      0    0    0    0    0
+cve     other        3      0    0%      3      0         0/0    -      0    0    0    0    3
+cwe     ALL         45      8   18%     15     22       22/30  73%     21   15    0    0    0
+cwe     cwe         45      8   18%     15     22       22/30  73%     21   15    0    0    0
+capec   ALL         34     16   47%      1     17       17/33  52%      7    0    0    1    0
+capec   capec       19     12   63%      1      6        6/18  33%      4    0    0    1    0
+capec   cwe         15      4   27%      0     11       11/15  73%      3    0    0    0    0
+attack  ALL         57     19   33%     13     25       25/44  57%     23    0    5    7    1
+attack  attack      56     19   34%     12     25       25/44  57%     23    0    5    7    0
+attack  other        1      0    0%      1      0         0/0    -      0    0    0    0    1
+
+== 4. malformed_id on CVE documents (a CVE id proposed as a structural term) ==
+  {'other CVE id': 1, 'own CVE id': 2}  total 3
+  CVE documents affected: 3 of 10 (30%)
+
+== 5. Other malformed_id shapes (digits shown as 9) ==
+  attack [('MITRE ATT&CK', 1)]
+
+== 6. Counting runs (3+ consecutive ids from one catalogue in one reply) ==
+  cve     ids in runs     0  of which accepted     0  documents with a run     0 of 10
+  cwe     ids in runs    21  of which accepted     1  documents with a run     2 of 10
+  capec   ids in runs     7  of which accepted     5  documents with a run     2 of 10
+  attack  ids in runs    23  of which accepted     2  documents with a run     4 of 10
+
+== 7. A document's own id among its proposals ==
+  cve     proposed     2  accepted     0  of 10 documents
+  cwe     proposed     0  accepted     0  of 10 documents
+  capec   proposed     5  accepted     5  of 10 documents
+  attack  proposed     1  accepted     0  of 10 documents
+
+== 8. Replies that could not be parsed (one llm_json_error placeholder each) ==
+  none
+
+################################ PART D: scripts/report_enrichment.py on the full corpus ################################
+(copied vs generated, counting runs, graph distance; read-only, from the records)
+
+==============================================================================
+indexes/enrichment/corpus_full_v4_14b.jsonl
+  model=qwen2.5:14b  prompt=corpus-v4
+  gates: name_overlap=0.5  scorer=v2  decoding=schema  max_new_tokens=512  df_max_ratio=0.1
+
+  documents: 6044  {'cwe': 1342, 'capec': 615, 'attack': 1076, 'cve': 3011}
+  terms proposed: 70686   accepted: 28705 (41%)
+
+  rejected by reason:
+    deprecated        649
+    llm_json_error      3
+    malformed_id      893
+    name_mismatch    9852
+    not_in_graph      450
+    revoked           713
+    too_common       29421
+  rejected by stage:
+    parse               3
+    graph            2705
+    name             9852
+    df               29421
+
+  structural ids proposed: 20588   accepted: 8031 (39%)
+  where each one could have come from:
+    literal          4597 (22%)
+    labelled_field   1034 (5%)
+    own_id            388 (2%)
+    not_found        14569 (71%)
+    -> copied 6019 (29%), generated 14569 (71%)
+    of the accepted: copied 2991 (37%), generated 5040 (63%)   (measured against the text the model was shown)
+  documents shown to the model shortened: 171
+
+  in a counting run (>=3 consecutive): 4237 (21%), of which accepted 649
+  structural proposals with no claimed name: 887
+  name-check passes resting on one shared word: 303/8031
+  ontology distance of accepted ids from the document's own node:
+    0 hop(s)                  321
+    1 hop(s)                  661
+    2 hop(s)                 1657
+    3 hop(s)                  727
+    4 hop(s)                  819
+    5 hop(s)                  146
+    6 hop(s)                  254
+    not in graph / no path   3446
+  documents recorded as unparseable: ['T1064', 'T1542.001', 'CVE-2022-47378']

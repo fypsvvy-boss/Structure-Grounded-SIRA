@@ -8,6 +8,22 @@
 
 ## Current headline
 
+**2026-10-14 (latest): Stage 1 is complete, the enriched index is built and
+checked — Phase 1 is complete.** All 6,044 documents enriched on Kaggle in two
+sessions (`qwen2.5:14b`, digest `7cdf5a0187d5`, commit `6b4eecedf1cd`, config
+`364d30da6c75`, scorer v2). The merged file
+`indexes/enrichment/corpus_full_v4_14b.jsonl` was verified on the Mac: 6,044
+lines, every id once, the same ids as the corpus, and byte for byte the two
+shard files one after the other. `indexes/enriched/` now holds the full index:
+6,044 documents, 28,705 accepted terms on 5,852 of them. **Modules 2 and 3:
+read `docs/07_PHASE1_HANDOFF.md`.** Final RQ4 numbers (question 14): **39% of
+20,588 structural ids accepted; 68% of CWE ids on CWE entries carry the wrong
+name; CVE ids proposed as structural on 27% of CVE entries** (813 of 893
+malformed ids). Fixed today: an accepted id written as "ATT&CK T1499" put
+"mitre"/"attack" in the index (18 terms); the merged manifest listed each
+machine once per GPU. Found, not changed (Module 3's call): 305 entries carry
+their own id in `expansion`. 472 tests pass.
+
 **2026-10-14 (later): Kaggle Session 1 finished — 4,457 of 6,044 documents
 done; Session 2 is running.** Every CWE, CAPEC and ATT&CK entry is done on
 both shards; 670 + 917 CVEs are left. About 190–210 documents an hour per
@@ -249,6 +265,226 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Stage 1 complete; enriched index built; Phase 1 complete (2026-10-14, latest)
+
+Session 2 finished both shards (exit 0, 2,999/2,999 and 3,045/3,045) and
+merged them on Kaggle. The Module 1 owner downloaded the merged file, its
+manifest and raw-failures file to `indexes/enrichment/`, and the shard files,
+their sidecars and the Kaggle logs to `indexes/enrichment/kaggle_stage1_shards/`
+(provenance only — no script reads it; `indexes/` is already gitignored).
+
+#### 1. The download, verified
+
+| check | result |
+|---|---|
+| lines in the merged file | 6,044 |
+| distinct document ids | 6,044 — none twice |
+| against `corpus_kb` | the same 6,044 ids; every record's `source` matches the corpus |
+| by type | cwe 1,342, capec 615, attack 1,076, cve 3,011 |
+| merged = shard 1 + shard 2 | **yes, the same lines in the same order** (2,999 + 3,045) |
+| shard files vs the merged manifest | SHA-256 of both local shard files equals what the manifest recorded on Kaggle |
+| every record in the right shard | yes (0 misplaced, by the id hash) |
+| commit / digest / config | `6b4eecedf1cd` (clean) / `7cdf5a0187d5…` / `364d30da6c75`, in the merged manifest and in both shard manifests |
+| machines | each shard: session 1 `012405a098e7`, then session 2 `82a890aa1ef2` |
+
+Nothing was off.
+
+#### 2. The three unparseable replies
+
+The merged `.raw_failures.jsonl` holds 3 records — 1 from shard 1 (`T1064`),
+2 from shard 2 (`T1542.001`, `CVE-2022-47378`): the same three found in
+Session 1 (log entry below), with `truncated_by_token_cap: true` and the
+model counting ids past the 12-term limit. In the merged file each is an
+ordinary record with **one placeholder term**: `term` = the first ~250
+characters of the broken reply, `accepted: false`,
+`reject_reason: llm_json_error`, `rejected_at_stage: parse`, 2 LLM calls,
+1,024 completion tokens (512 + the retry's 512).
+
+**Index building handles them correctly**, and this is now pinned by a test:
+only accepted terms enter `expansion`, so those three documents are in the
+index with their `contents` and an empty `expansion`. New
+`tests/test_index_build.py::test_an_unparseable_reply_gives_an_empty_expansion_and_is_listed`.
+The index manifest lists them under `parse_failures`.
+
+#### 3. "ATT&CK missing from the summary" — already fixed; session 2 ran the old code
+
+Session 2's printout again showed only capec, cve and cwe. **Same cause as
+Session 1, not a new bug:** the run was pinned to `6b4eece`, which prints the
+last 12 lines of each log; the fix (whole summary, every kind) is on `main`
+since `8e2023f`. Count the printout: exactly 12 lines per GPU. The downloaded
+`logs/enrich_gpu0.log` has `attack: 557 docs` in full.
+
+**`mitre` vs `attack` was not renamed, deliberately.** `mitre` is the
+`corpus_kb` file name and the config's kind; renaming it changes the config
+hash, and the merged file's manifest (`364d30da6c75`) would then no longer
+match the config that made it. `attack` is the frozen schema's `Source`
+value. One translation (`source_of_kind` / `kind_of_source`) connects them,
+and every summary prints the source name. Done today instead:
+
+- `merge_enrichment.py`: `documents_by_source` lists every kind, 0 included
+  (it listed only kinds it saw).
+- New `test_report_kinds.py::test_every_kind_appears_in_every_summary`: one
+  file with all four kinds through `enrich_corpus.by_source_lines`,
+  `kaggle_stage1.summary_block`, `report_enrichment`, the merge manifest and
+  the merge printout; `attack` must appear in each.
+
+**The machine list "twice".** Not duplicates: each session ran two processes
+(GPU 0 on port 11434, GPU 1 on 11435), and the four entries differ only in
+`cuda_visible_devices` and `ollama_host`, which the printout did not show.
+The merged manifest's top-level `machines` is now **one entry per machine**
+with its processes under `processes`; each source file's own list keeps every
+process in full. The printout shows the processes. The downloaded manifest
+was written on Kaggle by the old code and has been left as it is (it is the
+record of what Kaggle produced; re-merging on the Mac would only change
+paths and this list). New test
+`test_merge_enrichment.py::test_one_machine_running_two_gpus_is_listed_once_with_both_processes`.
+
+#### 4. The enriched index
+
+Built with `scripts/build_index.py --stage enriched --enrichment-path
+indexes/enrichment/corpus_full_v4_14b.jsonl` into `indexes/enriched/`
+(replacing the August pilot, `corpus-v1` / 7B). The index manifest now also
+records `doc_count`, the enrichment run's digest, config hash, commit and
+schema versions, how many records and accepted terms it read, how many
+documents got a non-empty expansion, and the parse failures — before, it
+recorded only prompt and model.
+
+| | |
+|---|---|
+| documents (base / enriched) | 6,044 / 6,044 |
+| documents not enriched / records not in the corpus | 0 / 0 |
+| accepted terms indexed | 28,705, on 5,852 documents |
+| postings check | 5 records (CWE-416, T1110, CAPEC-112 and two random CVEs): every token of their first 6 accepted terms is a posting of that document's `expansion` field — **46 of 46**; each stored field equals the record's `expansion_query()` |
+
+**Found by the check and fixed before the final build:** an accepted
+structural id was indexed as the model *wrote* it. `"mitre attack t1499"`
+resolves to `T1499` and was accepted, but the text went into `expansion` as
+is — putting "mitre" and "attack" (in 3,989 of 6,044 documents) into the
+index unchecked, since ids skip the too-common gate. 18 of 8,031 accepted ids,
+in 12 documents (13 CAPEC, 5 ATT&CK). `EnrichmentRecord.expansion_query()` now
+adds a structural term's normalised id, as Module 3's query side already did.
+No schema change (the stored records are untouched); test
+`test_schemas.py::test_expansion_query_adds_a_structural_terms_id_not_the_models_wording`.
+
+**Smoke test, not an evaluation** (`docs/results/enriched_index_smoke_test.txt`):
+five plain-language queries, top 5, the same scorer on both sides, no
+query-side enrichment. In plain words: the extra words help when they are
+the analyst's words for the right entry, and hurt when one common-ish word
+happens to sit in a lot of short expansion fields.
+
+| query | base top hit | enriched top 5 vs base |
+|---|---|---|
+| repeated login failures from one IP | CAPEC-227 | better: T1110, T1110.003, T1110.004 (brute force family) come in via "login"/"failure" |
+| attacker reads memory after it's freed | CWE-415 | CWE-416 (Use After Free) drops 2 → 3; a CVE with "after"/"memory" in its expansion overtakes it |
+| malware hides in a scheduled task to survive reboot | T1053.005 | same top hit; more scheduled-task entries |
+| tricking users into clicking a fake login page | CAPEC-98 Phishing | worse: Phishing drops 1 → 3 behind CWE-206 and a CVE |
+| server lets attacker read files outside the web folder | a CVE | neither finds a path-traversal entry; enriched is ordered by "folder" |
+
+The reason is the one `04_OPEN_QUESTIONS.md` question 4 predicted: the
+expansion field is a few words long, and BM25 scores a word matched in a short
+field like several matched in a long one. Field boosts are Module 3's knob;
+five made-up queries are not the place to tune them.
+
+**Own ids in `expansion`.** 305 entries have their own id among their
+accepted terms: CAPEC 209 of 615, CWE 59 of 1,342, ATT&CK 37 of 1,076, CVE 0
+(773 CVEs proposed their own id; all were rejected as malformed). The prompt
+no longer shows the id, but CAPEC entries in particular contain it in their
+text. So the enriched index is already partly "findable by own id", which is
+Module 3's open decision 4 — flagged in `05_MODULE3_STATE.md`, not changed.
+
+#### 5. RQ4 on the full corpus — final for this run
+
+New read-only script `scripts/rq4_breakdown.py` prints the same tables as
+the session 1 file. As a check, run on session 1's records alone (the first
+2,329 and 2,128 lines of the shards — a resume only appends) it reproduces
+`docs/results/stage1_session1_breakdown.txt` number for number, after one
+fix: ATT&CK tactic and software ids (`TA0007`, `S0106`; 2 proposals) belong
+to ATT&CK, not "other". Everything is in
+**`docs/results/stage1_full_breakdown.txt`**, with the 40-document sample
+beside it, both as run (scorer v1) and re-scored under v2 with
+`rescore_enrichment.py` (the replay under v1 gave identical verdicts, so the
+graph and index are unchanged). Reading and tables: `04_OPEN_QUESTIONS.md`
+question 14, now final. Headlines:
+
+| | full corpus (v2) | 40-doc sample, Mac v1 / Kaggle v1 / Mac re-scored v2 |
+|---|---|---|
+| structural ids proposed | 20,588 | 157 / 155 / 157 |
+| accepted | **8,031 (39%)** | 59 / 54 / 57 (35–38%) |
+| rejected: does not exist | 2,705 (13%) | 32 / 23 / 32 |
+| rejected: wrong name | 9,852 (48%) | 66 / 78 / 68 |
+| wrong name, of ids that exist | 9,852 / 17,883 (55%) | 66/125 / – / 68/125 (53–54%) |
+| **CWE ids on CWE entries: wrong name, of those that exist** | **4,608 / 6,788 (68%)** | 21/30 / – / 22/30 |
+| in a counting run | 4,237 (21%) | 51 / 47 / 51 |
+| CVE ids proposed as structural (malformed, CVE entries) | **813 on 804 of 3,011 CVEs (27%)**; 777 the entry's own id | 3 / – / 3 |
+| malformed rate, all / without CVE ids | 4.3% / 0.4% | – |
+| accepted ids: copied / generated | 2,991 / 5,040 (37% copied) | 20/39 / 20/34 / – |
+| accepted ids within 2 hops of the document | 2,639 of 4,585 measurable (58%), median 2 | 25 of 38 / 24 of 37, median 2 |
+
+"–" = not in the Kaggle sample printout. The non-CVE rows are the session 1
+numbers exactly: Session 2 enriched only CVEs.
+
+#### Re-checked independently (2026-10-16)
+
+Everything above was checked again from scratch, with new scripts rather
+than the ones that produced it:
+
+- **Download:** 6,044 lines, 6,044 distinct ids, the same ids and sources as
+  `corpus_kb`; merged file = shard 1 + shard 2 byte for byte; both shards'
+  SHA-256 match the merged manifest; 0 records in the wrong shard;
+  commit / digest / config as above in all three manifests; schema 1.5.0 on
+  every record.
+- **Index:** 6,044 documents in both indexes; for **all 6,044** documents the
+  `expansion` stored in the index equals what `expansion_query()` gives today
+  (so the index was built after the id fix); no `mitre` or `attack` token in
+  any expansion field; 42 of 42 sampled term tokens found as postings; the
+  three unparseable replies have an empty expansion. The five smoke-test
+  queries give the same top 5 as recorded.
+- **RQ4:** `rq4_breakdown.py` on the merged file, `rq4_breakdown.py` on the
+  40-document sample, the same sample re-scored under v2, and
+  `report_enrichment.py` reproduce Parts A, B, C and D of
+  `stage1_full_breakdown.txt` line for line. The per-shard counts in
+  Kaggle's own printout add up to the same totals (e.g. CVE malformed
+  390 + 423 = 813, CWE name mismatches 2,295 + 2,370 = 4,665).
+- **Interfaces in the handoff:** every call in `07_PHASE1_HANDOFF.md` run
+  as written against the real graph and indexes.
+
+Fixed today: the docs this entry said were updated were not —
+`04_OPEN_QUESTIONS.md` question 14 still said PROVISIONAL (Session 1 only)
+and `05_MODULE3_STATE.md` still said the corpus side indexed the model's
+wording. Both now final, with question 6's to-do closed, a pointer in
+`02_MODULE1_STATE.md`, and `kaggle-run.md`'s status set to complete. The
+smoke-test file printed its Part 1 header twice; removed.
+
+Graph counts for the report (`docs/report/module1_enrichment_and_grounding.md`
+§2): the Kaggle logs do not record the graph build, so
+`scripts/build_graph.py` was re-run on the Mac against the pinned files (graph
+code unchanged since `6b4eece`). 4,486 nodes, 11,514 edges, 0 dangling, 8/8
+spot checks; the 224 loader warnings are all legacy ATT&CK mitigations filed
+under technique ids. Log and input hashes: `docs/results/graph_build.txt`.
+The report had described the graph as three node types and two edge kinds;
+it has 12 node types and 6 edge types (`member_of`, CWE into categories and
+views, is the largest at 5,024), now in the text.
+
+Seen, not changed: two CAPEC entries (CAPEC-646, CAPEC-655) have `ATT&CK`
+accepted as a *product* term, so the token `att` is in their expansion. It
+passed the too-common gate because `att` is rare in `contents`. Harmless at
+2 documents; a reason for Module 2 to keep catalogue names out of its own
+product terms.
+
+#### Files
+
+New: `scripts/rq4_breakdown.py`, `tests/test_rq4_breakdown.py` (11),
+`docs/07_PHASE1_HANDOFF.md`, `docs/results/stage1_full_breakdown.txt`,
+`docs/results/enriched_index_smoke_test.txt`.
+Changed: `src/sira_cti/common/schemas.py` (`expansion_query`),
+`src/sira_cti/index/build_enriched.py` (manifest, `read_expansions`,
+`enrichment_summary`), `scripts/merge_enrichment.py` (machines per host,
+every kind counted), tests in `test_index_build.py`, `test_merge_enrichment.py`,
+`test_report_kinds.py`, `test_schemas.py`. Docs: `04_OPEN_QUESTIONS.md`
+(questions 6 and 14), `05_MODULE3_STATE.md`, `02_MODULE1_STATE.md`,
+`kaggle-run.md`. **472 tests pass** (+17). No
+config, prompt or schema-version change; config hash unchanged.
 
 ### Kaggle Session 1: the first full session (2026-10-14)
 
