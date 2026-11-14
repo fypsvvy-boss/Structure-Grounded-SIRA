@@ -1186,3 +1186,135 @@ From `scripts/report_enrichment.py`, Part D of the results file.
 ### Still to do
 
 - A second full run would give ranges; until then quote these as one run.
+
+---
+
+## 15. (Opened 2026-11-14; ANSWERED ENOUGH TO DECIDE the same day — decisions confirmed) Vertex agreed with the October Gemini runs on only half the ids — the route, or the month?
+
+**What we saw.** The 40-document sample through Vertex AI (same model id
+`gemini-3.1-pro-preview`, same prompt, seed, thinking level and reply cap)
+compared with the two AI Studio runs from 2026-10-08:
+
+| | AI Studio run 1 vs run 2 (same day) | Vertex vs AI Studio run 1 / run 2 |
+|---|---|---|
+| accepted ids shared (matched as document + id) | **80%** | **51% / 50%** |
+| replies identical word for word | 18 of 40 | 0 of 40 |
+| CAPEC entries only | 77% | 37% / 36% |
+
+In plain words: two runs on the same day picked the same ids 4 times in 5.
+The Vertex run, a month later, picked the same ids only about half the time.
+The *kind* of output did not change: still almost every id valid (73 of 80),
+no counting runs, a handful of wrong names (6, against 4 and 4), one
+deprecated id (`T1436` on `T1661`). It generated more ids itself (58 vs
+44–49) and copied fewer from the entry (15 vs 20–24); the distance of those
+ids from the entry is the same or slightly closer (median 2 hops; 21 of 32
+within 2, against 14 of 28 and 14 of 25).
+
+**What it is not.** Not the three shortened CAPEC entries: leaving them out,
+the overlap is still 52–53%. Not different input text: the documents are
+byte-identical to October's, and both services count the text the same
+(862 vs 864 tokens). One known difference in input: **Vertex bills the reply
+schema as ~134 prompt tokens per call; AI Studio did not**, which suggests
+the two services hand the schema to the model differently. That could be
+enough to change the replies, but it is a guess.
+
+**Two explanations, not yet separated.**
+1. **The route**: Vertex and AI Studio serve the model differently (schema
+   handling above, different serving infrastructure).
+2. **The month**: a *preview* model can be updated behind the same id; the
+   API reports the same `model_version` string either way, so we cannot tell.
+
+**How to tell them apart (cheap).** A second Vertex run of the same 40
+documents (~$0.50). If Vertex agrees with *itself* at about 80%, the route
+or the date changed which ids the model picks, and the Gemini robustness
+index should be compared only with Vertex runs. If Vertex agrees with
+itself at about 50%, Vertex is simply noisier, and any one Gemini index is
+less stable than the October figure suggested. A same-day AI Studio run
+would also answer it, but that key's credits are used up.
+
+**Why it matters.** The write-up was going to quote "80% run-to-run
+agreement" for Gemini (`proposals/module1-freeze.md`, "Three things to be
+honest about"). That figure was measured on AI Studio only. Until this is
+settled, quote Gemini's agreement as **50–80% depending on route and date**,
+and treat the robustness index's id-level detail as one draw among several
+possible ones. The aggregate findings (validity near 95%, no counting, few
+wrong names) held on all three runs.
+
+### Answer so far: partly both (second Vertex run, 2026-11-14 later)
+
+The same 40 documents through Vertex again, identical command, same day
+(≈ $0.51). `docs/results/vertex_sample_vs_aistudio_gemini.txt`, end of file.
+
+| pair | accepted ids shared | replies identical |
+|---|---|---|
+| AI Studio run 1 vs run 2 (October, same day) | **80%** | 18 of 40 |
+| **Vertex run 1 vs run 2 (today, same day)** | **60%** | 5 of 40 |
+| any AI Studio run vs any Vertex run | **47–51%** | 0 of 40 |
+
+How to read it, like a test-retest score: how often does the model pick the
+same ids if you simply ask again?
+
+1. **Vertex is less consistent with itself than AI Studio was**: 60%
+   against 80%. Most of the drop from 80% is this. CAPEC is the least
+   stable on Vertex (45%); ATT&CK is as stable as before (75%).
+2. **On top of that, October-AI-Studio and today-Vertex differ by roughly
+   another 10 points** (47–51% against Vertex's own 60%), and no reply is
+   ever word-for-word shared across the two (0 of 40 in all four pairings,
+   against 5 of 40 inside Vertex). So the two set-ups really do feed the
+   model something different — the schema billed as prompt tokens on
+   Vertex only is the likeliest candidate — or the model changed between
+   the dates.
+3. **Route versus date for that extra gap is still not separable**: it
+   would need an AI Studio run today, and that key has no credits left.
+   It matters less now, because the robustness index will be built and
+   compared on Vertex only.
+
+These are two pairs of runs each, so read 80 / 60 / 50 as rough: with about
+70 ids per run, a few percentage points either way is noise, but 80 → 60 is
+too large to be.
+
+**What does not move across all four runs** (the part the robustness index
+relies on): 91–96% of proposed ids accepted, 0 retired or non-existent ids
+apart from one, 3–6 wrong names, **0 counting runs**, and generated ids
+landing within 2 hops of the entry about half to two-thirds of the time
+(14 of 28, 14 of 25, 21 of 32, 21 of 30).
+
+**Decisions — CONFIRMED by the Module 1 owner, 2026-11-14:**
+
+1. **Agreement figure: about 60%.** Gemini's run-to-run agreement on
+   accepted ids is quoted as **~60% (Vertex, two same-day runs)**, not the
+   80% measured on AI Studio in October. The 80% may be mentioned only as
+   the AI Studio figure, labelled as such.
+2. **Robustness is reported as aggregate behaviour.** The robustness index
+   is compared with the main (`qwen2.5:14b`) index on validity (share of ids
+   accepted), wrong names, non-existent/retired ids, counting runs and graph
+   distance — where all four Gemini runs agree. The write-up does not claim
+   that any particular id would reappear in another Gemini run.
+3. **Vertex only.** The full Gemini index is compared only with the Vertex
+   samples (`…_vertex.jsonl`, `…_vertex2.jsonl`). The October AI Studio runs
+   stay on record as history, not as a reference point for the robustness
+   index.
+
+Still open (low priority): whether the remaining ~10-point gap between
+October-AI-Studio and today-Vertex is the route or the date. It no longer
+affects any decision above.
+
+### A third Vertex run: batch mode (2026-11-14, evening)
+
+The same 40 documents as a Vertex **batch** job (same settings, half price;
+`03_STATUS_LOG.md`, "Vertex batch mode"). It counts as a third Vertex run:
+
+| pair | accepted ids shared | replies identical |
+|---|---|---|
+| Vertex online 1 vs online 2 | 60% | 5 of 40 |
+| **Vertex batch vs online 1** | **68%** | 8 of 40 |
+| **Vertex batch vs online 2** | **55%** | 5 of 40 |
+| Vertex batch vs AI Studio runs | 47–52% | 0 of 40 |
+
+Three Vertex runs, three pairs: **55–68%, about 60%** — decision 1 stands.
+The aggregate measures hold on the batch run too: 63 of 67 proposed ids
+accepted (94%), 0 non-existent or retired, 4 wrong names, 0 counting runs,
+generated ids within 2 hops 17 of 30. So batch output can be compared with
+the online Vertex samples (decision 3) like any other Vertex run.
+`docs/results/vertex_batch_vs_online_gemini.txt`.
+

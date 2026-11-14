@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -473,6 +474,38 @@ class OllamaClient(LLMClient):
         return text, usage
 
 
+GEMINI_APIS = ("ai_studio", "vertex")
+"""The two routes to the same Gemini models; see :class:`GeminiClient`."""
+
+# An OAuth access token (what application-default credentials turn into) and
+# an Authorization header. Neither should ever appear in an SDK error, but a
+# paid run's call log is the wrong place to find out that one did.
+_SECRET_PATTERNS = (
+    re.compile(r"ya29\.[A-Za-z0-9_\-.]+"),
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9_\-.=]+"),
+)
+
+
+def scrub_secrets(message: str, api_key: str = "") -> str:
+    """``message`` with the API key and anything token-shaped replaced by ``***``."""
+    if api_key:
+        message = message.replace(api_key, "***")
+    message = _SECRET_PATTERNS[0].sub("***", message)
+    return _SECRET_PATTERNS[1].sub(lambda m: m.group(1) + "***", message)
+
+
+def gemini_api_from_env(flag: Optional[str] = None) -> str:
+    """Which Gemini route to use: the flag if given, else ``.env``'s choice.
+
+    ``GOOGLE_GENAI_USE_VERTEXAI`` set to true/1/yes means Vertex -- the same
+    variable the SDK itself reads. Anything else means AI Studio.
+    """
+    if flag:
+        return flag.replace("-", "_")
+    value = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower()
+    return "vertex" if value in {"1", "true", "yes"} else "ai_studio"
+
+
 class GeminiClient(LLMClient):
     """Google Gemini through the ``google-genai`` SDK -- the frontier backend.
 
@@ -480,9 +513,24 @@ class GeminiClient(LLMClient):
     (``docs/06_POLICY_EXCEPTIONS.md``); day-to-day development stays on
     :class:`OllamaClient`.
 
-    The key is read from the ``GEMINI_API_KEY`` environment variable and is
-    never printed, logged, or stored on a record; an SDK error is scrubbed of
-    it before it reaches the :class:`CallLog`.
+    Two ways in, same model, same request (``api``):
+
+    * ``"ai_studio"`` (default): the Gemini API with a key, read from the
+      ``GEMINI_API_KEY`` environment variable.
+    * ``"vertex"``: Google Cloud's Vertex AI (shown in the Cloud Console as
+      "Agent Platform API", service ``aiplatform.googleapis.com``), billed to
+      a Cloud project. It signs in with **application-default credentials**
+      (``gcloud auth application-default login``) and needs a project id and
+      a location, from ``GOOGLE_CLOUD_PROJECT`` / ``GOOGLE_CLOUD_LOCATION``
+      unless passed in. No key is used or sent on this route, even when
+      ``GEMINI_API_KEY`` is also set: the SDK lets an explicit project and
+      location win over a key in the environment.
+
+    Nothing secret is printed, logged, or stored on a record: an SDK error is
+    scrubbed of the key and of anything shaped like an OAuth access token
+    before it reaches the :class:`CallLog`. The project id and location are
+    not secrets; :meth:`describe` records them so a manifest shows which
+    account paid.
 
     Three things behave differently from Ollama, and each would silently skew
     a comparison if it were hidden:
@@ -511,6 +559,9 @@ class GeminiClient(LLMClient):
         model: str,
         *,
         api_key: Optional[str] = None,
+        api: str = "ai_studio",
+        project: Optional[str] = None,
+        location: Optional[str] = None,
         temperature: float = 0.0,
         seed: Optional[int] = None,
         thinking_level: Optional[str] = None,
@@ -521,21 +572,50 @@ class GeminiClient(LLMClient):
     ) -> None:
         kwargs.setdefault("retry_backoff_s", 8.0)   # rate limits clear in seconds, not 1.5s
         super().__init__(model, **kwargs)
+        if api not in GEMINI_APIS:
+            raise LLMError(f"api={api!r}: must be one of {', '.join(GEMINI_APIS)}")
+        self.api = api
         self.temperature = temperature
         self.seed = seed
         self.thinking_level = thinking_level
         self.thinking_headroom_tokens = int(thinking_headroom_tokens)
-        self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or ""
+        self.project: Optional[str] = None
+        self.location: Optional[str] = None
+        http_options = {"timeout": int(timeout_s * 1000)}
+        if api == "vertex":
+            # No key on this route, so there is no key to leak either.
+            self._api_key = ""
+            self.project = project or os.environ.get("GOOGLE_CLOUD_PROJECT") or None
+            self.location = location or os.environ.get("GOOGLE_CLOUD_LOCATION") or None
+            missing = [
+                name for name, value in
+                (("GOOGLE_CLOUD_PROJECT", self.project), ("GOOGLE_CLOUD_LOCATION", self.location))
+                if not value
+            ]
+            if missing:
+                raise LLMError(f"Vertex AI needs {' and '.join(missing)} (put it in .env)")
+        else:
+            self._api_key = api_key or os.environ.get("GEMINI_API_KEY") or ""
         if sdk_client is not None:          # tests inject a fake; no network, no key
             self._sdk = sdk_client
+            return
+        from google import genai            # imported lazily: Ollama-only users need not install it
+
+        if api == "vertex":
+            # project + location, and no api_key: the SDK then signs in with
+            # application-default credentials and ignores any key it finds in
+            # the environment.
+            self._sdk = genai.Client(
+                vertexai=True, project=self.project, location=self.location, http_options=http_options,
+            )
         else:
             if not self._api_key:
                 raise LLMError("GEMINI_API_KEY is not set (put it in .env; never commit it)")
-            from google import genai        # imported lazily: Ollama-only users need not install it
-
-            self._sdk = genai.Client(
-                api_key=self._api_key, http_options={"timeout": int(timeout_s * 1000)}
-            )
+            # vertexai=False must be explicit: with GOOGLE_GENAI_USE_VERTEXAI=True
+            # in the environment (as .env has it for the Vertex route), the SDK
+            # would otherwise send this key to Vertex AI "express mode", where
+            # it is refused (403 API_KEY_SERVICE_BLOCKED) -- found 2026-11-14.
+            self._sdk = genai.Client(vertexai=False, api_key=self._api_key, http_options=http_options)
 
     def describe(self) -> dict[str, Any]:
         """The settings that shape a reply, for the run manifest. No secrets."""
@@ -545,9 +625,17 @@ class GeminiClient(LLMClient):
             sdk_version = version("google-genai")
         except Exception:  # noqa: BLE001 - a missing package version is not worth failing a run over
             sdk_version = "unknown"
-        return {
+        settings: dict[str, Any] = {
             "backend": "gemini",
-            "provider": "Google Gemini API (AI Studio key)",
+            "api": self.api,
+            # How the requests were served: one call at a time ("-online") or
+            # as a Vertex batch job ("vertex-batch", set by the batch driver).
+            # Compared on resume and merge, so the two never share a file.
+            "service": "vertex-online" if self.api == "vertex" else "ai-studio-online",
+            "provider": (
+                "Google Cloud Vertex AI (application-default credentials)" if self.api == "vertex"
+                else "Google Gemini API (AI Studio key)"
+            ),
             "sdk": f"google-genai {sdk_version}",
             "model": self.model,
             "model_version_reported": self.last_model_version or None,
@@ -569,6 +657,15 @@ class GeminiClient(LLMClient):
                 else "off"
             ),
         }
+        if self.api == "vertex":
+            # Which Cloud project paid and where it was served. Neither is a
+            # secret; the credentials themselves are never read by this code.
+            settings["vertex"] = {
+                "project_id": self.project,
+                "location": self.location,
+                "auth": "application-default credentials",
+            }
+        return settings
 
     def _config(self, system: Optional[str], opts: GenOptions) -> dict[str, Any]:
         """The ``GenerateContentConfig`` for one call, as a plain dict (testable)."""
@@ -595,10 +692,7 @@ class GeminiClient(LLMClient):
                 model=self.model, contents=prompt, config=self._config(system, opts)
             )
         except Exception as exc:  # noqa: BLE001 - re-raised scrubbed, so the key cannot reach a log
-            message = f"{type(exc).__name__}: {exc}"
-            if self._api_key:
-                message = message.replace(self._api_key, "***")
-            raise LLMError(message[:600]) from None
+            raise LLMError(scrub_secrets(f"{type(exc).__name__}: {exc}", self._api_key)[:600]) from None
 
         meta = getattr(response, "usage_metadata", None)
         usage = TokenUsage(

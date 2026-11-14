@@ -13,6 +13,7 @@ from .schemas import (
 from .llm import (
     CallLog,
     CallRecord,
+    GEMINI_APIS,
     GeminiClient,
     GenOptions,
     LLMClient,
@@ -20,6 +21,8 @@ from .llm import (
     OllamaClient,
     Scope,
     StubClient,
+    gemini_api_from_env,
+    scrub_secrets,
 )
 from .repro import (
     code_version, config_hash, full_run_blocker, gpu_names, load_config, load_env_file, machine_info,
@@ -38,6 +41,7 @@ __all__ = [
     "write_jsonl",
     "CallLog",
     "CallRecord",
+    "GEMINI_APIS",
     "GeminiClient",
     "GenOptions",
     "LLMClient",
@@ -45,6 +49,8 @@ __all__ = [
     "OllamaClient",
     "Scope",
     "StubClient",
+    "gemini_api_from_env",
+    "scrub_secrets",
     "code_version",
     "config_hash",
     "full_run_blocker",

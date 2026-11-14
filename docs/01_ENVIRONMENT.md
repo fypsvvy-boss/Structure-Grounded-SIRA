@@ -200,15 +200,97 @@ exception**: write it up in `06_POLICY_EXCEPTIONS.md` before you start.
   `.venv/bin/python -m pip install google-genai` — note `python -m pip`, not
   `.venv/bin/pip`: the venv was moved and `pip`'s own launcher still points at
   the old folder.
-- **Model id:** pass a pinned id (`gemini-3.1-pro-preview` on 2026-10-08), not
-  an alias like `gemini-pro-latest` — an alias silently changes which model
-  you are measuring.
+- **Model id:** pass a pinned id (`gemini-3.1-pro-preview` on 2026-10-08,
+  checked again 2026-11-14), not an alias like `gemini-pro-latest` — an alias
+  silently changes which model you are measuring.
+
+### Two routes to the same model: AI Studio or Vertex AI (added 2026-11-14)
+
+| | AI Studio | **Vertex AI** (current) |
+|---|---|---|
+| flag | `--gemini-api ai-studio` | `--gemini-api vertex` |
+| pays | the AI Studio key's prepaid credits (**used up**, 2026-11-14) | the Google Cloud project — trial credits |
+| sign-in | `GEMINI_API_KEY` in `.env` | **application-default credentials**: run `gcloud auth application-default login` once; no key, no service account |
+| `.env` needs | `GEMINI_API_KEY` | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION=global`, and (optional) `GOOGLE_GENAI_USE_VERTEXAI=True` |
+| Cloud Console name | — | "Agent Platform API" (service `aiplatform.googleapis.com`) must be enabled |
+
+Without the flag, `GOOGLE_GENAI_USE_VERTEXAI=True` in `.env` picks Vertex.
+Always pass the flag on a real run so the command says which route it used;
+the manifest records it anyway (`llm.api`, `llm.vertex.project_id`,
+`llm.vertex.location`). The project id and location are not secrets; the
+credentials are never read or printed by our code.
+
+Check the model before a paid run:
+`.venv/bin/python scripts/check_gemini_model.py --gemini-api vertex --probe`.
+
+**Gotcha found 2026-11-14:** with `GOOGLE_GENAI_USE_VERTEXAI=True` in the
+environment, `google-genai` sends even a key-only client to Vertex ("express
+mode"), where an AI Studio key is refused with 403
+`API_KEY_SERVICE_BLOCKED`. `GeminiClient` passes `vertexai=False` on the
+AI Studio route to prevent that. Remember it if you write your own SDK calls.
+
+**Vertex bills the JSON schema as prompt tokens** (~134 per call with our
+`REPLY_SCHEMA`); AI Studio did not. So the same request shows ~12% more
+prompt tokens on Vertex. The text itself counts the same on both.
+
+### Batch mode on Vertex: same requests, half price (added 2026-11-14)
+
+Add `--batch` to a Vertex command (and batch prices `--price-in 1.00
+--price-out 6.00`). Instead of one call per document, every request is put
+in one file, sent to Google as a **batch job**, and the answers come back
+together; then they go through exactly the same checks as an online run.
+Think of it as posting a stack of letters and getting all the replies back
+in one envelope, instead of phoning about each one.
+
+```bash
+.venv/bin/python scripts/enrich_corpus.py --per-kind 10 \
+    --backend gemini --gemini-api vertex --batch \
+    --model gemini-3.1-pro-preview --thinking-level low \
+    --price-in 1.00 --price-out 6.00 --cost-cap-usd 0.50 \
+    --output indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertexbatch.jsonl
+```
+
+What to know:
+
+- **It needs a Cloud Storage bucket** (an online folder in the Cloud
+  project): Vertex batch only reads its input from there. Ours is
+  `gs://<project>-sira-batch` (private, us-central1), created on
+  2026-11-14 with `--batch-create-bucket`. Pass that flag once on a new
+  project; later runs find the bucket.
+- **The cap is checked before submitting**, against a cautious estimate
+  (it over-estimated the 40-doc sample by about 40%). Once a job is sent it
+  cannot be stopped part-way for money.
+- **Stopping is safe.** The job's id is saved in `<output>.batch/state.json`
+  the moment it exists. Run the same command again and it waits for that
+  job instead of sending a second one. `--batch-max-wait-hours` (default 30)
+  is how long one session waits.
+- **Time:** our 5- and 40-document jobs took 8 and 5 minutes end to end;
+  Google promises nothing tighter than "most jobs complete within 24 hours"
+  after they start, and a job can queue for up to 72 hours.
+- **No preflight and no seed check** — those would be billed at the online
+  price. Instead every reply is checked afterwards for the "collapse" (one
+  proposal where up to twelve were asked for); the end-of-run printout
+  shows the count.
+- The manifest says `"service": "vertex-batch"`. A batch file and an online
+  file can never be resumed into each other or merged.
+- **Check the bill:** result lines report `trafficType: "ON_DEMAND"`. Google
+  defines that as pay-as-you-go (as opposed to reserved capacity), so it
+  should still be the batch rate, but the billing console is the proof.
 
 ```bash
 .venv/bin/python scripts/enrich_corpus.py --per-kind 10 --backend gemini \
     --model gemini-3.1-pro-preview --thinking-level low --concurrency 1 \
     --price-in 2.00 --price-out 12.00 --cost-cap-usd 0.88 \
     --output indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro.jsonl
+```
+
+The same through Vertex AI (see the table above):
+
+```bash
+.venv/bin/python scripts/enrich_corpus.py --per-kind 10 --backend gemini --gemini-api vertex \
+    --model gemini-3.1-pro-preview --thinking-level low --concurrency 1 \
+    --price-in 2.00 --price-out 12.00 --cost-cap-usd 2.00 \
+    --output indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl
 ```
 
 `--backend` and `--model` are flags on purpose: editing `configs/default.yaml`
@@ -245,7 +327,10 @@ twice. It checks the array did not collapse, compares the two replies (the
 seed test), and turns their cost into an estimate for the whole run. It
 refuses to start if the estimate is over `--cost-cap-usd`, and stops mid-run
 if actual spend passes it (which is why a capped run must use
-`--concurrency 1`).
+`--concurrency 1`). Since 2026-11-14 the cap is for the **whole output
+file**: a resumed run counts what the records already in it cost. The
+preflight runs only once there is work to do and the resume check has
+passed, so a refused or finished run spends nothing.
 
 ---
 

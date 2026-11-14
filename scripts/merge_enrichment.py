@@ -17,7 +17,9 @@ It refuses, and writes nothing, when:
 * the manifests disagree on anything that shapes a reply or a verdict: config
   hash, model, model digest, prompt, every gate (name scorer and thresholds,
   decoding mode, reply cap, truncation budget and rules), how the documents
-  were sampled, or the temperature, seed and context size sent to the model;
+  were sampled, or the backend settings sent to the model (temperature, seed,
+  context size; for Gemini also route, service -- online or batch --,
+  thinking, reply cap and decoding);
 * the same document id appears twice with different content. The same record
   twice, byte for byte, is harmless (a file given twice, or a session's file
   and its continuation) and is kept once;
@@ -46,9 +48,15 @@ MUST_AGREE = ("config_hash", "model", "model_digest", "prompt_version", "samplin
 """Manifest entries every source file must share. ``gates`` holds the name
 scorer and the truncation budget and rules; ``sampling`` holds the sampling seed."""
 
-LLM_MUST_AGREE = ("backend", "temperature", "seed_sent", "num_ctx")
+LLM_MUST_AGREE = (
+    "backend", "api", "service", "provider", "temperature", "seed_sent", "num_ctx",
+    "thinking", "max_output_tokens_sent", "structured_output",
+)
 """The parts of the manifest's ``llm`` block that shape a reply. The rest of
-that block (token usage, pricing) describes one session, not the method."""
+that block (token usage, pricing, batch job names) describes one session, not
+the method. ``service`` keeps an online Gemini file and a batch one apart.
+An Ollama manifest records none of the Gemini keys, so two Ollama files
+still agree on them (both "(not recorded)")."""
 
 PROCESS_FIELDS = ("cuda_visible_devices", "ollama_host")
 """Fields of a manifest's ``machine`` that describe one process, not the machine.

@@ -1600,3 +1600,144 @@ def test_the_time_limit_also_stops_a_concurrent_run_without_losing_records(tmp_p
     assert summary.processed == len(written) and 0 < len(written) < len(docs)
     assert summary.remaining == len(docs) - len(written)
     assert not (tmp_path / "enrichment.jsonl.failures.jsonl").exists()     # unstarted is not failed
+
+
+# -- backend settings on resume (the Gemini / Vertex route) ------------------------------
+
+def _gemini_llm(**changes):
+    llm = {
+        "backend": "gemini", "api": "vertex",
+        "provider": "Google Cloud Vertex AI (application-default credentials)",
+        "model_version_reported": "gemini-3.1-pro-preview", "temperature": 0.0, "seed_sent": 42,
+        "thinking": {"thinking_level": "low", "headroom_tokens": 8192},
+        "max_output_tokens_sent": 8704, "structured_output": "response_json_schema",
+        "vertex": {"project_id": "project-a", "location": "global"},
+        "preflight": {"tokens": {"prompt": 1728, "completion": 300, "thinking": 1400}},
+    }
+    for key, value in changes.items():
+        if key == "thinking_level":
+            llm["thinking"] = {**llm["thinking"], "thinking_level": value}
+        else:
+            llm[key] = value
+    return llm
+
+
+@pytest.mark.parametrize(
+    "changes, named",
+    [
+        ({"thinking_level": "high"}, "llm.thinking.thinking_level"),
+        ({"api": "ai_studio", "provider": "Google Gemini API (AI Studio key)"}, "llm.provider"),
+        ({"temperature": 1.0}, "llm.temperature"),
+        ({"seed_sent": 7}, "llm.seed_sent"),
+        ({"max_output_tokens_sent": 1024}, "llm.max_output_tokens_sent"),
+    ],
+)
+def test_resuming_under_different_backend_settings_is_refused(tmp_path, changes, named):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], llm_settings=_gemini_llm())
+    before = out.read_bytes()
+    with pytest.raises(ResumeMismatchError, match=named.replace(".", r"\.")):
+        _resume_run(out, [_doc("T1110"), _doc("T1078")], llm_settings=_gemini_llm(**changes))
+    assert out.read_bytes() == before
+
+
+def test_a_new_session_from_another_project_or_location_resumes_and_keeps_the_old_session(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    docs = [_doc("T1110"), _doc("T1078"), _doc("T1059")]
+    _resume_run(out, docs[:1], llm_settings=_gemini_llm())
+    _resume_run(out, docs[:2], llm_settings=_gemini_llm(vertex={"project_id": "project-b", "location": "global"}))
+    summary = _resume_run(
+        out, docs, llm_settings=_gemini_llm(
+            vertex={"project_id": "project-b", "location": "us-central1"}, model_version_reported="v2",
+        ),
+    )
+
+    assert (summary.already_done, summary.processed) == (2, 1)
+    manifest = _read_manifest(out)
+    assert manifest["llm"]["vertex"] == {"project_id": "project-b", "location": "us-central1"}
+    history = manifest["llm_previous"]
+    assert [h["llm"]["vertex"]["project_id"] for h in history] == ["project-a", "project-b"]
+    assert all(h["usage"]["llm_calls"] == 1 for h in history)          # each session's own use kept
+
+
+def test_an_identical_backend_block_is_not_repeated_in_the_history(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], llm_settings=_gemini_llm())
+    _resume_run(out, [_doc("T1110"), _doc("T1078")], llm_settings=_gemini_llm())
+    assert "llm_previous" not in _read_manifest(out)
+
+
+def test_a_backend_key_the_old_file_never_recorded_does_not_block_a_resume(tmp_path):
+    # Files written before the Vertex route have no "api"; Ollama files have no thinking.
+    out = tmp_path / "enrichment.jsonl"
+    old = _gemini_llm()
+    del old["api"]
+    _resume_run(out, [_doc("T1110")], llm_settings=old)
+    assert _resume_run(out, [_doc("T1110"), _doc("T1078")], llm_settings=_gemini_llm()).processed == 1
+
+    ollama = tmp_path / "ollama.jsonl"
+    settings = {"backend": "ollama", "temperature": 0.0, "seed_sent": 42, "num_ctx": 4096}
+    _resume_run(ollama, [_doc("T1110")], llm_settings=settings)
+    assert _resume_run(ollama, [_doc("T1110"), _doc("T1078")], llm_settings=dict(settings)).processed == 1
+    with pytest.raises(Exception, match=r"llm\.num_ctx"):
+        _resume_run(ollama, [_doc("T1110"), _doc("T1059")], llm_settings={**settings, "num_ctx": 8192})
+
+
+# -- before_first_call: where a paid backend's preflight runs ---------------------------
+
+def test_the_hook_runs_once_before_the_first_document_and_can_add_to_the_manifest(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    events = []
+    llm = _gemini_llm()
+
+    def hook():
+        events.append(("hook", out.exists()))
+        llm["preflight"] = {"proposals_per_reply": [12, 12]}
+
+    def factory():
+        def responder(_p):
+            events.append(("call", None))
+            return _reply([])
+        return StubClient(model="m1", responder=responder)
+
+    _resume_run(out, [_doc("T1110"), _doc("T1078")], client_factory=factory, llm_settings=llm, before_first_call=hook)
+
+    assert events[0] == ("hook", False)                     # before any model call and any write
+    assert [e[0] for e in events].count("hook") == 1
+    assert _read_manifest(out)["llm"]["preflight"] == {"proposals_per_reply": [12, 12]}
+
+
+def test_a_refused_resume_never_reaches_the_hook(tmp_path):
+    from sira_cti.enrichment.corpus_side import ResumeMismatchError
+
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")], llm_settings=_gemini_llm())
+    calls = []
+    with pytest.raises(ResumeMismatchError):
+        _resume_run(
+            out, [_doc("T1110"), _doc("T1078")], llm_settings=_gemini_llm(thinking_level="high"),
+            before_first_call=lambda: calls.append(1),
+        )
+    assert calls == []                                      # nothing paid for a run that was refused
+
+
+def test_a_finished_file_never_reaches_the_hook(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+    _resume_run(out, [_doc("T1110")])
+    calls = []
+    summary = _resume_run(out, [_doc("T1110")], before_first_call=lambda: calls.append(1))
+    assert calls == [] and summary.processed == 0
+
+
+def test_the_hook_can_stop_the_run_before_anything_is_written(tmp_path):
+    out = tmp_path / "enrichment.jsonl"
+
+    def hook():
+        raise SystemExit(2)
+
+    with pytest.raises(SystemExit):
+        _resume_run(out, [_doc("T1110")], before_first_call=hook)
+    assert not out.exists()
+    assert not out.with_suffix(".jsonl.manifest.json").exists()

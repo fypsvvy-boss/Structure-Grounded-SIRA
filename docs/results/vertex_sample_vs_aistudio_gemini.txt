@@ -1,0 +1,1694 @@
+Gemini 3.1 Pro on the 40-document sample: Vertex AI (2026-11-14) vs the two AI Studio runs (2026-10-08)
+=======================================================================================================
+
+Same 40 documents (10 per kind, sampling seed 42), model id gemini-3.1-pro-preview
+(model_version reported: gemini-3.1-pro-preview on all three), prompt corpus-v4, schema
+1.5.0, temperature 0, seed 42 (sent, not honoured), thinking low, reply cap 512 + 8192,
+JSON-schema decoding, scorer v1.
+Differences in settings: the Vertex run uses config 364d30da6c75 and sections-v2
+truncation (3 CAPEC entries shown shortened: CAPEC-126, CAPEC-24, CAPEC-656); the
+October runs used config 2007683a1442 and no truncation. Leaving those 3 documents out
+does not change the overlap figures (below).
+
+Files (git-ignored, local only):
+  indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro.jsonl          (AI Studio run 1)
+  indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_run2.jsonl     (AI Studio run 2)
+  indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl   (Vertex)
+
+Accepted structural ids, matched as (document, id):
+  run1 vs run2:    61 shared of 76 = 80%
+  run1 vs vertex:  48 shared of 94 = 51%
+  run2 vs vertex:  47 shared of 94 = 50%
+  excluding the 3 cut documents: 80% / 53% / 52%
+  per kind (run1-run2 | run1-vertex | run2-vertex):
+    cve     80% | 64% | 56%
+    cwe     88% | 52% | 59%
+    capec   77% | 37% | 36%
+    attack  75% | 64% | 64%
+  ids both AI Studio runs accepted: 61, of which Vertex also accepted 44
+  Vertex accepted ids in neither AI Studio run: 22
+Replies identical word for word: run1-run2 18 of 40; vertex vs either run 0 of 40.
+
+Rejected structural ids:
+  run1:   4 name_mismatch (CAPEC-240 on CVE-2025-6973, CWE-1097 on CWE-1235, CAPEC-616 on CAPEC-631, T1552.005 on T1555.006)
+  run2:   4 name_mismatch (CAPEC-248 on CVE-2025-26663, CAPEC-240 on CVE-2025-6973, CAPEC-616 on CAPEC-631, T1552.005 on T1555.006)
+  vertex: 6 name_mismatch (CAPEC-94 on CWE-940, CAPEC-417 on CAPEC-422, CAPEC-616 / CAPEC-89 / CAPEC-543 on CAPEC-631, T1552.005 on T1555.006)
+          1 deprecated (T1436 on T1661)
+Counting runs: 0 in all three.
+Scorer v2 changes no verdict in any of the three runs.
+
+Tokens and cost (list price $2.00 / $12.00 per 1M, thinking billed as output):
+  vertex: prompt 40,182, reply 8,345, thinking 23,993 -> ~$0.468 + $0.025 preflight
+  run2:   prompt 35,915, reply 6,752, thinking 23,259 -> ~$0.432 + $0.025 preflight
+Why Vertex has ~12% more prompt tokens: Vertex counts the JSON reply schema as prompt
+tokens (~134 per call, measured: the same tiny prompt bills 22 tokens without the schema,
+156 with it). The text itself counts the same on both services (count_tokens on the
+preflight document: Vertex 470 + 392, AI Studio 471 + 393), and the October AI Studio
+calls were billed for the text alone (864 per call).
+Latency: Vertex 11.3 s/doc mean (10.3 median); AI Studio run 2 8.2 s/doc.
+
+=======================================================================================
+compare_enrichment.py output, unedited
+=======================================================================================
+
+
+################ reference: corpus_stratified_v4_gemini-3.1-pro.jsonl   other: corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl
+reference: indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro.jsonl
+    (machine not recorded)
+other:     indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl
+    Yashs-MacBook.local  macOS-26.6.2-arm64-arm-64bit-Mach-O  gpu=['Apple M5']
+
+model digest: not recorded in either manifest (- / -); compare `ollama list` on the two machines by hand
+settings that DIFFER between the two runs (so a difference below may not be the hardware):
+    config_hash: '2007683a1442' / '364d30da6c75'
+    gates.max_doc_chars: None / 6000
+    gates.truncation_version: None / 'sections-v2'
+
+documents: 40 / 40, 40 in both
+
+REPLIES IDENTICAL: 0 of 40
+  CVE-2024-4897 (cve): 11 / 10 proposals
+      reference only: 'supply chain attack' [colloquial]
+      reference only: 'arbitrary code execution' [colloquial]
+      reference only: 'unexpected shell spawned' [symptom]
+      reference only: 'huggingface' [misspelling]
+      reference only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      other only: 'llama.cpp' [product]
+      other only: 'unauthorized process creation' [symptom]
+      other only: 'reverse shell' [symptom]
+      other only: 'T1195.002' [structural] claimed 'Supply Chain Compromise: Compromise Software Supply Chain'
+      accepted ids: ['CWE-1104', 'T1190'] / ['CWE-1104', 'T1195.002']
+  CVE-2024-56180 (cve): 10 / 11 proposals
+      reference only: 'Event Mesh' [misspelling]
+      reference only: 'deseralization' [misspelling]
+      reference only: 'unexpected process creation' [symptom]
+      other only: 'unmarshaling' [colloquial]
+      other only: 'deserialisation' [misspelling]
+      other only: 'EventMash' [misspelling]
+      other only: 'unauthorized process creation' [symptom]
+  CVE-2024-11170 (cve): 11 / 12 proposals
+      reference only: 'webshell upload' [symptom]
+      reference only: 'unexpected files in webroot' [symptom]
+      other only: 'webshell uploaded' [symptom]
+      other only: 'libre chat' [misspelling]
+      other only: 'mutler' [misspelling]
+  CVE-2025-26663 (cve): 11 / 12 proposals
+      reference only: 'Domain Controller' [product]
+      reference only: 'CAPEC-240' [structural] claimed 'Resource Injection'
+      other only: 'domain controller' [product]
+      other only: 'CAPEC-57' [structural] claimed "Utilizing REST's Put"
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      accepted ids: ['CAPEC-240', 'CWE-416'] / ['CAPEC-57', 'CWE-416', 'T1190']
+  CVE-2025-32526 (cve): 8 / 9 proposals
+      reference only: 'WP' [product]
+      reference only: 'Zepher' [misspelling]
+      reference only: 'session hijacking' [symptom]
+      reference only: 'stolen cookies' [symptom]
+      reference only: 'CAPEC-86' [structural] claimed 'Reflected XSS'
+      other only: 'client-side code execution' [colloquial]
+      other only: 'stolen session cookies' [symptom]
+      other only: 'unauthorized popups' [symptom]
+      other only: 'WP plugin' [product]
+      other only: 'Zepyhr' [misspelling]
+      other only: 'CAPEC-591' [structural] claimed 'Reflected XSS'
+      accepted ids: ['CAPEC-63', 'CAPEC-86'] / ['CAPEC-591', 'CAPEC-63']
+  CVE-2025-7160 (cve): 9 / 9 proposals
+      reference only: 'database dump' [symptom]
+      other only: 'database errors' [symptom]
+  CVE-2023-50458 (cve): 8 / 10 proposals
+      reference only: 'cross-tenant data exposure' [colloquial]
+      reference only: 'seeing other users data' [symptom]
+      other only: 'sensitive data exposure' [colloquial]
+      other only: 'unauthorized log access' [symptom]
+      other only: 'pentest reporting' [product]
+      other only: 'CWE-862' [structural] claimed 'Missing Authorization'
+      accepted ids: ['CWE-200'] / ['CWE-200', 'CWE-862']
+  CVE-2025-6973 (cve): 11 / 10 proposals
+      reference only: 'ACE' [colloquial]
+      reference only: 'crash' [symptom]
+      reference only: 'segfault' [symptom]
+      reference only: 'Dassault Systemes' [product]
+      reference only: '3D viewer' [product]
+      reference only: 'eDrawing' [misspelling]
+      reference only: 'CAPEC-240' [structural] claimed 'Use After Free'
+      other only: 'RCE' [colloquial]
+      other only: 'Dassault Systèmes' [product]
+      other only: 'Solid works' [misspelling]
+      other only: 'e-drawings' [misspelling]
+      other only: 'application crash' [symptom]
+      other only: 'CWE-119' [structural] claimed 'Improper Restriction of Operations within the Bounds of a Memory Buffer'
+      accepted ids: [] / ['CWE-119']
+  CVE-2025-49833 (cve): 10 / 10 proposals
+      reference only: 'remote code execution' [colloquial]
+      reference only: 'OS command injection' [colloquial]
+      reference only: 'reverse shell' [symptom]
+      reference only: 'unexpected child processes' [symptom]
+      other only: 'Remote Code Execution' [colloquial]
+      other only: 'Shell injection' [colloquial]
+      other only: 'Reverse shell' [symptom]
+      other only: 'Unexpected child processes' [symptom]
+  CVE-2019-13351 (cve): 7 / 7 proposals
+      reference only: 'JACK Audio Connection Kit' [product]
+      reference only: 'ALSA' [product]
+      other only: 'audio server' [colloquial]
+      other only: 'Advanced Linux Sound Architecture' [product]
+  CWE-1083 (cwe): 10 / 9 proposals
+      reference only: 'abstraction leak' [colloquial]
+      reference only: 'layering violation' [colloquial]
+      reference only: 'data corruption' [symptom]
+      reference only: 'untracked changes' [symptom]
+      other only: 'leaky abstraction' [colloquial]
+      other only: 'untracked data modification' [symptom]
+      other only: 'CWE-1061' [structural] claimed 'Insufficient Encapsulation'
+      accepted ids: [] / ['CWE-1061']
+  CWE-1235 (cwe): 8 / 11 proposals
+      reference only: 'wrapper class' [colloquial]
+      reference only: 'garbage collection' [symptom]
+      reference only: 'slow execution' [symptom]
+      reference only: 'memory bloat' [symptom]
+      reference only: 'CWE-1097' [structural] claimed 'Incorrect Use of Autoboxing and Unboxing for Performance Critical Operations'
+      other only: 'wrapper classes' [colloquial]
+      other only: 'implicit conversion' [colloquial]
+      other only: 'garbage collection spikes' [symptom]
+      other only: 'OOM' [symptom]
+      other only: 'latency' [symptom]
+      other only: 'autoboxxing' [misspelling]
+      other only: 'unboxxing' [misspelling]
+      other only: 'CWE-400' [structural] claimed 'Uncontrolled Resource Consumption'
+      accepted ids: [] / ['CWE-400']
+  CWE-1321 (cwe): 9 / 11 proposals
+      reference only: '__proto__' [colloquial]
+      reference only: 'constructor.prototype' [colloquial]
+      reference only: 'prototype injection' [colloquial]
+      reference only: 'lodash' [product]
+      reference only: 'RCE' [symptom]
+      other only: 'Lodash' [product]
+      other only: 'property injection' [colloquial]
+      other only: 'dunder proto' [colloquial]
+      other only: 'protoype pollution' [misspelling]
+      other only: 'unexpected property inheritance' [symptom]
+      other only: 'remote code execution' [symptom]
+      other only: 'CWE-915' [structural] claimed 'Improperly Controlled Modification of Dynamically-Determined Object Attributes'
+      accepted ids: ['CWE-1321'] / ['CWE-1321', 'CWE-915']
+  CWE-378 (cwe): 10 / 10 proposals
+      reference only: 'mktemp' [colloquial]
+      reference only: 'tmpnam' [colloquial]
+      reference only: 'Linux' [product]
+      reference only: 'Unix' [product]
+      reference only: 'temprary file' [misspelling]
+      reference only: 'CWE-377' [structural] claimed 'Insecure Temporary File'
+      other only: 'symlink attack' [colloquial]
+      other only: 'privilege escalation' [symptom]
+      other only: 'mkstemp' [product]
+      other only: 'POSIX' [product]
+      other only: 'temprary' [misspelling]
+      other only: 'CWE-379' [structural] claimed 'Creation of Temporary File in Directory with Insecure Permissions'
+      accepted ids: ['CWE-377', 'CWE-732'] / ['CWE-379', 'CWE-732']
+  CWE-512 (cwe): 10 / 9 proposals
+      reference only: 'surveillance' [colloquial]
+      reference only: 'Malwarebytes' [product]
+      reference only: 'CWE-506' [structural] claimed 'Embedded Malicious Code'
+      other only: 'infostealer' [colloquial]
+      other only: 'T1005' [structural] claimed 'Data from Local System'
+      accepted ids: ['CWE-506', 'T1056'] / ['T1005', 'T1056']
+  CWE-835 (cwe): 10 / 10 proposals
+      reference only: 'hang' [colloquial]
+      reference only: 'freeze' [colloquial]
+      reference only: 'stuck' [colloquial]
+      reference only: '100% CPU' [symptom]
+      reference only: 'application unresponsive' [symptom]
+      other only: 'non-terminating loop' [colloquial]
+      other only: 'hang' [symptom]
+      other only: 'freeze' [symptom]
+      other only: 'unresponsive' [symptom]
+      other only: '100% utilization' [symptom]
+  CWE-940 (cwe): 10 / 10 proposals
+      reference only: 'spoofing' [colloquial]
+      reference only: 'man in the middle' [colloquial]
+      reference only: 'mitm' [colloquial]
+      reference only: 'origin spoofing' [colloquial]
+      reference only: 'unauthorized access' [symptom]
+      reference only: 'rogue device' [symptom]
+      reference only: 'CWE-940' [structural] claimed 'Improper Verification of Source of a Communication Channel'
+      reference only: 'CAPEC-94' [structural] claimed 'Adversary in the Middle (AiTM)'
+      other only: 'MITM' [colloquial]
+      other only: 'Man-in-the-Middle' [colloquial]
+      other only: 'Origin spoofing' [colloquial]
+      other only: 'Deep link hijacking' [colloquial]
+      other only: 'Rogue endpoint' [symptom]
+      other only: 'CWE-346' [structural] claimed 'Origin Validation Error'
+      other only: 'CWE-290' [structural] claimed 'Authentication Bypass by Spoofing'
+      other only: 'CAPEC-94' [structural] claimed 'Man in the Middle Attack'
+      accepted ids: ['CAPEC-94', 'CWE-940'] / ['CWE-290', 'CWE-346']
+  CWE-1162 (cwe): 12 / 12 proposals
+      reference only: 'dangling pointer' [colloquial]
+      reference only: 'segmentation fault' [symptom]
+      reference only: 'OOM' [symptom]
+      other only: 'memory leak' [colloquial]
+      other only: 'crash' [symptom]
+      other only: 'malloc' [colloquial]
+  CWE-1169 (cwe): 12 / 11 proposals
+      reference only: 'thread safety' [colloquial]
+      reference only: 'mutex lock' [colloquial]
+      reference only: 'intermittent crash' [symptom]
+      reference only: 'app freeze' [symptom]
+      reference only: 'POSIX threads' [product]
+      reference only: 'concurancy' [misspelling]
+      other only: 'thread safe' [colloquial]
+      other only: 'mutex' [colloquial]
+      other only: 'application hang' [symptom]
+      other only: 'data corruption' [symptom]
+      other only: 'concurency' [misspelling]
+  CWE-398 (cwe): 10 / 10 proposals
+      reference only: 'seven pernicious kingdoms' [colloquial]
+      reference only: 'segfault' [symptom]
+      reference only: 'crash' [symptom]
+      reference only: 'Fortify' [product]
+      other only: 'Seven Pernicious Kingdoms' [colloquial]
+      other only: 'application crash' [symptom]
+      other only: 'OOM' [symptom]
+      other only: 'Coverity' [product]
+  CAPEC-126 (capec): 12 / 12 proposals
+      reference only: 'arbitrary file read' [symptom]
+      reference only: 'path traversel' [misspelling]
+      reference only: 'directory traversel' [misspelling]
+      other only: 'unauthorized file access' [symptom]
+      other only: 'sensitive file exposure' [symptom]
+      other only: 'dirctory traversal' [misspelling]
+  CAPEC-14 (capec): 12 / 12 proposals
+      reference only: 'drive-by compromise' [colloquial]
+      reference only: '0xC0000005' [symptom]
+      reference only: 'Firefox' [product]
+      reference only: 'bffer overflow' [misspelling]
+      reference only: 'CWE-122' [structural] claimed 'Heap-based Buffer Overflow'
+      other only: 'segfault' [symptom]
+      other only: 'Adobe Reader' [product]
+      other only: 'bof' [misspelling]
+      other only: 'bufffer overflow' [misspelling]
+      other only: 'T1189' [structural] claimed 'Drive-by Compromise'
+      accepted ids: ['CWE-121', 'CWE-122', 'T1203'] / ['CWE-121', 'T1189', 'T1203']
+  CAPEC-24 (capec): 10 / 11 proposals
+      reference only: 'fail open' [colloquial]
+      reference only: 'bof' [colloquial]
+      reference only: 'buffer overrun' [colloquial]
+      reference only: 'application crash' [symptom]
+      reference only: 'unexpected input length' [symptom]
+      reference only: 'CWE-119' [structural] claimed 'Improper Restriction of Operations within the Bounds of a Memory Buffer'
+      reference only: 'CWE-120' [structural] claimed "Buffer Copy without Checking Size of Input ('Classic Buffer Overflow')"
+      reference only: 'CWE-20' [structural] claimed 'Improper Input Validation'
+      reference only: 'CAPEC-100' [structural] claimed 'Overflow Buffers'
+      other only: 'stack smashing' [colloquial]
+      other only: 'memory corruption' [colloquial]
+      other only: 'segmentation fault' [symptom]
+      other only: 'segfault' [symptom]
+      other only: 'core dump' [symptom]
+      other only: 'Web Application Firewall' [product]
+      other only: 'ModSecurity' [product]
+      other only: 'buffer overun' [misspelling]
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      other only: 'T1499' [structural] claimed 'Endpoint Denial of Service'
+      accepted ids: ['CAPEC-100', 'CWE-119', 'CWE-120', 'CWE-20'] / ['T1190', 'T1499']
+  CAPEC-267 (capec): 12 / 11 proposals
+      reference only: 'obfuscation' [colloquial]
+      reference only: 'evasion' [colloquial]
+      reference only: 'WAF bypass' [colloquial]
+      reference only: 'filter bypass' [colloquial]
+      reference only: 'base64' [colloquial]
+      reference only: 'hex encoding' [colloquial]
+      reference only: 'unicode evasion' [colloquial]
+      reference only: 'CWE-173' [structural] claimed 'Improper Handling of Alternate Encoding'
+      reference only: 'CWE-172' [structural] claimed 'Encoding Error'
+      reference only: 'CWE-180' [structural] claimed 'Incorrect Behavior Order: Validate Before Canonicalize'
+      other only: 'Base64 encoding' [colloquial]
+      other only: 'Hex encoding' [colloquial]
+      other only: 'Unicode evasion' [colloquial]
+      other only: 'Double encoding' [colloquial]
+      other only: 'WAF bypass' [symptom]
+      other only: 'Filter evasion' [symptom]
+      other only: 'CWE-176' [structural] claimed 'Improper Handling of Unicode Encoding'
+      other only: 'CWE-116' [structural] claimed 'Improper Encoding or Escaping of Output'
+      other only: 'obfustication' [misspelling]
+      accepted ids: ['CWE-172', 'CWE-173', 'CWE-180', 'T1027'] / ['CWE-116', 'CWE-176', 'T1027']
+  CAPEC-422 (capec): 9 / 10 proposals
+      reference only: 'foot-in-the-door' [colloquial]
+      reference only: 'unusual employee behavior' [symptom]
+      reference only: 'social enginering' [misspelling]
+      other only: 'foot in the door' [colloquial]
+      other only: 'consistancy' [misspelling]
+      other only: 'socail engineering' [misspelling]
+      other only: 'CAPEC-417' [structural] claimed 'Social Engineering'
+  CAPEC-538 (capec): 12 / 12 proposals
+      reference only: 'repo hijacking' [colloquial]
+      reference only: 'unexpected outbound connections' [symptom]
+      reference only: 'typosquating' [misspelling]
+      other only: 'backdoor' [colloquial]
+      other only: 'CI/CD compromise' [symptom]
+      other only: 'dependancy confusion' [misspelling]
+  CAPEC-587 (capec): 9 / 10 proposals
+      reference only: 'clickjacking' [colloquial]
+      reference only: 'hidden frame' [colloquial]
+      reference only: 'X-frame scripting' [misspelling]
+      reference only: 'T1189' [structural] claimed 'Drive-by Compromise'
+      reference only: 'CWE-346' [structural] claimed 'Origin Validation Error'
+      other only: 'Clickjacking' [colloquial]
+      other only: 'invisible frame' [colloquial]
+      other only: 'X-Frame-Options' [colloquial]
+      other only: 'clikjacking' [misspelling]
+      other only: 'CAPEC-103' [structural] claimed 'Clickjacking'
+      other only: 'CWE-1021' [structural] claimed 'Improper Restriction of Rendered UI Layers or Frames'
+      accepted ids: ['CWE-346', 'T1189'] / ['CAPEC-103', 'CWE-1021']
+  CAPEC-631 (capec): 9 / 12 proposals
+      reference only: 'typosquatting' [colloquial]
+      reference only: 'credential harvesting' [symptom]
+      reference only: 'sound squatting' [misspelling]
+      reference only: 'T1583.001' [structural] claimed 'Acquire Infrastructure: Domains'
+      other only: 'cybersquatting' [colloquial]
+      other only: 'URL hijacking' [colloquial]
+      other only: 'fake login page' [symptom]
+      other only: 'homofone attack' [misspelling]
+      other only: 'Namecheap' [product]
+      other only: 'CAPEC-89' [structural] claimed 'Phishing'
+      other only: 'CAPEC-543' [structural] claimed 'Spear Phishing'
+      accepted ids: ['T1583.001'] / []
+  CAPEC-654 (capec): 9 / 10 proposals
+      reference only: 'fake login screen' [colloquial]
+      reference only: 'overlay attack' [colloquial]
+      reference only: 'UI spoofing' [colloquial]
+      reference only: 'CWE-290' [structural] claimed 'Authentication Bypass by Spoofing'
+      other only: 'fake login box' [colloquial]
+      other only: 'spoofed authentication window' [colloquial]
+      other only: 'UI redressing' [colloquial]
+      other only: 'phising prompt' [misspelling]
+      other only: 'CAPEC-504' [structural] claimed 'Task Impersonation'
+      accepted ids: ['CWE-290', 'T1056.002'] / ['CAPEC-504', 'T1056.002']
+  CAPEC-656 (capec): 12 / 9 proposals
+      reference only: 'social engineering' [colloquial]
+      reference only: 'CWE-798' [structural] claimed 'Use of Hard-coded Credentials'
+      reference only: 'CAPEC-98' [structural] claimed 'Phishing'
+      reference only: 'unauthorized bank transfer' [symptom]
+      reference only: 'stolen credentials' [symptom]
+      reference only: 'Apple' [product]
+      reference only: 'PayPal' [product]
+      reference only: 'eBay' [product]
+      reference only: 'vishng' [misspelling]
+      other only: 'tech support scam' [colloquial]
+      other only: 'pretexting' [colloquial]
+      other only: 'account takeover' [symptom]
+      other only: 'Twilio' [product]
+      other only: 'Asterisk' [product]
+      other only: 'phising' [misspelling]
+      accepted ids: ['CAPEC-98', 'CWE-798', 'T1566.004'] / ['T1566.004']
+  T1003.006 (attack): 8 / 9 proposals
+      reference only: 'DC Sync' [misspelling]
+      reference only: 'fake domain controller' [symptom]
+      reference only: 'hash extraction' [colloquial]
+      other only: 'lsadump::dcsync' [colloquial]
+      other only: 'NTLM hashes' [colloquial]
+      other only: 'Event ID 4662' [symptom]
+      other only: 'DC-Sync' [misspelling]
+  T1048.003 (attack): 12 / 12 proposals
+      reference only: 'data theft' [colloquial]
+      reference only: 'cleartext exfil' [colloquial]
+      reference only: 'high bandwidth usage' [symptom]
+      reference only: 'FTP' [product]
+      reference only: 'HTTP' [product]
+      reference only: 'SMTP' [product]
+      other only: 'HTTP POST' [colloquial]
+      other only: 'cleartext data theft' [colloquial]
+      other only: 'bandwidth spike' [symptom]
+      other only: 'data leakage' [symptom]
+      other only: 'Zeek' [product]
+      other only: 'Suricata' [product]
+  T1056.001 (attack): 8 / 8 proposals
+      reference only: 'keyloger' [misspelling]
+      reference only: 'Agent Tesla' [product]
+      other only: 'keyboard sniffing' [colloquial]
+      other only: 'key loging' [misspelling]
+  T1090.003 (attack): 11 / 11 proposals
+      reference only: 'traffic bouncing' [colloquial]
+      reference only: 'SOCKS5' [product]
+      other only: 'daisy chaining' [colloquial]
+      other only: 'T1090' [structural] claimed 'Proxy'
+      accepted ids: ['T1090.003'] / ['T1090', 'T1090.003']
+  T1555.006 (attack): 10 / 10 proposals
+      reference only: 'stealing API keys' [colloquial]
+      reference only: 'vault extraction' [colloquial]
+      reference only: 'unusual vault access' [symptom]
+      reference only: 'mass secret retrieval' [symptom]
+      other only: 'vault dumping' [colloquial]
+      other only: 'secretsmanager:GetSecretValue' [symptom]
+      other only: 'T1552' [structural] claimed 'Unsecured Credentials'
+      other only: 'key theft' [colloquial]
+      accepted ids: [] / ['T1552']
+  T1666 (attack): 10 / 8 proposals
+      reference only: 'AWS Organizations' [product]
+      reference only: 'Azure Management Groups' [product]
+      reference only: 'GCP Folders' [product]
+      reference only: 'org takeover' [colloquial]
+      reference only: 'policy inheritance changes' [symptom]
+      reference only: 'orphaned projects' [symptom]
+      reference only: 'billing account changes' [symptom]
+      reference only: 'AWS Orgs' [colloquial]
+      reference only: 'Google Cloud Resource Manager' [product]
+      other only: 'resource group transfer' [colloquial]
+      other only: 'billing account change' [symptom]
+      other only: 'unexpected resource migration' [symptom]
+      other only: 'AWS' [product]
+      other only: 'Azure' [product]
+      other only: 'GCP' [product]
+      other only: 'heirarchy' [misspelling]
+  T1430.001 (attack): 10 / 9 proposals
+      reference only: 'stalkerware' [colloquial]
+      reference only: 'location tracking' [colloquial]
+      reference only: 'unexpected GPS icon' [symptom]
+      reference only: 'device locked' [symptom]
+      other only: 'MobileIron' [product]
+      other only: 'unauthorized tracking' [symptom]
+      other only: 'unexpected location alert' [symptom]
+  T1437 (attack): 6 / 11 proposals
+      reference only: 'HTTP beaconing' [colloquial]
+      reference only: 'periodic web requests' [symptom]
+      reference only: 'beconing' [misspelling]
+      reference only: 'C2 traffic' [colloquial]
+      other only: 'T1437' [structural] claimed 'Application Layer Protocol'
+      other only: 'T1071' [structural] claimed 'Application Layer Protocol'
+      other only: 'HTTP C2' [colloquial]
+      other only: 'HTTPS beaconing' [colloquial]
+      other only: 'covert channel' [colloquial]
+      other only: 'periodic beaconing' [symptom]
+      other only: 'Wireshark' [product]
+      other only: 'Zeek' [product]
+      other only: 'aplication layer' [misspelling]
+      accepted ids: [] / ['T1071', 'T1437']
+  T1470 (attack): 10 / 11 proposals
+      reference only: 'steal phone backup' [colloquial]
+      reference only: 'download mobile sync' [colloquial]
+      reference only: 'unauthorized sync' [symptom]
+      reference only: 'unexpected login alert' [symptom]
+      reference only: 'Samsung Cloud' [product]
+      reference only: 'Google Drive' [product]
+      reference only: 'OneDrive' [product]
+      reference only: 'backps' [misspelling]
+      other only: 'cloud extraction' [colloquial]
+      other only: 'backup theft' [colloquial]
+      other only: 'data exfiltration' [colloquial]
+      other only: 'unexpected sync' [symptom]
+      other only: 'unrecognized login' [symptom]
+      other only: 'Drive' [product]
+      other only: 'Elcomsoft' [product]
+      other only: 'Oxygen Forensic' [product]
+      other only: 'back ups' [misspelling]
+  T1661 (attack): 8 / 9 proposals
+      reference only: 'dynamic payload' [colloquial]
+      reference only: 'TestFlight' [product]
+      other only: 'dynamic code loading' [colloquial]
+      other only: 'app store evasion' [colloquial]
+      other only: 'T1436' [structural] claimed 'Application Versioning'
+
+TABLE NUMBERS: 21 of 35 counts move (reference -> other):
+  accepted                                       326 -> 337   (+11)
+  accepted_copied                                 20 -> 15    (-5)
+  accepted_generated                              49 -> 58    (+9)
+  by_reason.deprecated                             0 -> 1     (+1)
+  by_reason.name_mismatch                          4 -> 6     (+2)
+  by_stage.graph                                   0 -> 1     (+1)
+  by_stage.name                                    4 -> 6     (+2)
+  distance_accepted.1                             20 -> 18    (-2)
+  distance_accepted.2                              5 -> 9     (+4)
+  distance_accepted.3                              8 -> 6     (-2)
+  distance_accepted.4                              3 -> 1     (-2)
+  distance_accepted.5                              1 -> 2     (+1)
+  distance_accepted.unreachable                   22 -> 27    (+5)
+  docs_shown_cut                                   0 -> 3     (+3)
+  name_pass_on_one_word                            1 -> 0     (-1)
+  name_pass_total                                 69 -> 73    (+4)
+  proposed                                       396 -> 410   (+14)
+  provenance.labelled_field                       12 -> 10    (-2)
+  provenance.not_found                            52 -> 61    (+9)
+  structural_accepted                             69 -> 73    (+4)
+  structural_proposed                             73 -> 80    (+7)
+
+################ reference: corpus_stratified_v4_gemini-3.1-pro_run2.jsonl   other: corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl
+reference: indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_run2.jsonl
+    (machine not recorded)
+other:     indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl
+    Yashs-MacBook.local  macOS-26.6.2-arm64-arm-64bit-Mach-O  gpu=['Apple M5']
+
+model digest: not recorded in either manifest (- / -); compare `ollama list` on the two machines by hand
+settings that DIFFER between the two runs (so a difference below may not be the hardware):
+    config_hash: '2007683a1442' / '364d30da6c75'
+    gates.max_doc_chars: None / 6000
+    gates.truncation_version: None / 'sections-v2'
+
+documents: 40 / 40, 40 in both
+
+REPLIES IDENTICAL: 0 of 40
+  CVE-2024-4897 (cve): 12 / 10 proposals
+      reference only: 'arbitrary code execution' [colloquial]
+      reference only: 'supply chain attack' [colloquial]
+      reference only: 'unexpected shell spawn' [symptom]
+      reference only: 'unauthorized process execution' [symptom]
+      reference only: 'Python' [product]
+      reference only: 'CWE-94' [structural] claimed "Improper Control of Generation of Code ('Code Injection')"
+      reference only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      other only: 'llama.cpp' [product]
+      other only: 'unauthorized process creation' [symptom]
+      other only: 'reverse shell' [symptom]
+      other only: 'CWE-1104' [structural] claimed 'Use of Unmaintained Third Party Components'
+      other only: 'T1195.002' [structural] claimed 'Supply Chain Compromise: Compromise Software Supply Chain'
+      accepted ids: ['CWE-94', 'T1190'] / ['CWE-1104', 'T1195.002']
+  CVE-2024-56180 (cve): 10 / 11 proposals
+      reference only: 'Event Mesh' [misspelling]
+      reference only: 'deseralization' [misspelling]
+      reference only: 'unexpected process creation' [symptom]
+      other only: 'unmarshaling' [colloquial]
+      other only: 'deserialisation' [misspelling]
+      other only: 'EventMash' [misspelling]
+      other only: 'unauthorized process creation' [symptom]
+  CVE-2024-11170 (cve): 9 / 12 proposals
+      other only: 'liberchat' [misspelling]
+      other only: 'mutler' [misspelling]
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      accepted ids: ['CAPEC-126', 'CWE-22'] / ['CAPEC-126', 'CWE-22', 'T1190']
+  CVE-2025-26663 (cve): 11 / 12 proposals
+      reference only: 'Domain Controller' [product]
+      reference only: 'CAPEC-248' [structural] claimed 'Use of a Broken or Risky Cryptographic Algorithm'
+      other only: 'domain controller' [product]
+      other only: 'CAPEC-57' [structural] claimed "Utilizing REST's Put"
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      accepted ids: ['CWE-416'] / ['CAPEC-57', 'CWE-416', 'T1190']
+  CVE-2025-32526 (cve): 8 / 9 proposals
+      reference only: 'WP' [product]
+      reference only: 'Zepher' [misspelling]
+      reference only: 'session hijacking' [symptom]
+      reference only: 'stolen cookies' [symptom]
+      reference only: 'CAPEC-86' [structural] claimed 'Reflected XSS'
+      other only: 'client-side code execution' [colloquial]
+      other only: 'stolen session cookies' [symptom]
+      other only: 'unauthorized popups' [symptom]
+      other only: 'WP plugin' [product]
+      other only: 'Zepyhr' [misspelling]
+      other only: 'CAPEC-591' [structural] claimed 'Reflected XSS'
+      accepted ids: ['CAPEC-63', 'CAPEC-86'] / ['CAPEC-591', 'CAPEC-63']
+  CVE-2025-7160 (cve): 8 / 9 proposals
+      reference only: 'database dump' [symptom]
+      other only: 'database errors' [symptom]
+      other only: 'unauthorized admin access' [symptom]
+  CVE-2023-50458 (cve): 8 / 10 proposals
+      reference only: 'cross-tenant data exposure' [colloquial]
+      reference only: 'seeing other users data' [symptom]
+      other only: 'sensitive data exposure' [colloquial]
+      other only: 'unauthorized log access' [symptom]
+      other only: 'pentest reporting' [product]
+      other only: 'CWE-862' [structural] claimed 'Missing Authorization'
+      accepted ids: ['CWE-200'] / ['CWE-200', 'CWE-862']
+  CVE-2025-6973 (cve): 9 / 10 proposals
+      reference only: 'ACE' [colloquial]
+      reference only: 'crash' [symptom]
+      reference only: 'segfault' [symptom]
+      reference only: 'eDrawing' [misspelling]
+      reference only: 'CAPEC-240' [structural] claimed 'Use After Free'
+      other only: 'RCE' [colloquial]
+      other only: 'Solid works' [misspelling]
+      other only: 'e-drawings' [misspelling]
+      other only: 'application crash' [symptom]
+      other only: 'access violation' [symptom]
+      other only: 'CWE-119' [structural] claimed 'Improper Restriction of Operations within the Bounds of a Memory Buffer'
+      accepted ids: [] / ['CWE-119']
+  CVE-2025-49833 (cve): 10 / 10 proposals
+      reference only: 'OS command injection' [colloquial]
+      reference only: 'shell injection' [colloquial]
+      reference only: 'reverse shell' [symptom]
+      reference only: 'suspicious child processes' [symptom]
+      reference only: 'GPTSoVITS' [misspelling]
+      other only: 'Remote Code Execution' [colloquial]
+      other only: 'Shell injection' [colloquial]
+      other only: 'Reverse shell' [symptom]
+      other only: 'Unexpected child processes' [symptom]
+      other only: 'GPTSovits' [misspelling]
+  CVE-2019-13351 (cve): 9 / 7 proposals
+      reference only: 'file descriptor reuse' [colloquial]
+      reference only: 'UAF' [colloquial]
+      reference only: 'service outage' [symptom]
+      reference only: 'Linux audio' [product]
+      reference only: 'jack audio connection kit' [product]
+      other only: 'audio server' [colloquial]
+      other only: 'Linux' [product]
+      other only: 'Advanced Linux Sound Architecture' [product]
+  CWE-1083 (cwe): 10 / 9 proposals
+      reference only: 'abstraction leak' [colloquial]
+      reference only: 'layering violation' [colloquial]
+      reference only: 'data corruption' [symptom]
+      reference only: 'untracked changes' [symptom]
+      other only: 'leaky abstraction' [colloquial]
+      other only: 'untracked data modification' [symptom]
+      other only: 'CWE-1061' [structural] claimed 'Insufficient Encapsulation'
+      accepted ids: [] / ['CWE-1061']
+  CWE-1235 (cwe): 11 / 11 proposals
+      reference only: 'wrapper class' [colloquial]
+      reference only: 'implicit casting' [colloquial]
+      reference only: 'boxing penalty' [colloquial]
+      reference only: 'GC pauses' [symptom]
+      reference only: 'memory bloat' [symptom]
+      reference only: 'slow execution' [symptom]
+      reference only: 'performence' [misspelling]
+      other only: 'wrapper classes' [colloquial]
+      other only: 'implicit conversion' [colloquial]
+      other only: 'OOM' [symptom]
+      other only: 'latency' [symptom]
+      other only: 'autoboxxing' [misspelling]
+      other only: 'unboxxing' [misspelling]
+      other only: 'CWE-400' [structural] claimed 'Uncontrolled Resource Consumption'
+      accepted ids: [] / ['CWE-400']
+  CWE-1321 (cwe): 9 / 11 proposals
+      reference only: '__proto__' [colloquial]
+      reference only: 'constructor.prototype' [colloquial]
+      reference only: 'prototype injection' [colloquial]
+      reference only: 'lodash' [product]
+      reference only: 'RCE' [symptom]
+      other only: 'Lodash' [product]
+      other only: 'property injection' [colloquial]
+      other only: 'dunder proto' [colloquial]
+      other only: 'protoype pollution' [misspelling]
+      other only: 'unexpected property inheritance' [symptom]
+      other only: 'remote code execution' [symptom]
+      other only: 'CWE-915' [structural] claimed 'Improperly Controlled Modification of Dynamically-Determined Object Attributes'
+      accepted ids: ['CWE-1321'] / ['CWE-1321', 'CWE-915']
+  CWE-378 (cwe): 10 / 10 proposals
+      reference only: 'mktemp' [colloquial]
+      reference only: 'tmpnam' [colloquial]
+      reference only: 'Linux' [product]
+      reference only: 'Unix' [product]
+      reference only: 'temprary file' [misspelling]
+      reference only: 'CWE-377' [structural] claimed 'Insecure Temporary File'
+      other only: 'symlink attack' [colloquial]
+      other only: 'privilege escalation' [symptom]
+      other only: 'mkstemp' [product]
+      other only: 'POSIX' [product]
+      other only: 'temprary' [misspelling]
+      other only: 'CWE-379' [structural] claimed 'Creation of Temporary File in Directory with Insecure Permissions'
+      accepted ids: ['CWE-377', 'CWE-732'] / ['CWE-379', 'CWE-732']
+  CWE-512 (cwe): 10 / 9 proposals
+      reference only: 'surveillance' [colloquial]
+      reference only: 'Malwarebytes' [product]
+      reference only: 'CWE-506' [structural] claimed 'Embedded Malicious Code'
+      other only: 'infostealer' [colloquial]
+      other only: 'T1005' [structural] claimed 'Data from Local System'
+      accepted ids: ['CWE-506', 'T1056'] / ['T1005', 'T1056']
+  CWE-835 (cwe): 8 / 10 proposals
+      reference only: 'stuck' [colloquial]
+      other only: 'non-terminating loop' [colloquial]
+      other only: '100% utilization' [symptom]
+      other only: 'OOM' [symptom]
+  CWE-940 (cwe): 11 / 10 proposals
+      reference only: 'mitm' [colloquial]
+      reference only: 'man in the middle' [colloquial]
+      reference only: 'intent spoofing' [colloquial]
+      reference only: 'deep link hijacking' [colloquial]
+      reference only: 'origin spoofing' [colloquial]
+      reference only: 'unauthorized api calls' [symptom]
+      reference only: 'rogue device connection' [symptom]
+      reference only: 'CWE-940' [structural] claimed 'Improper Verification of Source of a Communication Channel'
+      other only: 'MITM' [colloquial]
+      other only: 'Man-in-the-Middle' [colloquial]
+      other only: 'Origin spoofing' [colloquial]
+      other only: 'Deep link hijacking' [colloquial]
+      other only: 'Rogue endpoint' [symptom]
+      other only: 'CWE-290' [structural] claimed 'Authentication Bypass by Spoofing'
+      other only: 'CAPEC-94' [structural] claimed 'Man in the Middle Attack'
+      accepted ids: ['CWE-346', 'CWE-940'] / ['CWE-290', 'CWE-346']
+  CWE-1162 (cwe): 12 / 12 proposals
+      reference only: 'dangling pointer' [colloquial]
+      reference only: 'segmentation fault' [symptom]
+      reference only: 'OOM' [symptom]
+      other only: 'memory leak' [colloquial]
+      other only: 'crash' [symptom]
+      other only: 'malloc' [colloquial]
+  CWE-1169 (cwe): 12 / 11 proposals
+      reference only: 'thread safety' [colloquial]
+      reference only: 'mutex lock' [colloquial]
+      reference only: 'intermittent crash' [symptom]
+      reference only: 'app freeze' [symptom]
+      reference only: 'POSIX threads' [product]
+      reference only: 'concurancy' [misspelling]
+      other only: 'thread safe' [colloquial]
+      other only: 'mutex' [colloquial]
+      other only: 'application hang' [symptom]
+      other only: 'data corruption' [symptom]
+      other only: 'concurency' [misspelling]
+  CWE-398 (cwe): 10 / 10 proposals
+      reference only: 'seven pernicious kingdoms' [colloquial]
+      reference only: 'segfault' [symptom]
+      reference only: 'crash' [symptom]
+      reference only: 'Fortify' [product]
+      other only: 'Seven Pernicious Kingdoms' [colloquial]
+      other only: 'application crash' [symptom]
+      other only: 'OOM' [symptom]
+      other only: 'Coverity' [product]
+  CAPEC-126 (capec): 12 / 12 proposals
+      reference only: 'arbitrary file read' [symptom]
+      reference only: 'path traversel' [misspelling]
+      reference only: 'directory traversel' [misspelling]
+      other only: 'unauthorized file access' [symptom]
+      other only: 'sensitive file exposure' [symptom]
+      other only: 'dirctory traversal' [misspelling]
+  CAPEC-14 (capec): 12 / 12 proposals
+      reference only: 'drive-by compromise' [colloquial]
+      reference only: '0xC0000005' [symptom]
+      reference only: 'Firefox' [product]
+      reference only: 'bffer overflow' [misspelling]
+      reference only: 'CWE-122' [structural] claimed 'Heap-based Buffer Overflow'
+      other only: 'segfault' [symptom]
+      other only: 'Adobe Reader' [product]
+      other only: 'bof' [misspelling]
+      other only: 'bufffer overflow' [misspelling]
+      other only: 'T1189' [structural] claimed 'Drive-by Compromise'
+      accepted ids: ['CWE-121', 'CWE-122', 'T1203'] / ['CWE-121', 'T1189', 'T1203']
+  CAPEC-24 (capec): 9 / 11 proposals
+      reference only: 'fail open' [colloquial]
+      reference only: 'filter bypass' [colloquial]
+      reference only: 'application crash' [symptom]
+      reference only: 'unexpected input length' [symptom]
+      reference only: 'CWE-119' [structural] claimed 'Improper Restriction of Operations within the Bounds of a Memory Buffer'
+      reference only: 'CWE-120' [structural] claimed "Buffer Copy without Checking Size of Input ('Classic Buffer Overflow')"
+      reference only: 'CWE-20' [structural] claimed 'Improper Input Validation'
+      reference only: 'CWE-74' [structural] claimed "Improper Neutralization of Special Elements in Output Used by a Downstream Component ('Injection')"
+      other only: 'stack smashing' [colloquial]
+      other only: 'memory corruption' [colloquial]
+      other only: 'segmentation fault' [symptom]
+      other only: 'segfault' [symptom]
+      other only: 'core dump' [symptom]
+      other only: 'Web Application Firewall' [product]
+      other only: 'ModSecurity' [product]
+      other only: 'buffer overun' [misspelling]
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      other only: 'T1499' [structural] claimed 'Endpoint Denial of Service'
+      accepted ids: ['CWE-119', 'CWE-120', 'CWE-20', 'CWE-74'] / ['T1190', 'T1499']
+  CAPEC-267 (capec): 12 / 11 proposals
+      reference only: 'obfuscation' [colloquial]
+      reference only: 'evasion' [colloquial]
+      reference only: 'WAF bypass' [colloquial]
+      reference only: 'filter bypass' [colloquial]
+      reference only: 'base64' [colloquial]
+      reference only: 'hex encoding' [colloquial]
+      reference only: 'unicode evasion' [colloquial]
+      reference only: 'CWE-173' [structural] claimed 'Improper Handling of Alternate Encoding'
+      reference only: 'CWE-172' [structural] claimed 'Encoding Error'
+      reference only: 'CWE-180' [structural] claimed 'Incorrect Behavior Order: Validate Before Canonicalize'
+      other only: 'Base64 encoding' [colloquial]
+      other only: 'Hex encoding' [colloquial]
+      other only: 'Unicode evasion' [colloquial]
+      other only: 'Double encoding' [colloquial]
+      other only: 'WAF bypass' [symptom]
+      other only: 'Filter evasion' [symptom]
+      other only: 'CWE-176' [structural] claimed 'Improper Handling of Unicode Encoding'
+      other only: 'CWE-116' [structural] claimed 'Improper Encoding or Escaping of Output'
+      other only: 'obfustication' [misspelling]
+      accepted ids: ['CWE-172', 'CWE-173', 'CWE-180', 'T1027'] / ['CWE-116', 'CWE-176', 'T1027']
+  CAPEC-422 (capec): 8 / 10 proposals
+      reference only: 'manipulation' [colloquial]
+      reference only: 'escalating favors' [symptom]
+      reference only: 'CAPEC-417' [structural] claimed 'Influence Perception'
+      other only: 'psychological manipulation' [colloquial]
+      other only: 'escalating requests' [symptom]
+      other only: 'socail engineering' [misspelling]
+      other only: 'CAPEC-417' [structural] claimed 'Social Engineering'
+      other only: 'T1598' [structural] claimed 'Phishing for Information'
+      accepted ids: ['CAPEC-417', 'T1566'] / ['T1566', 'T1598']
+  CAPEC-538 (capec): 12 / 12 proposals
+      reference only: 'unexpected outbound connections' [symptom]
+      other only: 'backdoor' [colloquial]
+  CAPEC-587 (capec): 9 / 10 proposals
+      reference only: 'clickjacking' [colloquial]
+      reference only: 'hidden frame' [colloquial]
+      reference only: 'X-frame scripting' [misspelling]
+      reference only: 'T1189' [structural] claimed 'Drive-by Compromise'
+      reference only: 'CWE-346' [structural] claimed 'Origin Validation Error'
+      other only: 'Clickjacking' [colloquial]
+      other only: 'invisible frame' [colloquial]
+      other only: 'X-Frame-Options' [colloquial]
+      other only: 'clikjacking' [misspelling]
+      other only: 'CAPEC-103' [structural] claimed 'Clickjacking'
+      other only: 'CWE-1021' [structural] claimed 'Improper Restriction of Rendered UI Layers or Frames'
+      accepted ids: ['CWE-346', 'T1189'] / ['CAPEC-103', 'CWE-1021']
+  CAPEC-631 (capec): 9 / 12 proposals
+      reference only: 'typosquatting' [colloquial]
+      reference only: 'credential harvesting' [symptom]
+      reference only: 'sound squatting' [misspelling]
+      reference only: 'T1583.001' [structural] claimed 'Acquire Infrastructure: Domains'
+      other only: 'cybersquatting' [colloquial]
+      other only: 'URL hijacking' [colloquial]
+      other only: 'fake login page' [symptom]
+      other only: 'homofone attack' [misspelling]
+      other only: 'Namecheap' [product]
+      other only: 'CAPEC-89' [structural] claimed 'Phishing'
+      other only: 'CAPEC-543' [structural] claimed 'Spear Phishing'
+      accepted ids: ['T1583.001'] / []
+  CAPEC-654 (capec): 10 / 10 proposals
+      reference only: 'fake login' [colloquial]
+      reference only: 'overlay attack' [colloquial]
+      reference only: 'dialog spoofing' [colloquial]
+      reference only: 'UAC' [product]
+      reference only: 'CWE-1021' [structural] claimed 'Improper Restriction of Rendered UI Layers or Frames'
+      other only: 'fake login box' [colloquial]
+      other only: 'spoofed authentication window' [colloquial]
+      other only: 'credential harvesting' [colloquial]
+      other only: 'Windows UAC' [product]
+      other only: 'phising prompt' [misspelling]
+      accepted ids: ['CAPEC-504', 'CWE-1021', 'T1056.002'] / ['CAPEC-504', 'T1056.002']
+  CAPEC-656 (capec): 12 / 9 proposals
+      reference only: 'social engineering' [colloquial]
+      reference only: 'CWE-798' [structural] claimed 'Use of Hard-coded Credentials'
+      reference only: 'CAPEC-98' [structural] claimed 'Phishing'
+      reference only: 'unauthorized bank transfer' [symptom]
+      reference only: 'stolen credentials' [symptom]
+      reference only: 'Apple' [product]
+      reference only: 'PayPal' [product]
+      reference only: 'eBay' [product]
+      reference only: 'vishng' [misspelling]
+      other only: 'tech support scam' [colloquial]
+      other only: 'pretexting' [colloquial]
+      other only: 'account takeover' [symptom]
+      other only: 'Twilio' [product]
+      other only: 'Asterisk' [product]
+      other only: 'phising' [misspelling]
+      accepted ids: ['CAPEC-98', 'CWE-798', 'T1566.004'] / ['T1566.004']
+  T1003.006 (attack): 7 / 9 proposals
+      reference only: 'Mimikatz' [colloquial]
+      reference only: 'DC Sync' [misspelling]
+      reference only: 'rogue domain controller' [symptom]
+      reference only: 'password hash extraction' [colloquial]
+      reference only: 'NTDS.dit' [colloquial]
+      other only: 'Mimikatz' [product]
+      other only: 'lsadump::dcsync' [colloquial]
+      other only: 'credential dumping' [colloquial]
+      other only: 'NTLM hashes' [colloquial]
+      other only: 'rogue DC' [symptom]
+      other only: 'DC-Sync' [misspelling]
+      other only: 'Cobalt Strike' [product]
+  T1048.003 (attack): 12 / 12 proposals
+      reference only: 'data leak' [colloquial]
+      reference only: 'cleartext transfer' [colloquial]
+      reference only: 'FTP' [product]
+      reference only: 'HTTP' [product]
+      reference only: 'Telnet' [product]
+      other only: 'HTTP POST' [colloquial]
+      other only: 'cleartext data theft' [colloquial]
+      other only: 'data leakage' [symptom]
+      other only: 'Zeek' [product]
+      other only: 'Suricata' [product]
+  T1056.001 (attack): 8 / 8 proposals
+      reference only: 'key logger' [colloquial]
+      reference only: 'keyloging' [misspelling]
+      reference only: 'Agent Tesla' [product]
+      reference only: 'T1056.001' [structural] claimed 'Input Capture: Keylogging'
+      reference only: 'CAPEC-568' [structural] claimed 'Capture Information'
+      other only: 'keyboard sniffing' [colloquial]
+      other only: 'key loging' [misspelling]
+      other only: 'T1056.001' [structural] claimed 'Keylogging'
+      other only: 'T1056' [structural] claimed 'Input Capture'
+      other only: 'CAPEC-568' [structural] claimed 'Capture Information via Keylogger'
+      accepted ids: ['CAPEC-568', 'T1056.001'] / ['CAPEC-568', 'T1056', 'T1056.001']
+  T1090.003 (attack): 10 / 11 proposals
+      reference only: 'traffic bouncing' [colloquial]
+      reference only: 'SOCKS5' [product]
+      reference only: 'unusual outbound connections' [symptom]
+      other only: 'daisy chaining' [colloquial]
+      other only: 'mismatched geo-IP' [symptom]
+      other only: 'Proxychains' [product]
+      other only: 'T1090' [structural] claimed 'Proxy'
+      accepted ids: ['T1090.003'] / ['T1090', 'T1090.003']
+  T1555.006 (attack): 8 / 10 proposals
+      reference only: 'T1552.005' [structural] claimed 'Credentials from Password Stores: Cloud Secrets Management Stores'
+      reference only: 'dumping cloud passwords' [colloquial]
+      reference only: 'unusual secret retrieval' [symptom]
+      reference only: 'API key theft' [colloquial]
+      other only: 'vault dumping' [colloquial]
+      other only: 'secretsmanager:GetSecretValue' [symptom]
+      other only: 'T1552.005' [structural] claimed 'Cloud Secrets Management Stores'
+      other only: 'T1552' [structural] claimed 'Unsecured Credentials'
+      other only: 'key theft' [colloquial]
+      other only: 'Azure KeyVault' [misspelling]
+      accepted ids: [] / ['T1552']
+  T1666 (attack): 9 / 8 proposals
+      reference only: 'subscription transfer' [colloquial]
+      reference only: 'project moving' [colloquial]
+      reference only: 'unexpected billing' [symptom]
+      reference only: 'policy bypass' [symptom]
+      other only: 'resource group transfer' [colloquial]
+      other only: 'billing account change' [symptom]
+      other only: 'unexpected resource migration' [symptom]
+  T1430.001 (attack): 11 / 9 proposals
+      reference only: 'MDM' [colloquial]
+      reference only: 'Mobile Device Management' [colloquial]
+      reference only: 'Microsoft Intune' [product]
+      reference only: 'remote wipe' [symptom]
+      reference only: 'device tracking' [colloquial]
+      reference only: 'device locked remotely' [symptom]
+      other only: 'MDM abuse' [colloquial]
+      other only: 'remote wipe' [colloquial]
+      other only: 'Intune' [product]
+      other only: 'unauthorized tracking' [symptom]
+  T1437 (attack): 9 / 11 proposals
+      reference only: 'HTTP beaconing' [colloquial]
+      reference only: 'unexpected port usage' [symptom]
+      reference only: 'HTTP' [product]
+      reference only: 'HTTPS' [product]
+      other only: 'T1071' [structural] claimed 'Application Layer Protocol'
+      other only: 'HTTP C2' [colloquial]
+      other only: 'HTTPS beaconing' [colloquial]
+      other only: 'periodic beaconing' [symptom]
+      other only: 'Wireshark' [product]
+      other only: 'Zeek' [product]
+      accepted ids: ['T1437'] / ['T1071', 'T1437']
+  T1470 (attack): 10 / 11 proposals
+      reference only: 'steal phone backup' [colloquial]
+      reference only: 'download mobile sync' [colloquial]
+      reference only: 'unauthorized sync' [symptom]
+      reference only: 'unexpected login alert' [symptom]
+      reference only: 'Samsung Cloud' [product]
+      reference only: 'Google Drive' [product]
+      reference only: 'OneDrive' [product]
+      reference only: 'backps' [misspelling]
+      other only: 'cloud extraction' [colloquial]
+      other only: 'backup theft' [colloquial]
+      other only: 'data exfiltration' [colloquial]
+      other only: 'unexpected sync' [symptom]
+      other only: 'unrecognized login' [symptom]
+      other only: 'Drive' [product]
+      other only: 'Elcomsoft' [product]
+      other only: 'Oxygen Forensic' [product]
+      other only: 'back ups' [misspelling]
+  T1661 (attack): 8 / 9 proposals
+      reference only: 'dynamic payload' [colloquial]
+      reference only: 'TestFlight' [product]
+      other only: 'dynamic code loading' [colloquial]
+      other only: 'app store evasion' [colloquial]
+      other only: 'T1436' [structural] claimed 'Application Versioning'
+
+TABLE NUMBERS: 25 of 35 counts move (reference -> other):
+  accepted                                       328 -> 337   (+9)
+  accepted_copied                                 24 -> 15    (-9)
+  accepted_generated                              44 -> 58    (+14)
+  by_reason.deprecated                             0 -> 1     (+1)
+  by_reason.name_mismatch                          4 -> 6     (+2)
+  by_reason.too_common                            62 -> 66    (+4)
+  by_stage.df                                     62 -> 66    (+4)
+  by_stage.graph                                   0 -> 1     (+1)
+  by_stage.name                                    4 -> 6     (+2)
+  distance_accepted.0                              9 -> 8     (-1)
+  distance_accepted.1                             23 -> 18    (-5)
+  distance_accepted.2                              5 -> 9     (+4)
+  distance_accepted.4                              3 -> 1     (-2)
+  distance_accepted.5                              1 -> 2     (+1)
+  distance_accepted.6                              1 -> 2     (+1)
+  distance_accepted.unreachable                   20 -> 27    (+7)
+  docs_shown_cut                                   0 -> 3     (+3)
+  name_pass_on_one_word                            2 -> 0     (-2)
+  name_pass_total                                 68 -> 73    (+5)
+  proposed                                       394 -> 410   (+16)
+  provenance.labelled_field                       15 -> 10    (-5)
+  provenance.not_found                            47 -> 61    (+14)
+  provenance.own_id                                9 -> 8     (-1)
+  structural_accepted                             68 -> 73    (+5)
+  structural_proposed                             72 -> 80    (+8)
+
+################ baseline: run1 vs run2
+reference: indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro.jsonl
+    (machine not recorded)
+other:     indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_run2.jsonl
+    (machine not recorded)
+
+model digest: not recorded in either manifest (- / -); compare `ollama list` on the two machines by hand
+settings: the same in both manifests (config, prompt, gates, sampling, seed, context)
+
+documents: 40 / 40, 40 in both
+
+REPLIES IDENTICAL: 18 of 40
+  CVE-2024-4897 (cve): 11 / 12 proposals
+      reference only: 'unexpected shell spawned' [symptom]
+      reference only: 'huggingface' [misspelling]
+      reference only: 'CWE-1104' [structural] claimed 'Use of Unmaintained Third Party Components'
+      other only: 'unexpected shell spawn' [symptom]
+      other only: 'unauthorized process execution' [symptom]
+      other only: 'Python' [product]
+      other only: 'CWE-94' [structural] claimed "Improper Control of Generation of Code ('Code Injection')"
+      accepted ids: ['CWE-1104', 'T1190'] / ['CWE-94', 'T1190']
+  CVE-2024-11170 (cve): 11 / 9 proposals
+      reference only: 'webshell upload' [symptom]
+      reference only: 'unexpected files in webroot' [symptom]
+      reference only: 'liberchat' [misspelling]
+      reference only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      other only: 'webshell uploaded' [symptom]
+      other only: 'libre chat' [misspelling]
+      accepted ids: ['CAPEC-126', 'CWE-22', 'T1190'] / ['CAPEC-126', 'CWE-22']
+  CVE-2025-26663 (cve): 11 / 11 proposals
+      reference only: 'CAPEC-240' [structural] claimed 'Resource Injection'
+      other only: 'CAPEC-248' [structural] claimed 'Use of a Broken or Risky Cryptographic Algorithm'
+      accepted ids: ['CAPEC-240', 'CWE-416'] / ['CWE-416']
+  CVE-2025-7160 (cve): 9 / 8 proposals
+      reference only: 'unauthorized admin access' [symptom]
+  CVE-2025-6973 (cve): 11 / 9 proposals
+      reference only: 'access violation' [symptom]
+      reference only: 'Dassault Systemes' [product]
+      reference only: '3D viewer' [product]
+      other only: 'Dassault Systèmes' [product]
+  CVE-2025-49833 (cve): 10 / 10 proposals
+      reference only: 'remote code execution' [colloquial]
+      reference only: 'unexpected child processes' [symptom]
+      reference only: 'GPTSovits' [misspelling]
+      other only: 'shell injection' [colloquial]
+      other only: 'suspicious child processes' [symptom]
+      other only: 'GPTSoVITS' [misspelling]
+  CVE-2019-13351 (cve): 7 / 9 proposals
+      reference only: 'JACK Audio Connection Kit' [product]
+      reference only: 'Linux' [product]
+      reference only: 'ALSA' [product]
+      other only: 'file descriptor reuse' [colloquial]
+      other only: 'UAF' [colloquial]
+      other only: 'service outage' [symptom]
+      other only: 'Linux audio' [product]
+      other only: 'jack audio connection kit' [product]
+  CWE-1235 (cwe): 8 / 11 proposals
+      reference only: 'garbage collection' [symptom]
+      reference only: 'CWE-1097' [structural] claimed 'Incorrect Use of Autoboxing and Unboxing for Performance Critical Operations'
+      other only: 'implicit casting' [colloquial]
+      other only: 'boxing penalty' [colloquial]
+      other only: 'garbage collection spikes' [symptom]
+      other only: 'GC pauses' [symptom]
+      other only: 'performence' [misspelling]
+  CWE-835 (cwe): 10 / 8 proposals
+      reference only: 'hang' [colloquial]
+      reference only: 'freeze' [colloquial]
+      reference only: '100% CPU' [symptom]
+      reference only: 'application unresponsive' [symptom]
+      reference only: 'OOM' [symptom]
+      other only: 'hang' [symptom]
+      other only: 'freeze' [symptom]
+      other only: 'unresponsive' [symptom]
+  CWE-940 (cwe): 10 / 11 proposals
+      reference only: 'spoofing' [colloquial]
+      reference only: 'unauthorized access' [symptom]
+      reference only: 'rogue device' [symptom]
+      reference only: 'CAPEC-94' [structural] claimed 'Adversary in the Middle (AiTM)'
+      other only: 'intent spoofing' [colloquial]
+      other only: 'deep link hijacking' [colloquial]
+      other only: 'unauthorized api calls' [symptom]
+      other only: 'rogue device connection' [symptom]
+      other only: 'CWE-346' [structural] claimed 'Origin Validation Error'
+      accepted ids: ['CAPEC-94', 'CWE-940'] / ['CWE-346', 'CWE-940']
+  CAPEC-24 (capec): 10 / 9 proposals
+      reference only: 'bof' [colloquial]
+      reference only: 'buffer overrun' [colloquial]
+      reference only: 'CAPEC-100' [structural] claimed 'Overflow Buffers'
+      other only: 'filter bypass' [colloquial]
+      other only: 'CWE-74' [structural] claimed "Improper Neutralization of Special Elements in Output Used by a Downstream Component ('Injection')"
+      accepted ids: ['CAPEC-100', 'CWE-119', 'CWE-120', 'CWE-20'] / ['CWE-119', 'CWE-120', 'CWE-20', 'CWE-74']
+  CAPEC-422 (capec): 9 / 8 proposals
+      reference only: 'foot-in-the-door' [colloquial]
+      reference only: 'psychological manipulation' [colloquial]
+      reference only: 'escalating requests' [symptom]
+      reference only: 'unusual employee behavior' [symptom]
+      reference only: 'T1598' [structural] claimed 'Phishing for Information'
+      reference only: 'social enginering' [misspelling]
+      other only: 'foot in the door' [colloquial]
+      other only: 'manipulation' [colloquial]
+      other only: 'escalating favors' [symptom]
+      other only: 'consistancy' [misspelling]
+      other only: 'CAPEC-417' [structural] claimed 'Influence Perception'
+      accepted ids: ['T1566', 'T1598'] / ['CAPEC-417', 'T1566']
+  CAPEC-538 (capec): 12 / 12 proposals
+      reference only: 'repo hijacking' [colloquial]
+      reference only: 'typosquating' [misspelling]
+      other only: 'CI/CD compromise' [symptom]
+      other only: 'dependancy confusion' [misspelling]
+  CAPEC-654 (capec): 9 / 10 proposals
+      reference only: 'fake login screen' [colloquial]
+      reference only: 'UI spoofing' [colloquial]
+      reference only: 'credential harvesting' [colloquial]
+      reference only: 'Windows UAC' [product]
+      reference only: 'CWE-290' [structural] claimed 'Authentication Bypass by Spoofing'
+      other only: 'fake login' [colloquial]
+      other only: 'UI redressing' [colloquial]
+      other only: 'dialog spoofing' [colloquial]
+      other only: 'UAC' [product]
+      other only: 'CAPEC-504' [structural] claimed 'Task Impersonation'
+      other only: 'CWE-1021' [structural] claimed 'Improper Restriction of Rendered UI Layers or Frames'
+      accepted ids: ['CWE-290', 'T1056.002'] / ['CAPEC-504', 'CWE-1021', 'T1056.002']
+  T1003.006 (attack): 8 / 7 proposals
+      reference only: 'Mimikatz' [product]
+      reference only: 'credential dumping' [colloquial]
+      reference only: 'rogue DC' [symptom]
+      reference only: 'fake domain controller' [symptom]
+      reference only: 'Cobalt Strike' [product]
+      reference only: 'hash extraction' [colloquial]
+      other only: 'Mimikatz' [colloquial]
+      other only: 'Event ID 4662' [symptom]
+      other only: 'rogue domain controller' [symptom]
+      other only: 'password hash extraction' [colloquial]
+      other only: 'NTDS.dit' [colloquial]
+  T1048.003 (attack): 12 / 12 proposals
+      reference only: 'data theft' [colloquial]
+      reference only: 'cleartext exfil' [colloquial]
+      reference only: 'high bandwidth usage' [symptom]
+      reference only: 'SMTP' [product]
+      other only: 'data leak' [colloquial]
+      other only: 'cleartext transfer' [colloquial]
+      other only: 'bandwidth spike' [symptom]
+      other only: 'Telnet' [product]
+  T1056.001 (attack): 8 / 8 proposals
+      reference only: 'keyloger' [misspelling]
+      reference only: 'T1056.001' [structural] claimed 'Keylogging'
+      reference only: 'T1056' [structural] claimed 'Input Capture'
+      reference only: 'CAPEC-568' [structural] claimed 'Capture Information via Keylogger'
+      other only: 'key logger' [colloquial]
+      other only: 'keyloging' [misspelling]
+      other only: 'T1056.001' [structural] claimed 'Input Capture: Keylogging'
+      other only: 'CAPEC-568' [structural] claimed 'Capture Information'
+      accepted ids: ['CAPEC-568', 'T1056', 'T1056.001'] / ['CAPEC-568', 'T1056.001']
+  T1090.003 (attack): 11 / 10 proposals
+      reference only: 'Proxychains' [product]
+      reference only: 'mismatched geo-IP' [symptom]
+      other only: 'unusual outbound connections' [symptom]
+  T1555.006 (attack): 10 / 8 proposals
+      reference only: 'stealing API keys' [colloquial]
+      reference only: 'vault extraction' [colloquial]
+      reference only: 'unusual vault access' [symptom]
+      reference only: 'mass secret retrieval' [symptom]
+      reference only: 'Azure KeyVault' [misspelling]
+      reference only: 'T1552.005' [structural] claimed 'Cloud Secrets Management Stores'
+      other only: 'T1552.005' [structural] claimed 'Credentials from Password Stores: Cloud Secrets Management Stores'
+      other only: 'dumping cloud passwords' [colloquial]
+      other only: 'unusual secret retrieval' [symptom]
+      other only: 'API key theft' [colloquial]
+  T1666 (attack): 10 / 9 proposals
+      reference only: 'AWS Organizations' [product]
+      reference only: 'Azure Management Groups' [product]
+      reference only: 'GCP Folders' [product]
+      reference only: 'org takeover' [colloquial]
+      reference only: 'policy inheritance changes' [symptom]
+      reference only: 'orphaned projects' [symptom]
+      reference only: 'billing account changes' [symptom]
+      reference only: 'AWS Orgs' [colloquial]
+      reference only: 'Google Cloud Resource Manager' [product]
+      other only: 'subscription transfer' [colloquial]
+      other only: 'project moving' [colloquial]
+      other only: 'unexpected billing' [symptom]
+      other only: 'policy bypass' [symptom]
+      other only: 'AWS' [product]
+      other only: 'Azure' [product]
+      other only: 'GCP' [product]
+      other only: 'heirarchy' [misspelling]
+  T1430.001 (attack): 10 / 11 proposals
+      reference only: 'MDM abuse' [colloquial]
+      reference only: 'stalkerware' [colloquial]
+      reference only: 'location tracking' [colloquial]
+      reference only: 'unexpected GPS icon' [symptom]
+      reference only: 'Intune' [product]
+      reference only: 'remote wipe' [colloquial]
+      reference only: 'device locked' [symptom]
+      other only: 'MDM' [colloquial]
+      other only: 'Mobile Device Management' [colloquial]
+      other only: 'Microsoft Intune' [product]
+      other only: 'MobileIron' [product]
+      other only: 'remote wipe' [symptom]
+      other only: 'device tracking' [colloquial]
+      other only: 'unexpected location alert' [symptom]
+      other only: 'device locked remotely' [symptom]
+  T1437 (attack): 6 / 9 proposals
+      reference only: 'periodic web requests' [symptom]
+      reference only: 'beconing' [misspelling]
+      reference only: 'C2 traffic' [colloquial]
+      other only: 'covert channel' [colloquial]
+      other only: 'unexpected port usage' [symptom]
+      other only: 'HTTP' [product]
+      other only: 'HTTPS' [product]
+      other only: 'aplication layer' [misspelling]
+      other only: 'T1437' [structural] claimed 'Application Layer Protocol'
+      accepted ids: [] / ['T1437']
+
+TABLE NUMBERS: 18 of 32 counts move (reference -> other):
+  accepted                                       326 -> 328   (+2)
+  accepted_copied                                 20 -> 24    (+4)
+  accepted_generated                              49 -> 44    (-5)
+  by_reason.too_common                            66 -> 62    (-4)
+  by_stage.df                                     66 -> 62    (-4)
+  distance_accepted.0                              8 -> 9     (+1)
+  distance_accepted.1                             20 -> 23    (+3)
+  distance_accepted.3                              8 -> 6     (-2)
+  distance_accepted.6                              2 -> 1     (-1)
+  distance_accepted.unreachable                   22 -> 20    (-2)
+  name_pass_on_one_word                            1 -> 2     (+1)
+  name_pass_total                                 69 -> 68    (-1)
+  proposed                                       396 -> 394   (-2)
+  provenance.labelled_field                       12 -> 15    (+3)
+  provenance.not_found                            52 -> 47    (-5)
+  provenance.own_id                                8 -> 9     (+1)
+  structural_accepted                             69 -> 68    (-1)
+  structural_proposed                             73 -> 72    (-1)
+
+
+=======================================================================================
+ADDED 2026-11-14 (later): a second Vertex run of the same 40 documents (open question 15)
+=======================================================================================
+
+File: indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex2.jsonl (git-ignored).
+Identical command and settings to the first Vertex run, same day.
+Tokens: prompt 40,182, reply 8,919, thinking 25,006 -> ~$0.487 + $0.026 preflight.
+
+Accepted structural ids shared, (document, id):
+                 run1-run2  vx1-vx2  run1-vx1  run2-vx1  run1-vx2  run2-vx2
+  all              80%       60%      51%       50%       48%       47%
+  without 3 cut    80%       62%      53%       52%       54%       53%
+  cve              80%       71%      64%       56%       65%       64%
+  cwe              88%       59%      52%       59%       68%       78%
+  capec            77%       45%      37%       36%       26%       22%
+  attack           75%       75%      64%       64%       55%       55%
+Replies identical: run1-run2 18/40; vx1-vx2 5/40; any AI Studio vs any Vertex 0/40.
+Ids accepted by both runs of a route: AI Studio 61, Vertex 52; shared by both cores 36.
+
+Per run (structural ids):
+  run1: proposed 73, accepted 69, rejected 0 graph / 4 name, counting 0, copied 20 / generated 49
+  run2: proposed 72, accepted 68, rejected 0 graph / 4 name, counting 0, copied 24 / generated 44
+  vx1:  proposed 80, accepted 73, rejected 1 graph / 6 name, counting 0, copied 15 / generated 58
+  vx2:  proposed 69, accepted 66, rejected 0 graph / 3 name, counting 0, copied 12 / generated 54
+  generated & accepted, within 2 hops: 14/28, 14/25, 21/32, 21/30 (median 2.5, 2, 2, 2)
+  vx2 rejections: CAPEC-240 on CVE-2025-6973, CWE-484 on CWE-1083, T1552.005 on T1555.006 (all name)
+
+compare_enrichment.py, Vertex run 1 (reference) vs Vertex run 2, unedited:
+
+reference: indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex.jsonl
+    Yashs-MacBook.local  macOS-26.6.2-arm64-arm-64bit-Mach-O  gpu=['Apple M5']
+other:     indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertex2.jsonl
+    Yashs-MacBook.local  macOS-26.6.2-arm64-arm-64bit-Mach-O  gpu=['Apple M5']
+
+model digest: not recorded in either manifest (- / -); compare `ollama list` on the two machines by hand
+settings: the same in both manifests (config, prompt, gates, sampling, seed, context)
+
+documents: 40 / 40, 40 in both
+
+REPLIES IDENTICAL: 5 of 40
+  CVE-2024-4897 (cve): 10 / 11 proposals
+      reference only: 'HuggingFace' [product]
+      reference only: 'llama.cpp' [product]
+      reference only: 'CWE-1104' [structural] claimed 'Use of Unmaintained Third Party Components'
+      reference only: 'T1195.002' [structural] claimed 'Supply Chain Compromise: Compromise Software Supply Chain'
+      other only: 'supply chain attack' [colloquial]
+      other only: 'Hugging Face' [product]
+      other only: 'huggingface' [misspelling]
+      other only: 'CWE-1104' [structural] claimed 'Use of Third Party Components with Known Vulnerabilities'
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      accepted ids: ['CWE-1104', 'T1195.002'] / ['CWE-1104', 'T1190']
+  CVE-2024-11170 (cve): 12 / 9 proposals
+      reference only: 'webshell uploaded' [symptom]
+      reference only: 'liberchat' [misspelling]
+      reference only: 'mutler' [misspelling]
+      reference only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      other only: 'webshell upload' [symptom]
+      accepted ids: ['CAPEC-126', 'CWE-22', 'T1190'] / ['CAPEC-126', 'CWE-22']
+  CVE-2025-7160 (cve): 9 / 10 proposals
+      reference only: 'database errors' [symptom]
+      other only: 'database error' [symptom]
+      other only: 'PHP' [product]
+  CVE-2023-50458 (cve): 10 / 7 proposals
+      reference only: 'sensitive data exposure' [colloquial]
+      reference only: 'unauthorized log access' [symptom]
+      reference only: 'pentest reporting' [product]
+      reference only: 'CWE-862' [structural] claimed 'Missing Authorization'
+      other only: 'unauthorized data access' [symptom]
+      accepted ids: ['CWE-200', 'CWE-862'] / ['CWE-200']
+  CVE-2025-6973 (cve): 10 / 10 proposals
+      reference only: 'RCE' [colloquial]
+      reference only: 'Solid works' [misspelling]
+      reference only: 'e-drawings' [misspelling]
+      reference only: 'application crash' [symptom]
+      reference only: 'access violation' [symptom]
+      reference only: 'CWE-119' [structural] claimed 'Improper Restriction of Operations within the Bounds of a Memory Buffer'
+      other only: 'ACE' [colloquial]
+      other only: 'crash' [symptom]
+      other only: 'segfault' [symptom]
+      other only: 'solid works' [misspelling]
+      other only: 'edrawing' [misspelling]
+      other only: 'CAPEC-240' [structural] claimed 'Use After Free'
+      accepted ids: ['CWE-119'] / []
+  CVE-2025-49833 (cve): 10 / 12 proposals
+      reference only: 'Remote Code Execution' [colloquial]
+      reference only: 'Shell injection' [colloquial]
+      reference only: 'Reverse shell' [symptom]
+      reference only: 'Unexpected child processes' [symptom]
+      reference only: 'GPTSovits' [misspelling]
+      other only: 'remote code execution' [colloquial]
+      other only: 'OS command injection' [colloquial]
+      other only: 'shell injection' [colloquial]
+      other only: 'reverse shell' [symptom]
+      other only: 'unexpected child processes' [symptom]
+      other only: 'Gradio' [product]
+      other only: 'GPTSoVITS' [misspelling]
+  CVE-2019-13351 (cve): 7 / 9 proposals
+      reference only: 'audio server' [colloquial]
+      reference only: 'CWE-415' [structural] claimed 'Double Free'
+      other only: 'fd reuse' [colloquial]
+      other only: 'unexpected file overwrite' [symptom]
+      other only: 'JACK Audio Connection Kit' [product]
+      other only: 'CWE-1341' [structural] claimed 'Multiple Releases of Same Resource or Handle'
+      accepted ids: ['CWE-362', 'CWE-415'] / ['CWE-1341', 'CWE-362']
+  CWE-1083 (cwe): 9 / 9 proposals
+      reference only: 'bypassing DAO' [colloquial]
+      reference only: 'leaky abstraction' [colloquial]
+      reference only: 'untracked data modification' [symptom]
+      reference only: 'CWE-1061' [structural] claimed 'Insufficient Encapsulation'
+      other only: 'ORM bypass' [colloquial]
+      other only: 'layer violation' [colloquial]
+      other only: 'unexpected database queries' [symptom]
+      other only: 'CWE-484' [structural] claimed 'Data Access from Outside Expected Data Manager Component'
+      accepted ids: ['CWE-1061'] / []
+  CWE-1235 (cwe): 11 / 10 proposals
+      reference only: 'wrapper classes' [colloquial]
+      reference only: 'implicit conversion' [colloquial]
+      reference only: 'latency' [symptom]
+      reference only: 'autoboxxing' [misspelling]
+      reference only: 'unboxxing' [misspelling]
+      reference only: 'CWE-400' [structural] claimed 'Uncontrolled Resource Consumption'
+      other only: 'wrapper class overhead' [colloquial]
+      other only: 'boxing penalty' [colloquial]
+      other only: 'high GC activity' [symptom]
+      other only: 'memory bloat' [symptom]
+      other only: 'autoboxingg' [misspelling]
+      accepted ids: ['CWE-400'] / []
+  CWE-378 (cwe): 10 / 11 proposals
+      reference only: 'world writable' [colloquial]
+      reference only: 'chmod 777' [colloquial]
+      reference only: 'data leak in /tmp' [symptom]
+      reference only: 'mkstemp' [product]
+      reference only: 'POSIX' [product]
+      reference only: 'temprary' [misspelling]
+      reference only: 'CWE-732' [structural] claimed 'Incorrect Permission Assignment for Critical Resource'
+      other only: 'world-writable' [colloquial]
+      other only: 'mkstemp' [colloquial]
+      other only: 'mktemp' [colloquial]
+      other only: '/tmp directory' [colloquial]
+      other only: 'TOCTOU' [colloquial]
+      other only: 'Linux' [product]
+      other only: 'Unix' [product]
+      other only: 'CWE-377' [structural] claimed 'Insecure Temporary File'
+      accepted ids: ['CWE-379', 'CWE-732'] / ['CWE-377', 'CWE-379']
+  CWE-512 (cwe): 9 / 11 proposals
+      reference only: 'infostealer' [colloquial]
+      reference only: 'data exfiltration' [symptom]
+      reference only: 'battery drain' [symptom]
+      reference only: 'T1056' [structural] claimed 'Input Capture'
+      reference only: 'T1005' [structural] claimed 'Data from Local System'
+      other only: 'adware' [colloquial]
+      other only: 'surveillance' [colloquial]
+      other only: 'Malwarebytes' [product]
+      other only: 'unauthorized camera access' [symptom]
+      other only: 'high network traffic' [symptom]
+      other only: 'unexpected pop-ups' [symptom]
+      other only: 'CWE-506' [structural] claimed 'Embedded Malicious Code'
+      accepted ids: ['T1005', 'T1056'] / ['CWE-506']
+  CWE-835 (cwe): 10 / 10 proposals
+      reference only: '100% utilization' [symptom]
+      other only: '100% CPU' [symptom]
+  CWE-940 (cwe): 10 / 11 proposals
+      reference only: 'Man-in-the-Middle' [colloquial]
+      reference only: 'Origin spoofing' [colloquial]
+      reference only: 'Deep link hijacking' [colloquial]
+      reference only: 'Rogue endpoint' [symptom]
+      reference only: 'Android' [product]
+      reference only: 'iOS' [product]
+      reference only: 'CWE-290' [structural] claimed 'Authentication Bypass by Spoofing'
+      reference only: 'CAPEC-94' [structural] claimed 'Man in the Middle Attack'
+      other only: 'man in the middle' [colloquial]
+      other only: 'origin spoofing' [colloquial]
+      other only: 'deep link hijacking' [colloquial]
+      other only: 'unauthorized API request' [symptom]
+      other only: 'rogue application execution' [symptom]
+      other only: 'Android Intents' [product]
+      other only: 'iOS Custom URL Schemes' [product]
+      other only: 'CWE-940' [structural] claimed 'Improper Verification of Source of a Communication Channel'
+      other only: 'spoofng' [misspelling]
+      accepted ids: ['CWE-290', 'CWE-346'] / ['CWE-346', 'CWE-940']
+  CWE-1169 (cwe): 11 / 10 proposals
+      reference only: 'thread safe' [colloquial]
+      reference only: 'mutex' [colloquial]
+      reference only: 'application hang' [symptom]
+      reference only: 'concurency' [misspelling]
+      other only: 'thread safety' [colloquial]
+      other only: 'app freeze' [symptom]
+      other only: 'concurancy' [misspelling]
+  CWE-398 (cwe): 10 / 11 proposals
+      reference only: 'null pointer dereference' [colloquial]
+      reference only: 'OOM' [symptom]
+      reference only: 'Coverity' [product]
+      other only: 'software bugs' [colloquial]
+      other only: 'null pointer' [colloquial]
+      other only: 'Fortify' [product]
+      other only: 'code qualty' [misspelling]
+  CAPEC-126 (capec): 12 / 12 proposals
+      reference only: 'dot dot slash' [colloquial]
+      reference only: 'backtracking' [colloquial]
+      reference only: 'local file inclusion' [colloquial]
+      reference only: 'unauthorized file access' [symptom]
+      reference only: 'sensitive file exposure' [symptom]
+      reference only: 'CWE-22' [structural] claimed "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      reference only: 'T1083' [structural] claimed 'File and Directory Discovery'
+      reference only: 'dirctory traversal' [misspelling]
+      other only: 'folder traversal' [colloquial]
+      other only: 'dir traversal' [colloquial]
+      other only: 'arbitrary file read' [symptom]
+      other only: 'source code disclosure' [symptom]
+      other only: 'win.ini' [symptom]
+      other only: 'boot.ini' [symptom]
+      other only: 'path traversel' [misspelling]
+      other only: 'T1190' [structural] claimed 'Exploit Public-Facing Application'
+      accepted ids: ['CWE-22', 'CWE-23', 'CWE-36', 'T1083'] / ['CWE-23', 'CWE-36', 'T1190']
+  CAPEC-14 (capec): 12 / 12 proposals
+      reference only: 'heap spraying' [colloquial]
+      reference only: 'segfault' [symptom]
+      reference only: 'bof' [misspelling]
+      reference only: 'bufffer overflow' [misspelling]
+      reference only: 'CWE-121' [structural] claimed 'Stack-based Buffer Overflow'
+      other only: 'RCE' [colloquial]
+      other only: 'BOF' [colloquial]
+      other only: 'drive-by download' [colloquial]
+      other only: '0xC0000005' [symptom]
+      other only: 'buffar overflow' [misspelling]
+      accepted ids: ['CWE-121', 'T1189', 'T1203'] / ['T1189', 'T1203']
+  CAPEC-24 (capec): 11 / 12 proposals
+      reference only: 'stack smashing' [colloquial]
+      reference only: 'Web Application Firewall' [product]
+      reference only: 'buffer overun' [misspelling]
+      reference only: 'T1499' [structural] claimed 'Endpoint Denial of Service'
+      other only: 'input validation bypass' [colloquial]
+      other only: 'buff overflow' [misspelling]
+      other only: 'buffer overrun' [misspelling]
+      other only: 'CWE-121' [structural] claimed 'Stack-based Buffer Overflow'
+      other only: 'CWE-122' [structural] claimed 'Heap-based Buffer Overflow'
+      accepted ids: ['T1190', 'T1499'] / ['CWE-121', 'CWE-122', 'T1190']
+  CAPEC-267 (capec): 11 / 11 proposals
+      reference only: 'Base64 encoding' [colloquial]
+      reference only: 'Hex encoding' [colloquial]
+      reference only: 'Unicode evasion' [colloquial]
+      reference only: 'Double encoding' [colloquial]
+      reference only: 'WAF bypass' [symptom]
+      reference only: 'Filter evasion' [symptom]
+      reference only: 'CWE-116' [structural] claimed 'Improper Encoding or Escaping of Output'
+      reference only: 'obfustication' [misspelling]
+      other only: 'WAF bypass' [colloquial]
+      other only: 'filter evasion' [colloquial]
+      other only: 'base64 encoding' [colloquial]
+      other only: 'hex encoding' [colloquial]
+      other only: 'unicode evasion' [colloquial]
+      other only: 'double encoding' [colloquial]
+      other only: 'unexpected character sets' [symptom]
+      other only: 'CWE-113' [structural] claimed "Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response Splitting')"
+      accepted ids: ['CWE-116', 'CWE-176', 'T1027'] / ['CWE-113', 'CWE-176', 'T1027']
+  CAPEC-422 (capec): 10 / 11 proposals
+      reference only: 'escalating requests' [symptom]
+      reference only: 'CAPEC-417' [structural] claimed 'Social Engineering'
+      other only: 'rapport building' [colloquial]
+      other only: 'unwitting insider' [colloquial]
+      other only: 'unusual employee behavior' [symptom]
+  CAPEC-538 (capec): 12 / 12 proposals
+      reference only: 'typosquatting' [colloquial]
+      reference only: 'backdoor' [colloquial]
+      reference only: 'T1195.001' [structural] claimed 'Supply Chain Compromise: Compromise Software Dependencies and Development Tools'
+      other only: 'repo hijacking' [colloquial]
+      other only: 'unexpected outbound connections' [symptom]
+      other only: 'CWE-1357' [structural] claimed 'Reliance on Insufficiently Trustworthy Component'
+      accepted ids: ['CWE-506', 'T1195.001'] / ['CWE-1357', 'CWE-506']
+  CAPEC-587 (capec): 10 / 11 proposals
+      reference only: 'invisible frame' [colloquial]
+      reference only: 'stolen credentials' [symptom]
+      reference only: 'hijacked session' [symptom]
+      reference only: 'clikjacking' [misspelling]
+      reference only: 'CWE-1021' [structural] claimed 'Improper Restriction of Rendered UI Layers or Frames'
+      other only: 'credential harvesting' [colloquial]
+      other only: 'stolen session token' [symptom]
+      other only: 'unauthorized account access' [symptom]
+      other only: 'crossframe scripting' [misspelling]
+      other only: 'X-frame scripting' [misspelling]
+      other only: 'T1185' [structural] claimed 'Browser Session Hijacking'
+      accepted ids: ['CAPEC-103', 'CWE-1021'] / ['CAPEC-103', 'T1185']
+  CAPEC-631 (capec): 12 / 10 proposals
+      reference only: 'fake login page' [symptom]
+      reference only: 'CAPEC-616' [structural] claimed 'Typosquatting'
+      reference only: 'CAPEC-89' [structural] claimed 'Phishing'
+      reference only: 'CAPEC-543' [structural] claimed 'Spear Phishing'
+      other only: 'T1583.001' [structural] claimed 'Domains'
+      other only: 'T1566.002' [structural] claimed 'Spearphishing Link'
+      accepted ids: [] / ['T1566.002', 'T1583.001']
+  CAPEC-654 (capec): 10 / 11 proposals
+      reference only: 'fake login box' [colloquial]
+      reference only: 'credential harvesting' [colloquial]
+      reference only: 'Windows UAC' [product]
+      reference only: 'phising prompt' [misspelling]
+      reference only: 'CAPEC-504' [structural] claimed 'Task Impersonation'
+      other only: 'overlay attack' [colloquial]
+      other only: 'fake login screen' [colloquial]
+      other only: 'password harvesting' [colloquial]
+      other only: 'duplicate login window' [symptom]
+      other only: 'Windows' [product]
+      other only: 'credentail prompt' [misspelling]
+      accepted ids: ['CAPEC-504', 'T1056.002'] / ['T1056.002']
+  CAPEC-656 (capec): 9 / 10 proposals
+      other only: 'robocall' [colloquial]
+  T1003.006 (attack): 9 / 11 proposals
+      reference only: 'Mimikatz' [product]
+      reference only: 'credential dumping' [colloquial]
+      reference only: 'NTLM hashes' [colloquial]
+      reference only: 'rogue DC' [symptom]
+      reference only: 'DC-Sync' [misspelling]
+      reference only: 'Cobalt Strike' [product]
+      other only: 'Mimikatz' [colloquial]
+      other only: 'password hashes' [colloquial]
+      other only: 'NTDS.dit' [colloquial]
+      other only: 'high RPC traffic' [symptom]
+      other only: 'BloodHound' [product]
+      other only: 'DC Sync' [misspelling]
+      other only: 'DCSink' [misspelling]
+      other only: 'T1003' [structural] claimed 'OS Credential Dumping'
+      accepted ids: ['T1003.006'] / ['T1003', 'T1003.006']
+  T1048.003 (attack): 12 / 12 proposals
+      reference only: 'FTP upload' [colloquial]
+      reference only: 'HTTP POST' [colloquial]
+      reference only: 'cleartext data theft' [colloquial]
+      reference only: 'data leakage' [symptom]
+      reference only: 'Zeek' [product]
+      reference only: 'Suricata' [product]
+      other only: 'plaintext leak' [colloquial]
+      other only: 'cleartext transfer' [colloquial]
+      other only: 'DLP alert' [symptom]
+      other only: 'FTP' [product]
+      other only: 'HTTP' [product]
+      other only: 'SMTP' [product]
+  T1056.001 (attack): 8 / 11 proposals
+      reference only: 'T1056.001' [structural] claimed 'Keylogging'
+      reference only: 'CAPEC-568' [structural] claimed 'Capture Information via Keylogger'
+      other only: 'compromised credentials' [symptom]
+      other only: 'Agent Tesla' [product]
+      other only: 'DarkComet' [product]
+      other only: 'keyloggering' [misspelling]
+      other only: 'T1056.001' [structural] claimed 'Input Capture: Keylogging'
+      accepted ids: ['CAPEC-568', 'T1056', 'T1056.001'] / ['T1056', 'T1056.001']
+  T1090.003 (attack): 11 / 12 proposals
+      other only: 'traffic laundering' [colloquial]
+  T1555.006 (attack): 10 / 10 proposals
+      reference only: 'GCP Secret Manager' [product]
+      reference only: 'secretsmanager:GetSecretValue' [symptom]
+      reference only: 'key theft' [colloquial]
+      reference only: 'Azure KeyVault' [misspelling]
+      other only: 'Google Secret Manager' [product]
+      other only: 'stealing API keys' [colloquial]
+      other only: 'unauthorized API calls' [symptom]
+      other only: 'Hashicorp Valut' [misspelling]
+  T1666 (attack): 8 / 8 proposals
+      reference only: 'resource group transfer' [colloquial]
+      reference only: 'AWS' [product]
+      reference only: 'Azure' [product]
+      reference only: 'GCP' [product]
+      reference only: 'heirarchy' [misspelling]
+      other only: 'subscription transfer' [colloquial]
+      other only: 'AWS Organizations' [product]
+      other only: 'Azure Management Groups' [product]
+      other only: 'GCP Resource Manager' [product]
+      other only: 'hierachy' [misspelling]
+  T1430.001 (attack): 9 / 10 proposals
+      reference only: 'remote wipe' [colloquial]
+      reference only: 'Find My iPhone' [product]
+      reference only: 'Find My Device' [product]
+      reference only: 'Intune' [product]
+      reference only: 'unauthorized tracking' [symptom]
+      other only: 'Find My iPhone' [colloquial]
+      other only: 'Find My Device' [colloquial]
+      other only: 'device tracking' [colloquial]
+      other only: 'remote wipe' [symptom]
+      other only: 'AirWatch' [product]
+      other only: 'iClould' [misspelling]
+  T1437 (attack): 11 / 11 proposals
+      reference only: 'T1071' [structural] claimed 'Application Layer Protocol'
+      reference only: 'HTTP C2' [colloquial]
+      reference only: 'HTTPS beaconing' [colloquial]
+      reference only: 'covert channel' [colloquial]
+      reference only: 'unusual outbound traffic' [symptom]
+      reference only: 'periodic beaconing' [symptom]
+      reference only: 'aplication layer' [misspelling]
+      other only: 'C2 traffic' [colloquial]
+      other only: 'beaconing' [colloquial]
+      other only: 'HTTP tunneling' [colloquial]
+      other only: 'anomalous network traffic' [symptom]
+      other only: 'unusual outbound connections' [symptom]
+      other only: 'beconing' [misspelling]
+      other only: 'tuneling' [misspelling]
+      accepted ids: ['T1071', 'T1437'] / ['T1437']
+  T1470 (attack): 11 / 8 proposals
+      reference only: 'cloud extraction' [colloquial]
+      reference only: 'backup theft' [colloquial]
+      reference only: 'data exfiltration' [colloquial]
+      reference only: 'unexpected sync' [symptom]
+      reference only: 'unrecognized login' [symptom]
+      reference only: 'Drive' [product]
+      reference only: 'Elcomsoft' [product]
+      reference only: 'Oxygen Forensic' [product]
+      reference only: 'iClould' [misspelling]
+      reference only: 'back ups' [misspelling]
+      other only: 'steal phone data' [colloquial]
+      other only: 'extract mobile sync' [colloquial]
+      other only: 'unrecognized login location' [symptom]
+      other only: 'Google Drive' [product]
+      other only: 'Samsung Cloud' [product]
+      other only: 'OneDrive' [product]
+      other only: 'bakcup' [misspelling]
+  T1661 (attack): 9 / 10 proposals
+      reference only: 'app store evasion' [colloquial]
+      reference only: 'unexpected background download' [symptom]
+      reference only: 'T1436' [structural] claimed 'Application Versioning'
+      other only: 'dropper' [colloquial]
+      other only: 'delayed payload' [colloquial]
+      other only: 'unexpected permissions' [symptom]
+      other only: 'sudden battery drain' [symptom]
+
+TABLE NUMBERS: 23 of 35 counts move (reference -> other):
+  accepted                                       337 -> 348   (+11)
+  accepted_copied                                 15 -> 12    (-3)
+  accepted_generated                              58 -> 54    (-4)
+  by_reason.deprecated                             1 -> 0     (-1)
+  by_reason.name_mismatch                          6 -> 3     (-3)
+  by_reason.too_common                            66 -> 70    (+4)
+  by_stage.df                                     66 -> 70    (+4)
+  by_stage.graph                                   1 -> 0     (-1)
+  by_stage.name                                    6 -> 3     (-3)
+  distance_accepted.0                              8 -> 9     (+1)
+  distance_accepted.1                             18 -> 14    (-4)
+  distance_accepted.3                              6 -> 5     (-1)
+  distance_accepted.4                              1 -> 0     (-1)
+  distance_accepted.5                              2 -> 3     (+1)
+  distance_accepted.6                              2 -> 1     (-1)
+  distance_accepted.unreachable                   27 -> 25    (-2)
+  name_pass_total                                 73 -> 66    (-7)
+  proposed                                       410 -> 421   (+11)
+  provenance.labelled_field                       10 -> 2     (-8)
+  provenance.not_found                            61 -> 57    (-4)
+  provenance.own_id                                8 -> 9     (+1)
+  structural_accepted                             73 -> 66    (-7)
+  structural_proposed                             80 -> 69    (-11)

@@ -1,0 +1,159 @@
+Gemini 3.1 Pro through Vertex AI BATCH prediction vs the online runs (2026-11-14)
+==================================================================================
+
+Batch settings = the online Vertex samples' settings exactly: model id gemini-3.1-pro-preview
+(model_version reported: gemini-3.1-pro-preview), prompt corpus-v4, sections-v2 truncation at
+6,000 chars, schema 1.5.0, config 364d30da6c75, temperature 0, seed 42 (sent; not tested in
+batch), thinking low, reply cap 512 + 8192, JSON-schema decoding, JSON retry 1, scorer v1,
+location global. Every result line echoed thinkingConfig.thinkingLevel = "LOW", the JSON
+schema and the system prompt back. Prompt tokens per document are identical to the online
+Vertex runs (40,182 for the 40), so the model was sent the same text and schema.
+
+Files (git-ignored, local only):
+  indexes/enrichment/corpus_ids5_v4_gemini-3.1-pro_vertexbatch.jsonl           (5-doc test)
+  indexes/enrichment/corpus_stratified_v4_gemini-3.1-pro_vertexbatch.jsonl     (40-doc sample)
+  ... each with .manifest.json ("service": "vertex-batch") and .batch/ (state.json, request
+  and result files exactly as sent to / returned by Vertex)
+Cloud Storage: gs://<project>-sira-batch/sira-batch/<output stem>/round-1/
+
+Turnaround (job timestamps from Vertex; "total" = our submit to results on disk)
+  5 docs:  created 18:09:41, started 18:13:08, ended 18:17:11 UTC
+           queue 3 min 27 s, running 4 min 3 s, total 7 min 53 s
+  40 docs: created 18:18:13, started 18:19:08, ended 18:22:39 UTC
+           queue 55 s, running 3 min 31 s, total 4 min 46 s
+  Both far inside Google's "most jobs complete within 24 hours"; small jobs are mostly fixed
+  overhead, so these do NOT predict the 6,044-document job's time.
+
+Cost at batch list price ($1.00 in / $6.00 out incl. thinking, Global, <=200K):
+  5 docs:  4,652 prompt, 1,071 reply, 3,024 thinking  -> $0.0292  ($0.0058/doc)
+  40 docs: 40,182 prompt, 7,921 reply, 25,400 thinking -> $0.2401  ($0.0060/doc)
+  online Vertex on the same 40 docs, $2/$12: $0.4684 and $0.4875 ($0.0117-0.0122/doc)
+  -> batch costs 49-51% of online per document. Token use per document is the same
+     (thinking 635/doc batch vs 600-625 online; reply 198 vs 209-223).
+  Caveat: every result line reports usageMetadata.trafficType = "ON_DEMAND" (defined by
+  Google as "Pay-As-You-Go traffic", i.e. not Provisioned Throughput). The batch rate itself
+  must be confirmed from the billing console.
+
+Zero-thinking documents (thoughtsTokenCount 0): vertex CVE-2025-26663, CAPEC-126, CAPEC-267;
+vertex2 CVE-2025-26663, CAPEC-267; batch CVE-2025-26663. Same oddity online and in batch.
+
+Per kind, accepted ids shared (shared / union):
+  cve     vertex-vertex2 71% | vertex-batch 77% | vertex2-batch 64%
+  cwe     vertex-vertex2 59% | vertex-batch 80% | vertex2-batch 50%
+  capec   vertex-vertex2 45% | vertex-batch 52% | vertex2-batch 46%
+  attack  vertex-vertex2 75% | vertex-batch 67% | vertex2-batch 73%
+Accepted ids copied from the entry / generated (report_enrichment provenance, against the shown
+text): vertex 15 / 58, vertex2 12 / 54, batch 10 / 53.
+Generated ids within 2 ontology hops of the entry (of those with a distance): vertex 21 of 32,
+vertex2 21 of 30, batch 17 of 30.
+Ids both online Vertex runs accepted: 52, of which batch also accepted 42.
+Batch accepted ids in neither online Vertex run: 4.
+
+=== 40-document sample: all five runs (output of compare_runs.py, unedited) ===
+documents in all files: 40
+run1       structural proposed 73, accepted 69, rejected {'name_mismatch': 4}; existence 0, name 4, counting-run ids 0; proposals/reply min 6 median 10.0 max 12; unparseable 0
+           tokens: prompt 35915 (898/doc), reply 6464 (162/doc), thinking 24832 (621/doc), calls 40
+           rejected: [('CAPEC-631', 'CAPEC-616', 'name_mismatch'), ('CVE-2025-6973', 'CAPEC-240', 'name_mismatch'), ('CWE-1235', 'CWE-1097', 'name_mismatch'), ('T1555.006', 'T1552.005', 'name_mismatch')]
+run2       structural proposed 72, accepted 68, rejected {'name_mismatch': 4}; existence 0, name 4, counting-run ids 0; proposals/reply min 7 median 10.0 max 12; unparseable 0
+           tokens: prompt 35915 (898/doc), reply 6752 (169/doc), thinking 23259 (581/doc), calls 40
+           rejected: [('CAPEC-631', 'CAPEC-616', 'name_mismatch'), ('CVE-2025-26663', 'CAPEC-248', 'name_mismatch'), ('CVE-2025-6973', 'CAPEC-240', 'name_mismatch'), ('T1555.006', 'T1552.005', 'name_mismatch')]
+vertex     structural proposed 80, accepted 73, rejected {'name_mismatch': 6, 'deprecated': 1}; existence 1, name 6, counting-run ids 0; proposals/reply min 7 median 10.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 8345 (209/doc), thinking 23993 (600/doc), calls 40; cost $0.4684 ($0.01171/doc at $2.0/$12.0)
+           rejected: [('CAPEC-422', 'CAPEC-417', 'name_mismatch'), ('CAPEC-631', 'CAPEC-616', 'name_mismatch'), ('CAPEC-631', 'CAPEC-89', 'name_mismatch'), ('CAPEC-631', 'CAPEC-543', 'name_mismatch'), ('CWE-940', 'CAPEC-94', 'name_mismatch'), ('T1555.006', 'T1552.005', 'name_mismatch'), ('T1661', 'T1436', 'deprecated')]
+vertex2    structural proposed 69, accepted 66, rejected {'name_mismatch': 3}; existence 0, name 3, counting-run ids 0; proposals/reply min 7 median 11.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 8919 (223/doc), thinking 25006 (625/doc), calls 40; cost $0.4875 ($0.01219/doc at $2.0/$12.0)
+           rejected: [('CVE-2025-6973', 'CAPEC-240', 'name_mismatch'), ('CWE-1083', 'CWE-484', 'name_mismatch'), ('T1555.006', 'T1552.005', 'name_mismatch')]
+batch      structural proposed 67, accepted 63, rejected {'name_mismatch': 4}; existence 0, name 4, counting-run ids 0; proposals/reply min 8 median 10.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 7921 (198/doc), thinking 25400 (635/doc), calls 40; cost $0.2401 ($0.00600/doc at $1.0/$6.0)
+           rejected: [('CAPEC-422', 'CAPEC-417', 'name_mismatch'), ('CAPEC-631', 'CAPEC-616', 'name_mismatch'), ('CVE-2025-26663', 'CAPEC-240', 'name_mismatch'), ('T1555.006', 'T1552.005', 'name_mismatch')]
+
+accepted structural ids shared (document, id), shared / union:
+  run1 vs run2: 61 of 76 = 80%   replies identical 18 of 40
+  run1 vs vertex: 48 of 94 = 51%   replies identical 0 of 40
+  run1 vs vertex2: 44 of 91 = 48%   replies identical 0 of 40
+  run1 vs batch: 45 of 87 = 52%   replies identical 0 of 40
+  run2 vs vertex: 47 of 94 = 50%   replies identical 0 of 40
+  run2 vs vertex2: 43 of 91 = 47%   replies identical 0 of 40
+  run2 vs batch: 42 of 89 = 47%   replies identical 0 of 40
+  vertex vs vertex2: 52 of 87 = 60%   replies identical 5 of 40
+  vertex vs batch: 55 of 81 = 68%   replies identical 8 of 40
+  vertex2 vs batch: 46 of 83 = 55%   replies identical 5 of 40
+
+=== 5-document test vs the same 5 documents in the online Vertex runs (unedited) ===
+documents in all files: 5
+vertex     structural proposed 10, accepted 10, rejected {}; existence 0, name 0, counting-run ids 0; proposals/reply min 10 median 11 max 12; unparseable 0
+           tokens: prompt 4652 (930/doc), reply 1260 (252/doc), thinking 3151 (630/doc), calls 5; cost $0.0622 ($0.01245/doc at $2.0/$12.0)
+           rejected: []
+vertex2    structural proposed 10, accepted 10, rejected {}; existence 0, name 0, counting-run ids 0; proposals/reply min 11 median 11 max 12; unparseable 0
+           tokens: prompt 4652 (930/doc), reply 1310 (262/doc), thinking 3284 (657/doc), calls 5; cost $0.0644 ($0.01289/doc at $2.0/$12.0)
+           rejected: []
+batch5     structural proposed 9, accepted 9, rejected {}; existence 0, name 0, counting-run ids 0; proposals/reply min 9 median 10 max 12; unparseable 0
+           tokens: prompt 4652 (930/doc), reply 1071 (214/doc), thinking 3024 (605/doc), calls 5; cost $0.0292 ($0.00584/doc at $1.0/$6.0)
+           rejected: []
+
+accepted structural ids shared (document, id), shared / union:
+  vertex vs vertex2: 8 of 12 = 67%   replies identical 2 of 5
+  vertex vs batch5: 7 of 12 = 58%   replies identical 2 of 5
+  vertex2 vs batch5: 6 of 13 = 46%   replies identical 0 of 5
+
+=== the script (scratch; matches every figure in vertex_sample_vs_aistudio_gemini.txt) ===
+"""Compare Gemini enrichment files: structural ids, rejections, counting runs, overlap, tokens.
+usage: compare_runs.py [--ids A,B] label=path price_in price_out ... (prices via --price label=in,out)"""
+import sys, itertools, statistics
+sys.path.insert(0, "src")
+from sira_cti.common import read_jsonl, RejectReason, TermKind
+
+args = sys.argv[1:]
+only = None; prices = {}
+runs = []
+for a in args:
+    if a.startswith("--ids="): only = set(a[6:].split(","))
+    elif a.startswith("--price="):
+        lab, v = a[8:].split("="); pi, po = map(float, v.split(",")); prices[lab] = (pi, po)
+    else:
+        lab, p = a.split("=", 1); runs.append((lab, p))
+
+data = {}
+for lab, p in runs:
+    recs = {r.doc_id: r for r in read_jsonl(p) if only is None or r.doc_id in only}
+    data[lab] = recs
+docs = sorted(set.intersection(*(set(d) for d in data.values())))
+print(f"documents in all files: {len(docs)}")
+for lab in data:
+    recs = [data[lab][d] for d in docs]
+    st = [t for r in recs for t in r.proposed_terms if t.kind is TermKind.STRUCTURAL]
+    acc = [t for t in st if t.accepted]
+    by = {}
+    for t in st:
+        if not t.accepted:
+            by[t.reject_reason.value] = by.get(t.reject_reason.value, 0) + 1
+    exist = sum(by.get(k, 0) for k in ("not_in_graph", "deprecated", "revoked", "malformed_id"))
+    counting = sum(1 for t in st if getattr(t, "in_counting_run", False))
+    n_props = [len(r.proposed_terms) for r in recs]
+    unparse = sum(1 for r in recs if any(t.reject_reason is RejectReason.LLM_JSON_ERROR for t in r.proposed_terms))
+    tok = [r.tokens for r in recs]
+    P = sum(t.prompt for t in tok); C = sum(t.completion for t in tok); T = sum(t.thinking for t in tok)
+    line = (f"{lab:10s} structural proposed {len(st)}, accepted {len(acc)}, rejected {by or '{}'}; "
+            f"existence {exist}, name {by.get('name_mismatch',0)}, counting-run ids {counting}; "
+            f"proposals/reply min {min(n_props)} median {statistics.median(n_props)} max {max(n_props)}; unparseable {unparse}")
+    print(line)
+    calls = sum(r.llm_calls for r in recs)
+    s = f"           tokens: prompt {P} ({P/len(recs):.0f}/doc), reply {C} ({C/len(recs):.0f}/doc), thinking {T} ({T/len(recs):.0f}/doc), calls {calls}"
+    if lab in prices:
+        pi, po = prices[lab]; cost = (P*pi + (C+T)*po)/1e6
+        s += f"; cost ${cost:.4f} (${cost/len(recs):.5f}/doc at ${pi}/${po})"
+    print(s)
+    rejected_list = [(r.doc_id, t.structural_id or t.term, t.reject_reason.value) for r in recs for t in r.proposed_terms
+                     if t.kind is TermKind.STRUCTURAL and not t.accepted]
+    print(f"           rejected: {rejected_list}")
+
+def accepted(lab):
+    return {(d, t.structural_id) for d in docs for t in data[lab][d].proposed_terms
+            if t.kind is TermKind.STRUCTURAL and t.accepted and t.structural_id}
+def props(lab, d):
+    return [(t.term, t.kind.value, t.claimed_name) for t in data[lab][d].proposed_terms]
+print("\naccepted structural ids shared (document, id), shared / union:")
+for a, b in itertools.combinations(data, 2):
+    A, B = accepted(a), accepted(b)
+    same = sum(1 for d in docs if props(a, d) == props(b, d))
+    print(f"  {a} vs {b}: {len(A & B)} of {len(A | B)} = {len(A & B)/max(1,len(A|B)):.0%}   replies identical {same} of {len(docs)}")

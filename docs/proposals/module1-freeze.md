@@ -274,20 +274,20 @@ The honest position: the three models behave so differently that the choice
 is a research decision, not a tuning one. Same 40 documents, prompt
 `corpus-v4`, scorer v1.
 
-| structural ids | `qwen2.5:7b` | `qwen2.5:14b` (uncut) | 14B, Mac, `sections-v2` | 14B, Kaggle T4, `sections-v2` | Gemini 3.1 Pro, run 1 | Gemini, run 2 |
-|---|---|---|---|---|---|---|
-| proposed | 14 | 157 | 157 | 155 | 73 | 72 |
-| accepted | 6 (43%) | 56 (36%) | 59 (38%) | 54 (35%) | 69 (95%) | 68 (94%) |
-| rejected at `graph` / `name` | 4 / 4 | 32 / 69 | 32 / 66 | 23 / 78 | 0 / 4 | 0 / 4 |
-| …at `graph`, of which deprecated | | 15 | 15 | 4 | 0 | 0 |
-| in a counting run | 0 | 51 | 51 | 47 | 0 | 0 |
-| **accepted and copied from the entry** | 6 (100%) | 17 (30%) | 20 (34%) | 20 (37%) | 20 (29%) | 24 (35%) |
-| …of those, the entry's own id | 0 | 5 | not recounted | not recounted | 8 | 9 |
-| **accepted and generated** (not in the entry) | 0 | 39 (70%) | 39 (66%) | 34 (63%) | 49 (71%) | 44 (65%) |
-| accepted ids with a measurable graph distance | 0 | 35 | 38 | 37 | 47 | 48 |
-| **median distance** (hops from the entry) | – | 2 | 2 | 2 | 1 | 1 |
-| **within 2 hops** (of those measurable) | – | 22 (63%) | 25 (66%) | 24 (65%) | 33 (70%) | 37 (77%) |
-| generated ids only: median distance / within 2 hops | – | 2.5 / 12 of 24 | 2.5 / 12 of 24 | not computed | 2.5 / 14 of 28 | 2 / 14 of 25 |
+| structural ids | `qwen2.5:7b` | `qwen2.5:14b` (uncut) | 14B, Mac, `sections-v2` | 14B, Kaggle T4, `sections-v2` | Gemini 3.1 Pro, run 1 | Gemini, run 2 | Gemini, Vertex, `sections-v2` |
+|---|---|---|---|---|---|---|---|
+| proposed | 14 | 157 | 157 | 155 | 73 | 72 | 80 |
+| accepted | 6 (43%) | 56 (36%) | 59 (38%) | 54 (35%) | 69 (95%) | 68 (94%) | 73 (91%) |
+| rejected at `graph` / `name` | 4 / 4 | 32 / 69 | 32 / 66 | 23 / 78 | 0 / 4 | 0 / 4 | 1 / 6 |
+| …at `graph`, of which deprecated | | 15 | 15 | 4 | 0 | 0 | 1 |
+| in a counting run | 0 | 51 | 51 | 47 | 0 | 0 | 0 |
+| **accepted and copied from the entry** | 6 (100%) | 17 (30%) | 20 (34%) | 20 (37%) | 20 (29%) | 24 (35%) | 15 (21%) |
+| …of those, the entry's own id | 0 | 5 | not recounted | not recounted | 8 | 9 | 8 |
+| **accepted and generated** (not in the entry) | 0 | 39 (70%) | 39 (66%) | 34 (63%) | 49 (71%) | 44 (65%) | 58 (79%) |
+| accepted ids with a measurable graph distance | 0 | 35 | 38 | 37 | 47 | 48 | 46 |
+| **median distance** (hops from the entry) | – | 2 | 2 | 2 | 1 | 1 | 1 |
+| **within 2 hops** (of those measurable) | – | 22 (63%) | 25 (66%) | 24 (65%) | 33 (70%) | 37 (77%) | 35 (76%) |
+| generated ids only: median distance / within 2 hops | – | 2.5 / 12 of 24 | 2.5 / 12 of 24 | not computed | 2.5 / 14 of 28 | 2 / 14 of 25 | 2 / 21 of 32 |
 
 **The two `sections-v2` columns are the same run on two computers** (added
 2026-10-14): identical weights, prompt, seed and settings, under the Stage 1
@@ -296,6 +296,24 @@ replies are word-for-word identical, which is expected across hardware.
 Details and the per-document differences: `03_STATUS_LOG.md` (2026-10-14) and
 `docs/results/kaggle_sample_vs_mac_14b.txt`. "Not computed" = needs the
 Kaggle `.jsonl`, which is not in the repo.
+
+**The last column is the same 40 documents through Google Cloud's Vertex AI**
+(added 2026-11-14): same model id, prompt, seed, thinking level and reply
+cap, under the Stage 1 truncation rules (3 CAPEC entries shown shortened).
+It looks like the October runs in *kind* — almost every id valid, no
+counting runs, a handful of wrong names — but it picked **different ids**:
+only 50–51% of accepted ids are shared with either AI Studio run, against
+80% between those two, and 0 of 40 replies are word-for-word the same
+(18 of 40 between the AI Studio runs). It also generated more ids itself
+(58 vs 44–49) and copied fewer (15 vs 20–24). Whether that is the route
+(Vertex vs AI Studio) or the month in between (a preview model can change
+under the same id) was open question 15. **A second Vertex run the same
+day** shared 60% of accepted ids with the first (5 of 40 replies identical):
+Vertex is less consistent with itself than AI Studio was (80%), and the
+October/today gap adds roughly 10 points more. Second run: 69 proposed,
+66 accepted, 0 / 3 rejected at graph / name, 0 counting, copied 12 /
+generated 54, generated within 2 hops 21 of 30. Details:
+`docs/results/vertex_sample_vs_aistudio_gemini.txt`.
 
 **Report 14B findings as ranges across those two runs, never as one
 number** — the same way the two Gemini runs are treated. Accepted **54–59**
@@ -553,8 +571,16 @@ a code change really cannot affect a reply (a typo in a log message), add
 
 **The idea.** Build the enriched index twice. First with a free local model,
 straight away, so Modules 2 and 3 have something real to develop against.
-Then, once the method is frozen, once more with Gemini, and that second index
-is the one the results are reported on.
+Then, once the method is frozen, once more with Gemini.
+
+> **Changed 2026-11-14 (Module 1 owner): `qwen2.5:14b` stays the main
+> model, and its index is the one the results are reported on. The Gemini
+> index is a *robustness* index** — the same pipeline with only the model
+> swapped, to check the findings survive a much stronger model. It runs
+> through Vertex AI on Google Cloud trial credits. See
+> `06_POLICY_EXCEPTIONS.md`, "Decision: what the frontier model is for", and
+> "Stage 2 (Gemini, Vertex)" below. Older wording below that calls Gemini the
+> "final" index is kept for the record and superseded by this note.
 
 ### Stage 1 — development index (local, $0)
 
@@ -567,7 +593,7 @@ The 14B is the better *development* index precisely because it is the messier
 model. The sustained benchmark is done: tell the team ~75 hours in total and
 ~37 hours to the non-CVE milestone.
 
-### Stage 2 — final index (Gemini 3.1 Pro, low thinking)
+### Stage 2 — Gemini index (Gemini 3.1 Pro, low thinking) — now the robustness index; see "Stage 2 (Gemini, Vertex)" for the current plan
 
 Token counts are the average of the two 40-document runs, scaled to the
 corpus's own mix of document types and lengths: **5.9M prompt, 1.0M reply and
@@ -643,7 +669,11 @@ gate.
 
 - **One run is the index.** With an 80% run-to-run overlap, a second Gemini
   run would give a slightly different index. Report the sample's agreement
-  figure alongside the results.
+  figure alongside the results. *(2026-11-14: on Vertex, two same-day runs
+  share **about 60%** of accepted ids, and Vertex vs the October AI Studio
+  runs 47–51%. **Decided 2026-11-14 (Module 1 owner): quote ~60%**,
+  report robustness as aggregate behaviour, compare only with Vertex
+  samples — `06_POLICY_EXCEPTIONS.md`, open question 15.)*
 - **Development and final models differ.** Modules 2/3 will have been built
   against 14B output (many rejections) and evaluated on Gemini output (almost
   none). The gates' *value* will look much smaller on the final index — that
@@ -651,6 +681,189 @@ gate.
 - **The local index is still a result.** "Open-weight 14B + grounding" versus
   "frontier model + grounding" is a comparison the project can report for
   free once both indexes exist.
+
+## Stage 2 (Gemini, Vertex)
+
+**Status 2026-11-14: planned, NOT started, NOT approved.** The robustness
+index (`06_POLICY_EXCEPTIONS.md`, planned exception 4). `qwen2.5:14b` stays
+the main model.
+
+### The model, checked 2026-11-14
+
+- **Id: `gemini-3.1-pro-preview` — unchanged, pinned.** Listed among the 35
+  Gemini models visible to the project at location `global`; the API
+  reports `model_version` `gemini-3.1-pro-preview`. Google's model page:
+  Public preview, released 2026-02-19; structured output, thinking, system
+  instructions and batch inference all "Supported"
+  (<https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-pro>,
+  last updated 2026-11-13).
+- **JSON-schema replies work on Vertex**: a probe with `response_json_schema`
+  returned a valid array and stopped normally, and the 40-document sample
+  had 0 unparseable replies and never collapsed.
+- Newer models are listed (e.g. `gemini-3.5-flash`, `gemini-4-*`); none is
+  used, because changing the model would break the comparison with the
+  October runs.
+- Re-check on the day, since a preview can be renamed or retired:
+  `.venv/bin/python scripts/check_gemini_model.py --gemini-api vertex --probe`
+  (one tiny call, well under a cent).
+
+### Cost and time for 6,044 documents
+
+From the Vertex sample's **measured** tokens (thinking included). Prompt
+tokens come from each document's real shown length (581 + 0.2265 × shown
+characters per call, fitted on the 40 documents — the 581 is the system
+prompt plus the reply schema plus the wrapper); reply and thinking tokens
+are the sample's per-type averages.
+
+| type | documents | prompt | reply | thinking |
+|---|---|---|---|---|
+| CVE | 3,011 | 2.95M | 0.63M | 1.65M |
+| CWE | 1,342 | 1.14M | 0.24M | 0.80M |
+| CAPEC | 615 | 0.75M | 0.14M | 0.39M |
+| ATT&CK | 1,076 | 0.81M | 0.22M | 0.67M |
+| **total** | 6,044 | **5.64M** | **1.24M** | **3.51M** |
+
+| way of running | price per 1M tokens (in / out incl. thinking) | cost | with 15% margin | time |
+|---|---|---|---|---|
+| **Standard** (what the code does) | $2.00 / $12.00 | **≈ $68** ($11 prompt, $15 reply, $42 thinking) | ≈ $79 | **≈ 19 h** one at a time (11.3 s per document, measured) |
+| **Batch** (`--batch`, built and tested 2026-11-14) | $1.00 / $6.00 | **≈ $35** (scaled by the batch sample's tokens) | ≈ $40 | unknown for 6,044; "Most jobs complete within 24 hours after it starts running (not counting the queue time)"; queue up to 72 h. The 5- and 40-doc jobs took 8 and 5 minutes |
+| Batch, **twice** (e.g. two robustness runs) | $1.00 / $6.00 | **≈ $70** | ≈ $81 | as above, per run |
+
+- **Prices**: Vertex AI pricing page, "Gemini 3.1 Pro Preview" rows, region
+  Global, ≤ 200K input tokens; output is "Text output (response and
+  reasoning)", i.e. thinking is billed as output; the Flex/Batch table gives
+  $1.00 / $6.00 (<https://cloud.google.com/vertex-ai/generative-ai/pricing>,
+  last updated 2026-11-13). Same prices as AI Studio in October.
+- **Batch on Vertex**: the batch page lists "Gemini 3.1 Pro preview" among
+  the models that support batch inference; "Batch processing is offered at a
+  50% discounted rate compared to real-time inference"; "Batch inference
+  supports using the global endpoint for base Gemini models"; up to 200,000
+  requests per job, input from Cloud Storage (1 GB file limit) or BigQuery;
+  "After 24 hours, incomplete jobs are cancelled, and you'll only be charged
+  for completed requests"
+  (<https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/batch-prediction-gemini>,
+  last updated 2026-11-13). The page does not say whether a JSON schema is
+  honoured in batch requests — **tested 2026-11-14: it is** (below).
+- **Batch, tested 2026-11-14** (`03_STATUS_LOG.md`, "Vertex batch mode";
+  `results/vertex_batch_vs_online_gemini.txt`): 5-doc test and the 40-doc
+  sample, frozen settings. Every reply a full array, 0 unparseable;
+  `thinkingLevel: "LOW"` echoed on every result line and thinking tokens per
+  document the same as online low (635 vs 600–625); **$0.0060 per document
+  vs $0.0117–0.0122 online**. The batch sample shares 68% / 55% of accepted
+  ids with the two online Vertex runs (60% between them): **another Vertex
+  run, at half the price.** Sources checked that day: the batch page above;
+  <https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/batch-prediction-from-cloud-storage>
+  (input format `{"request": …}`, results in `response`, errors in
+  `status`); <https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-1-pro>
+  ("Batch inference" listed); the pricing page's Flex/Batch table.
+- **To confirm on the bill:** result lines report `trafficType: "ON_DEMAND"`
+  ("Pay-As-You-Go traffic"). The 2026-11-14 batch tests should show
+  ≈ $0.27; ≈ $0.54 would mean batch was billed at the online rate.
+- **Vertex charges ~134 prompt tokens per call for the reply schema**
+  (measured; AI Studio did not). About $1.60 over the corpus; already in the
+  numbers above.
+- **Faster is possible but uncapped**: `--concurrency` above 1 would cut the
+  19 hours, but the cost cap can only stop a run when documents go one at a
+  time, so the script refuses to combine the two.
+- The trial credits must cover ≈ $80. Check the remaining balance in the
+  Cloud billing console first.
+
+### Start command
+
+```bash
+caffeinate -i .venv/bin/python scripts/enrich_corpus.py \
+    --backend gemini --gemini-api vertex \
+    --model gemini-3.1-pro-preview --thinking-level low \
+    --name-scorer v2 --kinds cwe,capec,attack,cve \
+    --price-in 2.00 --price-out 12.00 --cost-cap-usd 80 \
+    --output indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertex.jsonl
+```
+
+Everything else comes from `configs/default.yaml` unchanged (config hash
+`364d30da6c75`): `corpus-v4`, `sections-v2` at 6,000 characters, schema
+decoding, 12 terms, reply cap 512 (+ 8,192 thinking room), temperature 0,
+seed 42, JSON retry 1, concurrency 1. `--name-scorer v2` matches Stage 1
+(it changes no verdict on any Gemini sample run). `.env` must hold
+`GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION=global`, and
+`gcloud auth application-default login` must have been run.
+
+It is a full run, so it **refuses to start from uncommitted code**.
+
+### Start command — batch (half price)
+
+```bash
+.venv/bin/python scripts/enrich_corpus.py \
+    --backend gemini --gemini-api vertex --batch \
+    --model gemini-3.1-pro-preview --thinking-level low \
+    --name-scorer v2 --kinds cwe,capec,attack,cve \
+    --price-in 1.00 --price-out 6.00 --cost-cap-usd 55 \
+    --output indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch.jsonl
+```
+
+Same frozen settings as the online command. All 6,044 requests go out as
+**one job** (limit 200,000 per job, 1 GB file); the cap is checked against
+the estimate *before* submitting, because a submitted job cannot be stopped
+part-way for money. **Why $55 when the expected cost is ≈ $35:** the
+pre-submit estimate is deliberately cautious (3 characters a token, 1,200
+reply + thinking tokens a document); for all 6,044 documents it comes to
+**$50.59** (computed 2026-11-14), so a cap below that refuses to submit. On
+the 40-doc sample the same estimate said $0.339 and the bill was $0.240. The bucket `gs://<project>-sira-batch` already exists.
+The command waits up to 30 hours (`--batch-max-wait-hours`); if it is
+stopped or the laptop sleeps, **run the same command again** — it finds the
+job in `<output>.batch/state.json` and waits for it instead of submitting a
+second one. A second robustness run needs a **different `--output`**. Like
+the online run, it refuses to start from uncommitted code. The manifest
+says `"service": "vertex-batch"`; such a file cannot be resumed online or
+merged with an online file.
+
+### Resume — confirmed on Vertex, 2026-11-14
+
+**To resume after any stop — a crash, a closed lid, the cap, `Ctrl-C` — run
+exactly the same command again.** Tested with real Vertex calls on 4
+documents:
+
+| session | what happened |
+|---|---|
+| 1, with a 30-second time limit | 3 of 4 documents written, then stopped cleanly |
+| 2, same command but `--thinking-level high` | **refused** before the preflight, so nothing was spent; the message names `llm.thinking.thinking_level` |
+| 3, the same command as session 1 | only the 1 missing document was done; the $0.038 already spent was counted against the cap |
+| 4, again | nothing to do, nothing spent |
+
+What makes it safe:
+
+- Every finished document is written straight away; a stop loses at most
+  the one in progress.
+- **The cost cap covers the whole file, not one session.** On restart the
+  script adds up the cost of the records already in the file and counts it
+  first. (Each session's two-call preflight, about $0.025, is not in the
+  records and so is not counted; across a few sessions that is cents.)
+- **A resume under different backend settings is refused**: route
+  (Vertex vs AI Studio), temperature, seed, thinking level, reply cap and
+  decoding are now compared, as well as model, prompt, config, scorer,
+  truncation and code commit. Which Cloud project or location paid is
+  recorded but not compared, so switching to another project's credits
+  mid-run is allowed.
+- The check runs **before** the preflight, so a refused resume or an
+  already-finished file costs nothing.
+- Each session's backend record (project, location, preflight, reported
+  model version, token use) is kept in the manifest under `llm_previous`.
+
+Progress: `wc -l indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertex.jsonl`
+— finished at **6044**.
+
+### Before it starts — checklist
+
+- [ ] Owner and team approve ≈ $80; `06_POLICY_EXCEPTIONS.md` planned
+      exception 4 becomes a real entry (approver, date, cap).
+- [ ] Trial credit balance covers it (Cloud billing console).
+- [x] Open question 15 looked at — second Vertex sample run 2026-11-14:
+      Vertex agrees with itself ~60%. Decisions confirmed by the owner the
+      same day: quote ~60%, report aggregate behaviour, compare only with
+      Vertex samples.
+- [ ] `scripts/check_gemini_model.py --gemini-api vertex --probe` passes on
+      the day.
+- [ ] Code committed; `.venv/bin/python -m pytest -q` passes (506).
+- [ ] The output file does not exist yet.
 
 ## Which scorer
 

@@ -332,6 +332,178 @@ def test_gemini_refuses_to_start_without_a_key(monkeypatch):
         GeminiClient("gemini-test")
 
 
+# -- Gemini through Vertex AI ---------------------------------------------------------
+#
+# The SDK constructor is replaced by a recorder, so these check what the
+# client asks google-genai for -- route, project, location, and above all
+# that no key is handed over on the Vertex route -- without a network.
+
+
+class _RecordingGenai:
+    def __init__(self):
+        self.kwargs = None
+
+    def Client(self, **kwargs):  # noqa: N802 - mirrors google.genai.Client
+        self.kwargs = kwargs
+        return _FakeGeminiSDK()
+
+
+@pytest.fixture
+def recording_genai(monkeypatch):
+    import google.genai
+
+    recorder = _RecordingGenai()
+    monkeypatch.setattr(google.genai, "Client", recorder.Client)
+    return recorder
+
+
+def test_vertex_route_uses_project_and_location_and_never_a_key(recording_genai, monkeypatch):
+    from sira_cti.common import GeminiClient
+
+    monkeypatch.setenv("GEMINI_API_KEY", "SECRET-KEY-123")       # present, and must be ignored
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    client = GeminiClient("gemini-test", api="vertex", timeout_s=30)
+
+    assert recording_genai.kwargs["vertexai"] is True
+    assert recording_genai.kwargs["project"] == "my-project"
+    assert recording_genai.kwargs["location"] == "global"
+    assert "api_key" not in recording_genai.kwargs
+    assert recording_genai.kwargs["http_options"] == {"timeout": 30_000}
+    assert "SECRET-KEY-123" not in str(client.describe())
+
+
+def test_vertex_arguments_win_over_the_environment(recording_genai, monkeypatch):
+    from sira_cti.common import GeminiClient
+
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "env-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    GeminiClient("gemini-test", api="vertex", project="arg-project", location="us-central1")
+    assert (recording_genai.kwargs["project"], recording_genai.kwargs["location"]) == ("arg-project", "us-central1")
+
+
+@pytest.mark.parametrize("unset", ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"])
+def test_vertex_refuses_to_start_without_a_project_or_location(recording_genai, monkeypatch, unset):
+    from sira_cti.common import GeminiClient
+
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.delenv(unset)
+    with pytest.raises(LLMError, match=unset):
+        GeminiClient("gemini-test", api="vertex")
+    assert recording_genai.kwargs is None                       # gave up before building a client
+
+
+def test_ai_studio_route_is_unchanged(recording_genai, monkeypatch):
+    from sira_cti.common import GeminiClient
+
+    monkeypatch.setenv("GEMINI_API_KEY", "SECRET-KEY-123")
+    client = GeminiClient("gemini-test")
+    assert recording_genai.kwargs["api_key"] == "SECRET-KEY-123"
+    assert recording_genai.kwargs["vertexai"] is False
+    described = client.describe()
+    assert described["api"] == "ai_studio"
+    assert described["provider"] == "Google Gemini API (AI Studio key)"
+    assert "vertex" not in described
+
+
+def test_ai_studio_stays_on_ai_studio_when_env_asks_for_vertex(monkeypatch):
+    # The real SDK, no network: GOOGLE_GENAI_USE_VERTEXAI=True must not pull
+    # a key-only client over to Vertex AI.
+    from sira_cti.common import GeminiClient
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "True")
+    monkeypatch.setenv("GEMINI_API_KEY", "SECRET-KEY-123")
+    client = GeminiClient("gemini-test")
+    assert client._sdk.vertexai is False
+
+
+def test_an_unknown_gemini_route_is_refused():
+    from sira_cti.common import GeminiClient
+
+    with pytest.raises(LLMError, match="api="):
+        GeminiClient("gemini-test", api="openrouter", sdk_client=_FakeGeminiSDK())
+
+
+def test_the_manifest_block_names_the_vertex_route_project_and_location():
+    from sira_cti.common import GeminiClient
+
+    client = GeminiClient(
+        "gemini-test", api="vertex", project="my-project", location="global", sdk_client=_FakeGeminiSDK(),
+        thinking_level="low", seed=42, max_new_tokens=512,
+    )
+    described = client.describe()
+    assert described["api"] == "vertex"
+    assert described["provider"] == "Google Cloud Vertex AI (application-default credentials)"
+    assert described["vertex"] == {
+        "project_id": "my-project", "location": "global", "auth": "application-default credentials",
+    }
+    # The settings that shape a reply are the same on both routes.
+    assert described["thinking"]["thinking_level"] == "low"
+    assert described["max_output_tokens_sent"] == 512 + 8192
+
+
+def test_vertex_sends_the_same_request_as_ai_studio():
+    from sira_cti.common import GeminiClient
+
+    schema = {"type": "array", "items": {"type": "object"}}
+    configs = []
+    for api, extra in (("ai_studio", {}), ("vertex", {"project": "p", "location": "global"})):
+        sdk = _FakeGeminiSDK()
+        GeminiClient(
+            "gemini-test", api=api, sdk_client=sdk, seed=42, thinking_level="low",
+            max_new_tokens=512, json_schema=schema, **extra,
+        ).generate("p", system="sys")
+        configs.append(sdk.calls[0])
+    assert configs[0] == configs[1]
+
+
+def test_vertex_books_thinking_tokens_and_scrubs_tokens_from_errors():
+    from sira_cti.common import GeminiClient
+
+    ok = GeminiClient("gemini-test", api="vertex", project="p", location="global", sdk_client=_FakeGeminiSDK())
+    ok.generate("p")
+    assert ok.log.records[0].tokens.thinking == 300
+
+    leaky = _FakeGeminiSDK(error=RuntimeError("401: Authorization: Bearer ya29.a0Secret-Token_xyz rejected"))
+    client = GeminiClient("gemini-test", api="vertex", project="p", location="global", sdk_client=leaky, max_retries=0)
+    with pytest.raises(LLMError):
+        client.generate("p")
+    error = client.log.records[0].error
+    assert "ya29" not in error and "Secret-Token" not in error
+    assert "Bearer ***" in error
+
+
+def test_scrub_secrets_removes_the_key_and_access_tokens():
+    from sira_cti.common import scrub_secrets
+
+    message = "key=K-123 token ya29.abc.DEF-ghi_9 header bearer abc.def="
+    assert scrub_secrets(message, "K-123") == "key=*** token *** header bearer ***"
+    assert scrub_secrets("nothing secret here") == "nothing secret here"
+
+
+@pytest.mark.parametrize(
+    "flag, env, expected",
+    [
+        (None, "True", "vertex"),
+        (None, "1", "vertex"),
+        (None, "false", "ai_studio"),
+        (None, None, "ai_studio"),
+        ("ai-studio", "True", "ai_studio"),     # the flag beats .env
+        ("vertex", None, "vertex"),
+    ],
+)
+def test_gemini_route_comes_from_the_flag_then_the_environment(monkeypatch, flag, env, expected):
+    from sira_cti.common import gemini_api_from_env
+
+    if env is None:
+        monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    else:
+        monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", env)
+    assert gemini_api_from_env(flag) == expected
+
+
 def test_load_env_file_returns_names_not_values(tmp_path, monkeypatch):
     from sira_cti.common import load_env_file
 

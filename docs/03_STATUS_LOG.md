@@ -8,7 +8,42 @@
 
 ## Current headline
 
-**2026-10-14 (latest): Stage 1 is complete, the enriched index is built and
+**2026-11-14 (latest, evening): Vertex batch mode is built and tested —
+same output, half the price.** `enrich_corpus.py --batch` sends the same
+requests as a Vertex batch job and runs the replies through the normal
+pipeline. 5-document test and the 40-document sample both done: every reply
+a full array (8–12 proposals, 0 unparseable), thinking level `LOW` echoed on
+every line, **$0.0060 per document vs $0.0117–0.0122 online**. The batch
+sample looks like a third Vertex run: 63 of 67 structural ids accepted, 4
+wrong names, 0 non-existent, 0 counting runs; it shares **68% and 55%** of
+accepted ids with the two online Vertex runs (they share 60%). Jobs took 5–8
+minutes end to end. **Full corpus in batch ≈ $35 (≈ $40 with margin); twice
+≈ $70 (≈ $81).** No full run started. Confirm the batch rate in the billing
+console (result lines say `trafficType: ON_DEMAND`). 527 tests pass.
+
+**2026-11-14 (latest, later): open question 15 partly answered.** A second
+Vertex run of the 40-document sample (≈ $0.51) shared **60%** of accepted
+ids with the first Vertex run (5 of 40 replies identical). So Vertex is less
+consistent with itself than AI Studio was (80%), and the October/today gap
+adds about 10 points more (47–51%). Aggregate behaviour is the same on all
+four Gemini runs (91–96% accepted, 0 counting runs, 3–6 wrong names).
+**Decided (Module 1 owner, 2026-11-14):** quote ~60% agreement for the
+Vertex robustness index; report robustness as aggregate behaviour, never as
+specific ids; compare it only with the Vertex samples.
+
+**2026-11-14 (latest): Gemini now runs through Google Cloud's Vertex AI
+(trial credits); 40-document sample done; the full Gemini run is planned,
+not started.** Decision (Module 1 owner): **`qwen2.5:14b` stays the main
+model; Gemini builds a *robustness* index** (`06_POLICY_EXCEPTIONS.md`). Same
+model id `gemini-3.1-pro-preview`, confirmed on Vertex with JSON-schema
+output. Sample: 40/40 documents, 0 unparseable, ≈ $0.49. **Same kind of
+output as October, different ids**: 73 of 80 ids valid, 0 counting runs, but
+only 50–51% of accepted ids shared with either AI Studio run (80% between
+those two) — open question 15. Full corpus ≈ **$68 standard / $34 batch
+(not built), ≈ 19 h**; start command in `proposals/module1-freeze.md`,
+"Stage 2 (Gemini, Vertex)". Resume tested for real on Vertex. 506 tests pass.
+
+**2026-10-14: Stage 1 is complete, the enriched index is built and
 checked — Phase 1 is complete.** All 6,044 documents enriched on Kaggle in two
 sessions (`qwen2.5:14b`, digest `7cdf5a0187d5`, commit `6b4eecedf1cd`, config
 `364d30da6c75`, scorer v2). The merged file
@@ -265,6 +300,232 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Vertex batch mode: built, 5-doc test, 40-doc sample (2026-11-14, evening)
+
+**Why.** The full Gemini robustness run costs ≈ $68 online; Vertex batch is
+half price. Asked for by the Module 1 owner: check the docs, build a minimal
+batch path, test it on 5 then 40 documents, estimate the full run.
+
+**Google's docs, checked 2026-11-14** (links in `module1-freeze.md`, "Stage 2"):
+- `gemini-3.1-pro-preview`: the model page lists "Batch inference" under
+  consumption options; "Batch inference supports using the global endpoint
+  for base Gemini models". We used `global`.
+- Price: the Flex/Batch table gives **$1.00 in / $6.00 out** for Gemini 3.1
+  Pro Preview, Global, ≤ 200K tokens; output is "response and reasoning",
+  so thinking is billed as output. Half of standard ($2 / $12).
+- Request format: one JSON line per request, `{"request": {...}}`, the same
+  body as an online call. The batch pages never mention JSON schemas or
+  thinking; the REST `GenerationConfig` has `responseJsonSchema` and
+  `thinkingConfig.thinkingLevel`. Settled by testing (below).
+- Turnaround: "Most jobs complete within 24 hours after it starts running
+  (not counting the queue time)"; a job can wait in the queue "up to 72
+  hours". Small jobs are mostly fixed overhead ("Avoid jobs with fewer than
+  1,000 requests").
+- Vertex takes batch input **only from Cloud Storage or BigQuery** (the SDK:
+  "inlined_requests parameter is only supported in Gemini Developer API").
+  So a private bucket was created: `gs://<project>-sira-batch`
+  (us-central1, uniform access, public access prevented).
+
+**Code** (not committed):
+- New `src/sira_cti/common/vertex_batch.py`: builds each request from
+  `GeminiClient._config()` (the online settings; an unknown new setting is
+  refused, not dropped, and a test checks the body against the SDK's own
+  converter); reads result lines (key = hash of the echoed system + user
+  text); `BatchReplayClient`, an ordinary `LLMClient` that answers from the
+  results, so the **same driver, gates, records, manifest and resume check**
+  run as online; Cloud Storage calls; the job runner (`state.json` is written
+  as soon as a job exists, so a stopped session resumes waiting for the same
+  job and never pays twice).
+- `enrich_corpus.py --batch` (+ `--batch-bucket`, `--batch-create-bucket`,
+  `--batch-max-wait-hours`, …). Cost cap checked **before each
+  submission** (billed so far + estimate). A reply that needs the JSON retry
+  gets its nudge prompt in a second, small round. No preflight (it would be
+  billed at the online rate); every reply is checked for the collapse
+  afterwards, and the seed is not tested.
+- New `--doc-ids A,B,C` (exact documents; used for the 5-doc test).
+- **Manifests now record `llm.service`**: `vertex-online`, `ai-studio-online`
+  or `vertex-batch`. Compared on resume (`_RESUME_LLM`) and on merge
+  (`LLM_MUST_AGREE`, which now also covers route, provider, thinking, reply
+  cap and decoding), so batch and online output never share a file.
+- 527 tests pass (+21, `tests/test_vertex_batch.py`).
+
+**5-document test** (CVE-2024-4897, CVE-2024-56180, CWE-1321, CAPEC-587,
+T1048.003 — all from the 40-doc sample; cap $0.25):
+
+| | |
+|---|---|
+| replies parsed, full array | **5 of 5**; 9–12 proposals each (collapse floor 6) |
+| thinking setting | `thinkingLevel: "LOW"` echoed on all 5; 507–679 thinking tokens per document, same range as online low on these documents (630 and 657 a document) |
+| tokens | 4,652 prompt (identical to online), 1,071 reply, 3,024 thinking |
+| cost | **$0.029**, $0.0058 per document; online Vertex on the same 5: $0.0124–0.0129 |
+| turnaround | queue 3 min 27 s, running 4 min 3 s, **7 min 53 s** submit-to-results |
+
+**40-document sample** (`--per-kind 10`, cap $0.50; estimate $0.339):
+
+| | Vertex online 1 | Vertex online 2 | **Vertex batch** |
+|---|---|---|---|
+| structural proposed / accepted | 80 / 73 | 69 / 66 | **67 / 63** |
+| rejected: does not exist or retired | 1 | 0 | **0** |
+| rejected: wrong name | 6 | 3 | **4** |
+| in a counting run | 0 | 0 | **0** |
+| unparseable | 0 | 0 | **0** |
+| accepted ids shared with online 1 | – | 60% | **68%** |
+| accepted ids shared with online 2 | 60% | – | **55%** |
+| replies identical with online 1 / 2 | – / 5 | 5 / – | **8 / 5** |
+| thinking tokens per document | 600 | 625 | **635** |
+| cost per document | $0.0117 | $0.0122 | **$0.0060** |
+
+Turnaround: queue 55 s, running 3 min 31 s, **4 min 46 s** in all. Billed
+40,182 prompt, 7,921 reply, 25,400 thinking tokens = **$0.240**.
+
+Reading: **batch behaves like another Vertex run.** Its overlap with the two
+online runs (55–68%) sits around their 60% with each other; validity, wrong
+names, retired ids and counting runs are in the same range. Against the
+October AI Studio runs it shares 47–52%, like the online Vertex runs. Two
+small things, neither outside run-to-run noise: it proposed and accepted the
+fewest structural ids of the five runs (67 / 63; others 69–80 / 66–73), and
+one wrong name is a new pairing (CAPEC-240 on CVE-2025-26663). Accepted ids
+copied from the entry / generated: 10 / 53 (online Vertex 15 / 58 and
+12 / 54); generated ids within 2 hops of the entry: 17 of 30 (online 21 of
+32 and 21 of 30). Full output:
+`docs/results/vertex_batch_vs_online_gemini.txt`.
+
+**Full-corpus estimate, batch.** The online estimate (5.64M prompt, 1.24M
+reply, 3.51M thinking) scaled by the batch sample's output tokens (×1.03
+against the first Vertex sample): 5.64M × $1 + 4.89M × $6 ≈ **$35** (≈ $40
+with 15% margin). **Twice: ≈ $70 (≈ $81).** Online for comparison: ≈ $68
+once. The script's cautious pre-submit estimate for the whole corpus is
+$50.59, so the full batch run needs `--cost-cap-usd 55` (not 40) or it will
+refuse to submit. Time: unknown until tried; Google's guide is within 24 h of starting
+plus any queue.
+
+**Also checked:** re-running a finished batch command does nothing and
+submits nothing.
+
+**Not settled:**
+- **The batch rate on the actual bill.** Every result line says
+  `usageMetadata.trafficType: "ON_DEMAND"` — Google defines it as
+  "Pay-As-You-Go traffic" (as opposed to Provisioned Throughput), so it
+  does not contradict batch pricing, but nothing ties it to the batch rate
+  either. Read the charge for 2026-11-14 in the billing console:
+  ≈ $0.27 at batch rate, ≈ $0.54 if billed as online.
+- Gemini files (online or batch) still cannot be **merged**: they have no
+  model digest, and `merge_enrichment.py` refuses any file without one.
+  Unchanged; a single batch output file does not need merging.
+
+**Spend this session:** ≈ $0.27 at batch list price (5 docs $0.029, 40 docs
+$0.240). Logged as exception 6 in `06_POLICY_EXCEPTIONS.md`.
+
+### Second Vertex sample — open question 15 (2026-11-14, later)
+
+Same command as the first Vertex sample, new output
+`corpus_stratified_v4_gemini-3.1-pro_vertex2.jsonl`, cap $1. 40/40, 0
+unparseable; 40,182 prompt, 8,919 reply, 25,006 thinking tokens, ≈ $0.51.
+
+| accepted ids shared | |
+|---|---|
+| AI Studio run 1 vs run 2 (October) | 80% (18 of 40 replies identical) |
+| **Vertex run 1 vs run 2 (today)** | **60%** (5 of 40) |
+| AI Studio vs Vertex, all four pairings | 47–51% (0 of 40) |
+
+Second run: 69 structural ids proposed, 66 accepted, 3 wrong names, 0
+retired, 0 counting runs. Reading: Vertex varies more from run to run than
+AI Studio did, and on top of that the two set-ups differ by about 10 points
+(route or date — not separable without AI Studio credits). What the
+robustness index relies on — validity, wrong names, counting, distance — is
+stable across all four. **Decisions confirmed by the Module 1 owner the
+same day**: (1) quote ~60% run-to-run agreement for Gemini on Vertex;
+(2) report robustness as aggregate behaviour, not specific ids; (3) compare
+the robustness index only with the Vertex samples. Docs:
+`04_OPEN_QUESTIONS.md` q15 (answer and decisions), `module1-freeze.md`, `06_POLICY_EXCEPTIONS.md`
+(exception 5), results file extended.
+
+### Gemini through Vertex AI: backend, model check, sample, full-run plan (2026-11-14)
+
+**Why.** The Gemini run moves from the AI Studio key to a Google Cloud
+trial-credit account, through Vertex AI (Cloud Console name: "Agent Platform
+API"). Also decided by the Module 1 owner: **`qwen2.5:14b` stays the main
+model; Gemini is for a robustness index** — same pipeline, only the model
+swapped, to see whether the findings survive a much stronger model.
+
+**Code** (not committed — the owner commits):
+- `GeminiClient(api="vertex")`: same request, sent via Vertex; signs in with
+  application-default credentials; project and location from `.env`. No key
+  on this route. Manifest gains `llm.api` and `llm.vertex` (project id,
+  location). Errors scrubbed of keys and OAuth tokens.
+- `--gemini-api vertex|ai-studio` on `enrich_corpus.py`; default follows
+  `GOOGLE_GENAI_USE_VERTEXAI` in `.env`.
+- **Bug found and fixed:** with `GOOGLE_GENAI_USE_VERTEXAI=True` in `.env`,
+  the SDK sent the *AI Studio* key to Vertex (403). The AI Studio route now
+  says `vertexai=False` explicitly.
+- **Resume guard now compares backend settings** (route, temperature, seed,
+  thinking level, reply cap, decoding). Before, a run started on AI Studio
+  could have been resumed via Vertex, or at another thinking level, without
+  complaint. Cloud project and location are recorded, not compared.
+- **Cost cap now covers the whole file**: on resume, the records' cost is
+  counted first. Before, every session got a fresh budget.
+- **Preflight moved after the resume check** (`before_first_call` hook): a
+  refused or finished resume no longer pays for two calls.
+- New `scripts/check_gemini_model.py`. 506 tests pass (+34).
+
+**Model check.** 35 Gemini models visible to the project at `global`;
+`gemini-3.1-pro-preview` is among them, same id (Public preview, released
+2026-02-19). Google's model page: structured output and batch inference
+"Supported". A JSON-schema probe returned a valid array. Pinned unchanged.
+
+**Batch on Vertex** (not built): supported for "Gemini 3.1 Pro preview",
+$1.00 / $6.00 per 1M tokens (half of standard), global endpoint allowed;
+"Most jobs complete within 24 hours after it starts running (not counting
+the queue time)", queue up to 72 h. The batch page does not mention JSON
+schemas; test with a tiny job first. Links in `module1-freeze.md`.
+
+**Sample** (40 documents, frozen settings, scorer v1, cap $2): 40/40 done,
+0 failed, 0 unparseable; 40,182 prompt, 8,345 reply, 23,993 thinking tokens;
+≈ $0.468 + $0.025 preflight; 11.3 s per document (AI Studio: 8.2 s).
+
+| structural ids | AI Studio run 1 | AI Studio run 2 | **Vertex** |
+|---|---|---|---|
+| proposed / accepted | 73 / 69 | 72 / 68 | 80 / 73 |
+| rejected: does not exist or deprecated | 0 | 0 | 1 (`T1436`, deprecated) |
+| rejected: wrong name | 4 | 4 | 6 |
+| in a counting run | 0 | 0 | 0 |
+| accepted, copied / generated | 20 / 49 | 24 / 44 | 15 / 58 |
+| accepted ids shared with run 1 | – | 80% | 51% |
+| accepted ids shared with run 2 | 80% | – | 50% |
+| replies word-for-word identical with run 1 | – | 18 of 40 | 0 of 40 |
+
+What it means: Vertex behaves like the October runs in **kind** (near-
+perfect validity, no counting, few wrong names), but it chose a **different
+set of ids** — about half the overlap the two October runs had with each
+other. It is not the 3 shortened CAPEC entries (52–53% without them) and not
+different text (identical documents; both services count the text the same).
+Vertex does charge ~134 prompt tokens per call for the JSON schema and
+AI Studio did not, so the schema reaches the model differently — a possible
+cause, unproven. Whether it is the route or the month (a preview model can
+change behind the same id) is open question 15; a second Vertex sample
+(~$0.50) would settle it. Scorer v2 changes no verdict on any of the three.
+Full output: `docs/results/vertex_sample_vs_aistudio_gemini.txt`.
+
+**Full-run estimate** (from the sample's measured tokens, scaled to each
+document's real length): 5.64M prompt, 1.24M reply, 3.51M thinking →
+**≈ $68 standard** (≈ $79 with 15% margin), **≈ $34 batch** (≈ $39); about
+**19 h** one document at a time. Thinking is ~60% of the bill.
+
+**Resume, tested on Vertex** (4 documents): stopped by a time limit after 3;
+a resume with `--thinking-level high` was refused before spending anything;
+the same command finished the last document, counting the earlier $0.038
+against the cap; a fourth run did nothing.
+
+**Spend this session** ≈ $0.72 at list price (sample $0.49, resume tests
+$0.20, probes ≈ $0.025), on the Cloud project. Also found: **the AI Studio
+key's prepaid credits are used up** (402).
+
+Docs: `06_POLICY_EXCEPTIONS.md` (decision, exception 3, planned exception 4),
+`module1-freeze.md` (Vertex column in "Which model", robustness note, new
+"Stage 2 (Gemini, Vertex)" with start command and checklist),
+`01_ENVIRONMENT.md` (routes table, gotchas), `02_MODULE1_STATE.md`,
+`04_OPEN_QUESTIONS.md` (15).
 
 ### Stage 1 complete; enriched index built; Phase 1 complete (2026-10-14, latest)
 
@@ -1842,6 +2103,27 @@ Reading of this run:
 ---
 
 ## Next actions (living checklist)
+
+- [ ] **Stage 2 (Gemini, Vertex) — decide whether to spend ≈ $80** on the
+      robustness index; turn planned exception 4 in `06_POLICY_EXCEPTIONS.md`
+      into a real entry. Checklist: `proposals/module1-freeze.md`,
+      "Stage 2 (Gemini, Vertex)". (Added 2026-11-14.)
+- [x] **Open question 15 — second Vertex sample.** Done 2026-11-14: Vertex
+      agrees with itself ~60%. Decisions confirmed 2026-11-14: quote ~60%,
+      report aggregate behaviour, compare only with Vertex samples.
+- [ ] Read the actual Vertex charge for 2026-11-14 (≈ $0.72 expected) from
+      the Cloud billing console into `06_POLICY_EXCEPTIONS.md` (≈ $1.23 with
+      the second sample).
+- [x] Build Vertex batch mode and test it. Done 2026-11-14: 5-doc test and
+      40-doc sample; schema and LOW thinking honoured; half price; looks like
+      another Vertex run.
+- [ ] Read the batch charge for 2026-11-14 in the billing console (≈ $0.27
+      expected at batch rate; ≈ $0.54 would mean it was billed as online).
+      2026-11-15: console shows **₹117 used of ₹28,569** (≈ $1.23, i.e.
+      exceptions 3 + 5 only; batch not posted yet). Re-read: ≈ ₹143 total =
+      batch rate, ≈ ₹168 = online rate.
+- [ ] Decide: full robustness run online (≈ $68) or batch (≈ $35; ≈ $70 for
+      two runs). Batch start command in `proposals/module1-freeze.md`.
 
 - [x] Inspect the 5 `malformed_id` rejections. — Neither genuine nor
       normalizer-fixable: kind-mislabelling. Fixed.

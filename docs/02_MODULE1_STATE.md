@@ -218,6 +218,43 @@ Added 2026-09-15:
   an **`llm`** block (provider, SDK, thinking setting, seed sent and whether it
   was honoured, prices, preflight) and a **`usage`** block (calls and tokens,
   thinking separate).
+- **Gemini through Vertex AI** (2026-11-14) — `--gemini-api vertex` (or
+  `GOOGLE_GENAI_USE_VERTEXAI=True` in `.env`) sends the identical request
+  through Google Cloud's Vertex AI, billed to `GOOGLE_CLOUD_PROJECT`, signed
+  in with application-default credentials; no key is used. `GeminiClient(api=
+  "vertex", project=, location=)`; `describe()` adds `api` and a `vertex`
+  block (project id, location). The AI Studio route now passes
+  `vertexai=False` explicitly — without it, `GOOGLE_GENAI_USE_VERTEXAI=True`
+  made the SDK send the AI Studio key to Vertex, where it is refused (403).
+  Errors are scrubbed of the key and of anything shaped like an OAuth token
+  (`scrub_secrets`). Also changed for every Gemini run:
+  - **the cost cap covers the whole output file**: on a resume the cost of
+    records already in it is counted first (`spend_in_file`), so a restart
+    cannot hand out a fresh budget;
+  - **the preflight runs after the resume check** (new
+    `run_corpus_enrichment(before_first_call=...)` hook), so a refused resume
+    or a finished file costs nothing.
+- **Resume guard now checks backend settings** (2026-11-14) —
+  `check_resume` compares `llm.backend`, `api`, `provider`, `temperature`,
+  `seed_sent`, `num_ctx`, `max_output_tokens_sent`, `structured_output` and
+  `thinking.thinking_level` (`_RESUME_LLM`), wherever the earlier manifest
+  recorded them, so older files still resume. Not compared, like the
+  machine: Cloud project, location, preflight, reported model version. Each
+  earlier session's `llm` block and `usage` are kept under `llm_previous`.
+- **Vertex batch mode** (2026-11-14, evening) — `enrich_corpus.py --batch`
+  sends the same requests as a Vertex batch job (half price) and replays
+  the results through the normal driver with `BatchReplayClient`
+  (`common/vertex_batch.py`), so prompts, truncation, JSON retry, gates,
+  records, manifest and resume check are the online ones. A follow-up
+  (nudge) prompt goes out in a second round. Job state in
+  `<output>.batch/state.json`; a rerun waits for an existing job, never
+  resubmits. Manifests now record `llm.service` (`vertex-online`,
+  `ai-studio-online`, `vertex-batch`), compared on resume and merge. Also
+  `--doc-ids A,B,C`. Tested on 5 and 40 documents: `03_STATUS_LOG.md`.
+- **`scripts/check_gemini_model.py`** (2026-11-14) — lists the Gemini models
+  the project/location (or key) can see, says whether `--model` is among
+  them, and with `--probe` makes one tiny JSON-schema call. Run it on the day
+  of any paid Gemini run; the model is a preview.
 - **Section-aware truncation** (2026-10-09) — `enrichment/truncation.py`.
   An over-long entry is shown to the model with whole sections removed in a
   fixed order; description and cross-catalogue links are never removed. The
@@ -310,7 +347,7 @@ per-GPU processes under `processes`.
 
 ### Tests
 
-**472 tests pass** (+17 on 2026-10-14, Stage 1 complete: `tests/test_rq4_breakdown.py` (11), every kind in every summary, machines listed once per host, a kind with no records counted as 0, unparseable replies give an empty expansion, the index manifest's counts, structural ids indexed by id). 455 before that (+11 on 2026-10-14: `tests/test_report_kinds.py` — every kind in the session summary, the notebook printout and `report_enrichment.py`, zero rows shown, the kind/source translation). 444 before that (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
+**527 tests pass** (+21 on 2026-11-14 evening, Vertex batch: `tests/test_vertex_batch.py` — request built from the online settings and equal to the SDK's own converter, unknown settings refused, result parsing and error lines, store billing, replay client, job submit/poll/download and resume-without-resubmit on fakes, Cloud Storage calls, batch records identical to online records for the same replies, the nudge going to a second round, `service` refused on resume and merge, `--doc-ids`, the collapse line). 506 before that (+34 on 2026-11-14, Vertex route: 13 `GeminiClient` cases — Vertex builds the SDK with project/location and never a key, arguments beat `.env`, missing project/location refused, AI Studio stays AI Studio when `.env` asks for Vertex, same request on both routes, token scrubbing, route from flag then `.env`; 12 resume cases — backend settings compared, project/location not, `llm_previous` kept, old manifests without a key still resume; 4 `before_first_call` cases; 5 in `tests/test_gemini_run_helpers.py` — file-wide spend, model-id listing, probe verdict). 472 before that (+17 on 2026-10-14, Stage 1 complete: `tests/test_rq4_breakdown.py` (11), every kind in every summary, machines listed once per host, a kind with no records counted as 0, unparseable replies give an empty expansion, the index manifest's counts, structural ids indexed by id). 455 before that (+11 on 2026-10-14: `tests/test_report_kinds.py` — every kind in the session summary, the notebook printout and `report_enrichment.py`, zero rows shown, the kind/source translation). 444 before that (+68 on 2026-10-13: sharding, time limit, model digest and machine in the manifest and on resume, Ollama digest lookup, `merge_enrichment.py`, `compare_enrichment.py`, the Kaggle helper). 376 before that (+7 on 2026-10-09 benchmark: `order_kinds`, resume across a change of source order, `build_index.py` path overrides). 369 before that (+20 on 2026-10-09 latest: CVE product-name summary, `code_version`, dirty-tree refusal, commit check on resume). 349 before that (+32 on 2026-10-09: 17 section-aware truncation, 11 resume guard, record `truncation` field, copy measured against the shown text, fallback and re-adjudication cases). 317 before that (+6 on 2026-10-08 latest: Ollama seed / `num_ctx` / overflow flag, document truncation, the overflow refusal). 311 before that on the merged `main` (+11 on 2026-10-08 later: 6 `GeminiClient` cases on a fake SDK,
 `load_env_file`, 2 `TokenUsage.thinking` cases, 2 manifest `llm`/`usage` cases). Module 1 alone was 256 (+32 on 2026-10-08: scorer versions, CWE short-name loader,
 `within`/`name_candidates`, offline re-adjudication, repair, the repair index
 flag, schema 1.3.0). 224 before that (+54 on 2026-10-07: 6 LLM-wrapper generation settings,
@@ -414,7 +451,8 @@ downstream reviewer to skim past.
 ## Files new to `common/` (flag to the team)
 
 - `GeminiClient` in `common/llm.py` and `load_env_file()` in `common/repro.py`
-  (2026-10-08) — shared surface; Modules 2–4 can use them for their own
+  (2026-10-08; Vertex route `api="vertex"`, `gemini_api_from_env`,
+  `scrub_secrets` added 2026-11-14) — shared surface; Modules 2–4 can use them for their own
   approved frontier runs instead of writing a second backend.
 - `src/sira_cti/common/repro.py` (new) — `config_hash` / `load_config`, used by
   both scripts for the "record the config hash" convention. New shared surface in

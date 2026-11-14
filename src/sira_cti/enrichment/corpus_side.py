@@ -851,6 +851,15 @@ class ResumeMismatchError(RuntimeError):
 _RESUME_TOP_LEVEL = (
     "prompt_version", "model", "model_digest", "config_hash", "sampling", "shard", "concurrency",
 )
+_RESUME_LLM = (
+    "backend", "api", "service", "provider", "temperature", "seed_sent", "num_ctx",
+    "max_output_tokens_sent", "structured_output", "thinking.thinking_level",
+)
+"""Backend settings (manifest ``llm`` block) that shape a reply, so a resume
+must match them. Left out on purpose, like ``machine``: where the run was
+served and who paid (``vertex.project_id``, ``vertex.location``), the
+preflight results, and the model version the API reported -- those are
+recorded per session under ``llm_previous`` instead."""
 _MISSING = object()
 _NOT_STARTED = "not started: the time limit had passed"
 
@@ -870,7 +879,10 @@ def check_resume(
     ``current`` is the manifest this session would write. Compared: prompt
     version, model, model digest, config hash, sampling, shard, concurrency, and every entry of
     ``gates`` (name scorer and thresholds, decoding mode, reply cap,
-    truncation budget and rules). A key an older manifest never recorded is
+    truncation budget and rules), and the backend settings in ``_RESUME_LLM``
+    (route, service -- online or batch --, provider, temperature, seed,
+    thinking level, reply cap, decoding)
+    wherever the earlier manifest recorded them. A key an older manifest never recorded is
     only acceptable when the current value is "off" (``None``) -- except
     ``concurrency``, which older manifests simply did not have.
 
@@ -904,6 +916,19 @@ def check_resume(
     for key in sorted(new_gates):  # type: ignore[arg-type]
         _compare(f"gates.{key}", old_gates.get(key, _MISSING), new_gates[key])  # type: ignore[index, union-attr]
 
+    # Backend settings. Compared only where the earlier file recorded them:
+    # manifests written before a key existed (e.g. "api", added with the
+    # Vertex route) must still resume. A switch of route is caught anyway,
+    # because "provider" differs.
+    old_llm = previous.get("llm") if isinstance(previous.get("llm"), dict) else {}
+    new_llm = current.get("llm") if isinstance(current.get("llm"), dict) else {}
+    for dotted in _RESUME_LLM:
+        old_value = _dig(old_llm, dotted)
+        if old_value is _MISSING:
+            continue
+        new_value = _dig(new_llm, dotted)
+        _compare(f"llm.{dotted}", old_value, None if new_value is _MISSING else new_value)
+
     new_code = current.get("code")
     if isinstance(new_code, dict) and not allow_code_change:
         old_code = previous.get("code")
@@ -923,6 +948,16 @@ def check_resume(
             "original settings (config, model, flags) or start a new file with a different --output."
         )
     return previous
+
+
+def _dig(mapping: object, dotted: str) -> object:
+    """``mapping["a"]["b"]`` for ``"a.b"``; ``_MISSING`` if any step is absent."""
+    value = mapping
+    for part in dotted.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return _MISSING
+        value = value[part]
+    return value
 
 
 def _truncation_summary(docs: list[CorpusDocument], max_doc_chars: int) -> dict[str, object]:
@@ -963,6 +998,7 @@ def _write_manifest(
     shard: Optional[dict[str, int]] = None,
     machine: Optional[dict[str, object]] = None,
     machine_previous: Optional[list[object]] = None,
+    llm_previous: Optional[list[object]] = None,
     write: bool = True,
 ) -> dict[str, object]:
     manifest: dict[str, object] = {
@@ -985,6 +1021,11 @@ def _write_manifest(
         # Backend settings that shape the reply but are not gates: provider,
         # thinking configuration, seed (and whether it was honoured), pricing.
         manifest["llm"] = llm
+    if llm_previous:
+        # Earlier sessions' backend blocks and usage (a resumed run). Each
+        # session's preflight, reported model version, Cloud project and
+        # token use stay readable after the next session overwrites "llm".
+        manifest["llm_previous"] = llm_previous
     if code:
         # Which commit produced this file, and whether the working tree
         # matched it. See common/repro.py:code_version.
@@ -1054,6 +1095,7 @@ def run_corpus_enrichment(
     clock: Callable[[], float] = time.monotonic,
     dry_run: bool = False,
     on_record: Optional[Callable[[EnrichmentRecord], None]] = None,
+    before_first_call: Optional[Callable[[], None]] = None,
 ) -> EnrichmentRunSummary:
     """Run corpus-side enrichment over ``docs``, resuming from ``output_path``.
 
@@ -1119,6 +1161,12 @@ def run_corpus_enrichment(
     has ``stopped_early=True``. A document that starts just inside the limit
     still runs to the end, so leave a margin for one slow document.
 
+    ``before_first_call`` runs once, only when there is work to do, after a
+    resume has been checked and before the first document. A paid backend's
+    preflight goes here, so a resume that is going to be refused, or a file
+    that is already complete, costs nothing. It may add to ``llm_settings``
+    in place (the manifest is written after it), and may raise to stop the run.
+
     ``llm_settings`` is recorded in the manifest as-is under ``"llm"`` --
     the backend facts a reader needs that are not gates (provider, thinking
     configuration, seed and whether it was honoured). ``None`` writes nothing.
@@ -1142,6 +1190,7 @@ def run_corpus_enrichment(
 
     code_previous: list[object] = []
     machine_previous: list[object] = []
+    llm_previous: list[object] = []
 
     def _manifest(*, write: bool, with_usage: bool) -> dict[str, object]:
         return _write_manifest(
@@ -1152,6 +1201,7 @@ def run_corpus_enrichment(
             shard={"index": shard[0], "of": shard[1]} if shard else None,
             machine=machine,
             machine_previous=machine_previous,
+            llm_previous=llm_previous,
             prompt_version=prompt_version,
             model=model_name,
             config_hash=config_hash,
@@ -1185,13 +1235,21 @@ def run_corpus_enrichment(
             write=write,
         )
 
+    previous: dict[str, object] = {}
+    if not dry_run and pending and done:
+        # Appending to someone's earlier work: only under identical settings.
+        previous = check_resume(
+            output_path, _manifest(write=False, with_usage=False),
+            allow_code_change=allow_code_change,
+        )
+    if pending and before_first_call is not None:
+        # After the resume check, so a refused resume has spent nothing; and
+        # before the manifest is written, so what the hook adds to
+        # ``llm_settings`` (preflight results) is recorded from the start.
+        before_first_call()
+
     if not dry_run and pending:
         if done:
-            # Appending to someone's earlier work: only under identical settings.
-            previous = check_resume(
-                output_path, _manifest(write=False, with_usage=False),
-                allow_code_change=allow_code_change,
-            )
             code_previous.extend(previous.get("code_previous") or [])  # type: ignore[arg-type]
             old_code = previous.get("code")
             if old_code and old_code != code_version and old_code not in code_previous:
@@ -1200,6 +1258,10 @@ def run_corpus_enrichment(
             old_machine = previous.get("machine")
             if old_machine and old_machine != machine and old_machine not in machine_previous:
                 machine_previous.append(old_machine)
+            llm_previous.extend(previous.get("llm_previous") or [])  # type: ignore[arg-type]
+            old_llm = previous.get("llm")
+            if old_llm and old_llm != llm_settings:
+                llm_previous.append({"llm": old_llm, "usage": previous.get("usage")})
             # Rewritten now, so the change of code is on record even if this
             # session dies before it finishes a document.
             _manifest(write=True, with_usage=False)
