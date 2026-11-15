@@ -99,16 +99,20 @@ credits are used up** (402 "prepayment credits are depleted", seen
 
 ---
 
-## Planned: Exception 4 — the whole corpus on Vertex (NOT approved, NOT started)
+## Exception 4 — the whole corpus on Vertex, batch mode, twice (APPROVED and STARTED 2026-11-15)
 
 | | |
 |---|---|
-| **What** | All 6,044 documents, `gemini-3.1-pro-preview`, low thinking, same frozen settings as the Vertex sample. Start command and checklist: `proposals/module1-freeze.md`, "Stage 2 (Gemini, Vertex)" |
+| **What** | All 6,044 documents, `gemini-3.1-pro-preview`, low thinking, same frozen settings as the Vertex sample, as **two independent Vertex batch runs** (`--batch`, `--name-scorer v2`, kinds cwe,capec,attack,cve). Start command and checklist: `proposals/module1-freeze.md`, "Stage 2 (Gemini, Vertex)" |
+| **Approved by** | Module 1 owner, 2026-11-15 ("Do the two batch runs"). Team approval: not recorded here |
+| **Started** | 2026-11-15, from commit `46e9f27` (clean, pushed). Model probe passed the same day; 527 tests pass; trial credit ₹28,452 of ₹28,569 left |
+| **Outputs** | `indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch.jsonl` and `…_vertexbatch2.jsonl` (+ manifests, `.batch/` folders; git-ignored). Jobs `batchPredictionJobs/4267156661203894272` and `…/8875464979910754304` (which job belongs to which file: each `.batch/state.json`) |
+| **Requests** | 6,039 per run, not 6,044: five pairs of ATT&CK entries have identical text in the corpus (T1583.005/T1584.005, T1583.007/T1584.007, T1585.002/T1586.002, T1585.003/T1586.003, T1618/T1628.002), so they make identical prompts and share one request and one reply. Stage 1 gave each pair identical proposals too. Both documents' records carry the tokens, so summing records over-counts the bill by 5 calls (~$0.03); the billed total is `llm.batch.billed_usd` in the manifest |
 | **Purpose** | The robustness index (above) |
 | **Estimated cost** | ≈ **$68** standard (≈ $79 with 15% margin); ≈ **$35** with batch, built and tested 2026-11-14 (≈ $40 with margin; ≈ $70 / $81 for two runs). From the Vertex samples' measured tokens, thinking included |
 | **Estimated time** | online ≈ 19 hours one document at a time (11.3 s each, measured); batch: one job, Google says most finish within 24 h of starting (plus up to 72 h queue); the 40-doc job took under 5 minutes |
-| **Cap to set** | online: `--cost-cap-usd 80`; batch: `--cost-cap-usd 55` (the script's cautious pre-submit estimate is $50.59). The cap covers the whole output file across sessions |
-| **Needs before it starts** | owner and team approval of the spend; this entry turned into a real one (approver, date, cap); committed code |
+| **Cap set** | `--cost-cap-usd 55` per run (pre-submit estimate $50.55 each, checked before submitting). Expected ≈ $35 each, ≈ $70 both |
+| **Spent** | not yet known — fill in from the manifests and the billing console when the jobs finish |
 | **Data sent** | Public MITRE / NVD content and CTIConnect's CC-BY-4.0 corpus only |
 
 ---

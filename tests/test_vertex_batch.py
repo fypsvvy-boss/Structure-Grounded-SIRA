@@ -300,6 +300,50 @@ def test_a_job_still_running_when_the_wait_ends_is_resumed_not_resubmitted(tmp_p
     assert not again.open_rounds()
 
 
+class FlakyBatches(FakeBatches):
+    """Status checks that time out ``fail`` times in a row before answering."""
+
+    def __init__(self, session, fail, **kwargs):
+        super().__init__(session, **kwargs)
+        self.fail = fail
+        self.failed = 0
+
+    def get(self, *, name):
+        if self.failed < self.fail:
+            self.failed += 1
+            raise TimeoutError("The read operation timed out")
+        return super().get(name=name)
+
+
+def test_a_failed_status_check_is_retried_not_fatal(tmp_path):
+    session = FakeSession()
+    batches = FlakyBatches(session, fail=3)
+    logs: list[str] = []
+    runner = _runner(tmp_path, session, batches, max_poll_failures=4)
+    runner.log = logs.append
+    entry = runner.submit([vb.build_request(_gemini(), "p", "s")])
+
+    runner.wait(entry)
+
+    assert entry["state"] == "JOB_STATE_SUCCEEDED" and entry["collected"]
+    assert sum("status check failed" in m for m in logs) == 3
+    assert len(batches.created) == 1
+
+
+def test_an_unbroken_run_of_failed_checks_stops_but_keeps_the_job_for_resume(tmp_path):
+    session = FakeSession()
+    batches = FlakyBatches(session, fail=10)
+    runner = _runner(tmp_path, session, batches, max_poll_failures=3)
+    entry = runner.submit([vb.build_request(_gemini(), "p", "s")])
+
+    with pytest.raises(TimeoutError):
+        runner.wait(entry)
+
+    assert batches.failed == 3
+    again = _runner(tmp_path, session, batches)
+    assert [r["round"] for r in again.open_rounds()] == [1]   # resumable, not resubmitted
+
+
 def test_bucket_checks_and_creation_are_private(tmp_path):
     session = FakeSession()
     gcs = vb.GcsClient(session=session)

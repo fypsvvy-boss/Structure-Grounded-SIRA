@@ -8,6 +8,39 @@
 
 ## Current headline
 
+**2026-11-15 (21:51 UTC): both full-corpus batch jobs SUCCEEDED, 6,039 of
+6,039 requests each, 0 failed.** Run 1 (`…/8875464979910754304`): running
+18:40:56 → 14:47:42 UTC = **20 h 07 min**. Run 2 (`…/4267156661203894272`):
+18:40:59 → 14:40:26 UTC = **19 h 59 min**. The results are in the bucket but
+have not yet been downloaded and processed into the output files. That step
+waits on the commit of the poll-retry fix below, then the same start
+commands are run again.
+
+**2026-11-15 (12:25 UTC): both batch jobs still running on Google; the local
+waiting commands stopped and need a commit before restarting.** Both waiting
+commands crashed on one `httpx.ReadTimeout` (run 1 at 10:17 UTC, run 2 at
+11:37 UTC). Google's job-status call now takes minutes to answer for these
+big jobs, and one slow answer ended the wait. The jobs were not affected:
+at 11:50 UTC run 1 (`…/8875464979910754304`, file `…_vertexbatch.jsonl`)
+had 5,077 of 6,039 requests done and run 2 (`…/4267156661203894272`,
+`…_vertexbatch2.jsonl`) had 5,672. **Fix (uncommitted):** `VertexBatchRunner.wait`
+now logs a failed status check and tries again; it stops only after 20
+failures in a row, and even then the job stays in `state.json` to resume.
+2 new tests, 529 pass. The restart was refused by the clean-tree guard,
+as designed. **Next:** commit the fix, then run the same two start commands
+again. They resume waiting for the same jobs; nothing is submitted twice.
+The `exit code 0` on the crashed commands came from the trailing `date`,
+not from Python.
+
+**2026-11-15: both full-corpus Gemini batch runs are submitted (robustness
+index, exception 4).** Commit `46e9f27`, two independent Vertex batch jobs,
+6,039 requests each (5 pairs of ATT&CK entries have identical text and
+share one request), cap $55 each, expected ≈ $35 each. Outputs
+`indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch.jsonl` and
+`…_vertexbatch2.jsonl`. If the waiting command stops, **run the same
+command again** (`proposals/module1-freeze.md`, batch start command, with
+the matching `--output`); it resumes waiting for the same job.
+
 **2026-11-14 (latest, evening): Vertex batch mode is built and tested —
 same output, half the price.** `enrich_corpus.py --batch` sends the same
 requests as a Vertex batch job and runs the replies through the normal

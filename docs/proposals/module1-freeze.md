@@ -853,17 +853,18 @@ Progress: `wc -l indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertex.jsonl`
 
 ### Before it starts — checklist
 
-- [ ] Owner and team approve ≈ $80; `06_POLICY_EXCEPTIONS.md` planned
-      exception 4 becomes a real entry (approver, date, cap).
-- [ ] Trial credit balance covers it (Cloud billing console).
+- [x] Owner approves (2026-11-15: two batch runs, cap $55 each);
+      exception 4 is now a real entry. Team approval not recorded.
+- [x] Trial credit balance covers it: ₹28,452 of ₹28,569 left (2026-11-15).
 - [x] Open question 15 looked at — second Vertex sample run 2026-11-14:
       Vertex agrees with itself ~60%. Decisions confirmed by the owner the
       same day: quote ~60%, report aggregate behaviour, compare only with
       Vertex samples.
-- [ ] `scripts/check_gemini_model.py --gemini-api vertex --probe` passes on
-      the day.
-- [ ] Code committed; `.venv/bin/python -m pytest -q` passes (506).
-- [ ] The output file does not exist yet.
+- [x] `scripts/check_gemini_model.py --gemini-api vertex --probe` passes on
+      the day (2026-11-15: found, JSON array of 3, model_version
+      gemini-3.1-pro-preview).
+- [x] Code committed (`46e9f27`); `.venv/bin/python -m pytest -q` passes (527).
+- [x] The output files did not exist. Both runs submitted 2026-11-15.
 
 ## Which scorer
 

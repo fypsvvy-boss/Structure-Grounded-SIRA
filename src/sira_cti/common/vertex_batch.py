@@ -415,6 +415,7 @@ class VertexBatchRunner:
         batch_dir: Path,
         poll_s: float = 30.0,
         max_wait_s: Optional[float] = None,
+        max_poll_failures: int = 20,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         log: Callable[[str], None] = print,
@@ -427,6 +428,7 @@ class VertexBatchRunner:
         self.batch_dir = Path(batch_dir)
         self.poll_s = poll_s
         self.max_wait_s = max_wait_s
+        self.max_poll_failures = max(1, max_poll_failures)
         self.clock = clock
         self.sleep = sleep
         self.log = log
@@ -478,8 +480,26 @@ class VertexBatchRunner:
         """Poll until the job finishes, then download its results. Raises :class:`BatchJobTimeout`."""
         started = self.clock()
         last_state = None
+        failures = 0
         while True:
-            job = self.sdk.batches.get(name=entry["job_name"])
+            # A failed status check is not a failed job. On 2026-11-15 both
+            # full-corpus pollers died on one httpx.ReadTimeout after ~16 h,
+            # while their jobs kept running; so a check that fails is logged
+            # and tried again, and only a long unbroken run of failures stops.
+            try:
+                job = self.sdk.batches.get(name=entry["job_name"])
+            except Exception as exc:  # noqa: BLE001 -- network/SDK errors vary by transport
+                failures += 1
+                self.log(
+                    f"  batch round {entry['round']}: status check failed ({failures}/"
+                    f"{self.max_poll_failures}): {scrub_secrets(f'{type(exc).__name__}: {exc}')[:200]}"
+                )
+                if failures >= self.max_poll_failures:
+                    self._save()
+                    raise
+                self.sleep(self.poll_s)
+                continue
+            failures = 0
             state = _state_name(job)
             entry.update({
                 "state": state,
