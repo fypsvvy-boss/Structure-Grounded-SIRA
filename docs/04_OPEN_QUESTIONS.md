@@ -1318,3 +1318,52 @@ generated ids within 2 hops 17 of 30. So batch output can be compared with
 the online Vertex samples (decision 3) like any other Vertex run.
 `docs/results/vertex_batch_vs_online_gemini.txt`.
 
+### Full-corpus batch runs (2026-11-15)
+
+Two full-corpus Vertex batch runs (exception 4) share **74%** of accepted
+ids over 6,044 documents (2,569 replies identical). On the 40 sample
+documents they share 63–72% with the online Vertex runs and 84% with each
+other. So the batch runs agree with each other more than the online runs
+did. Aggregate behaviour is the same as every Vertex sample (95% accepted,
+≈ 360 wrong names, 39–48 counting-run ids per 6,044 documents).
+`docs/results/vertex_batch_full_corpus.txt`. Quote robustness as the range
+over the two full runs.
+
+---
+
+## 16. (Opened 2026-11-15) 117 CVE documents have no text, and Gemini sometimes guesses terms for them
+
+**What we found.** 117 CVE documents in the corpus have the text
+`"<id> null"`: the id, then the word `null`, and no description. Most are
+CVE-2025-38001 … CVE-2025-38348; the others are CVE-2022-49964,
+CVE-2025-21002, CVE-2025-40924, CVE-2025-47189 and CVE-2025-51630. Probably
+these were reserved or not yet published when the corpus was built, and the
+missing description was written out as `null`. This is not checked yet.
+
+**What the models did with them:**
+
+| run | answered `[]` | guessed terms |
+|---|---|---|
+| Stage 1 14B | 117 | 0 |
+| Gemini batch run 1 | 116 | 1 (CVE-2025-38339: 7 terms) |
+| Gemini batch run 2 | 113 | 4 (CVE-2025-38248, -38267, -38292, -38344: 4–5 terms each) |
+
+The guesses are generic words like "zero day", "0day", "reserved",
+"unpublished" and "pending". Nearly all passed the gates: the gates check
+structural ids and how common a word is, not whether the document supports
+the term. That's the same kind of gap as question 7 (`already_in_document`),
+the other way round: the term is *not* in the document at all.
+
+**Options (not decided):**
+1. Leave them. 5 documents out of 6,044 have a few generic terms; small,
+   but it is made-up content.
+2. Strip expansion terms from documents whose text is `"<id> null"` when
+   merging or indexing (a rule in code, documented as a filter).
+3. Fix the corpus: fill the 117 descriptions from NVD, or drop the documents.
+   That changes the corpus, so it needs every owner's agreement and a new
+   corpus version.
+
+**Related:** CVE-2019-1135 is a rejected candidate number ("DO NOT USE THIS
+CANDIDATE NUMBER"). Run 1 proposed "unassigned", "withdrawn" and similar;
+run 2 proposed nothing.
+

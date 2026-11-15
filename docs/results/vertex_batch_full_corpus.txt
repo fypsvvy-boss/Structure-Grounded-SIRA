@@ -1,0 +1,202 @@
+Full-corpus Gemini 3.1 Pro batch runs (Vertex, global), commit 7534173 (jobs submitted from 46e9f27; only the poll-retry fix differs).
+Generated 2026-11-15 by the comparison script appended below. Unedited output.
+
+=== run logs (end-of-run summaries)
+2026-11-15T21:52:52Z
+Enriching -> indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch.jsonl  (model=gemini-3.1-pro-preview, dry_run=False)
+  prompt=corpus-v4  name_check=overlap>=0.5  max_new_tokens=512  decoding=schema
+  documents=6044
+  gemini route: Google Cloud Vertex AI batch prediction (application-default credentials)  project=project-321a4680-fc31-4de3-a1a location=global
+  batch: bucket gs://project-321a4680-fc31-4de3-a1a-sira-batch, state in indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch.jsonl.batch
+  batch round 1 was submitted earlier: waiting for it, not resubmitting
+  batch round 1: JOB_STATE_SUCCEEDED
+  batch round 1: 6039 result lines from 1 file(s)
+
+6044 docs total, 0 already done, 6044 processed, 0 failed, 0 unparseable, 11.4s
+COMPLETE: every selected document has a record.
+  billed, all batch rounds: prompt 5951937, completion 1142219, thinking 3684522  (~$34.912 over 6039 result lines, 0 failed)
+  round 1: 6039 requests, JOB_STATE_SUCCEEDED, created 2026-11-14T18:39:35.443272+00:00, started 2026-11-14T18:40:56.146164+00:00, ended 2026-11-15T14:47:41.848627+00:00
+  thinking level as echoed in the results: ['LOW']
+
+Accept/reject summary (cumulative, whole file):
+  accepted: 47358
+  rejected: 11573
+    deprecated: 55
+    name_mismatch: 362
+    not_in_graph: 63
+    revoked: 61
+    too_common: 11032
+  repaired: 0
+  staleness_rate: 0.006
+
+By source document type:
+  cwe: 1342 docs, 13454 proposed, 10542 accepted
+    rejected: {'too_common': 2783, 'name_mismatch': 96, 'deprecated': 24, 'revoked': 2, 'not_in_graph': 7}
+    structural proposed by catalogue: {'cwe': 1875, 'capec': 326, 'attack': 131}
+    structural accepted by catalogue: {'cwe': 1803, 'capec': 271, 'attack': 129}
+  capec: 615 docs, 6400 proposed, 5341 accepted
+    rejected: {'too_common': 1012, 'name_mismatch': 39, 'revoked': 3, 'deprecated': 5}
+    structural proposed by catalogue: {'cwe': 461, 'attack': 613, 'capec': 179}
+    structural accepted by catalogue: {'cwe': 453, 'attack': 607, 'capec': 146}
+  attack: 1076 docs, 10768 proposed, 9096 accepted
+    rejected: {'too_common': 1529, 'revoked': 53, 'name_mismatch': 72, 'not_in_graph': 5, 'deprecated': 13}
+    structural proposed by catalogue: {'attack': 1395, 'capec': 82, 'cwe': 67}
+    structural accepted by catalogue: {'attack': 1279, 'capec': 56, 'cwe': 66}
+  cve: 3011 docs, 28309 proposed, 22379 accepted
+    rejected: {'too_common': 5708, 'name_mismatch': 155, 'not_in_graph': 51, 'revoked': 3, 'deprecated': 13}
+    structural proposed by catalogue: {'cwe': 1611, 'capec': 2189, 'attack': 2148}
+    structural accepted by catalogue: {'cwe': 1584, 'attack': 2140, 'capec': 2002}
+python exit 0
+2026-11-15T21:53:30Z
+
+[exited with code 0]
+2026-11-15T21:52:52Z
+Enriching -> indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch2.jsonl  (model=gemini-3.1-pro-preview, dry_run=False)
+  prompt=corpus-v4  name_check=overlap>=0.5  max_new_tokens=512  decoding=schema
+  documents=6044
+  gemini route: Google Cloud Vertex AI batch prediction (application-default credentials)  project=project-321a4680-fc31-4de3-a1a location=global
+  batch: bucket gs://project-321a4680-fc31-4de3-a1a-sira-batch, state in indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch2.jsonl.batch
+  batch round 1 was submitted earlier: waiting for it, not resubmitting
+  batch round 1: JOB_STATE_SUCCEEDED
+  batch round 1: 6039 result lines from 1 file(s)
+
+6044 docs total, 0 already done, 6044 processed, 0 failed, 0 unparseable, 11.3s
+COMPLETE: every selected document has a record.
+  billed, all batch rounds: prompt 5951937, completion 1145801, thinking 3660732  (~$34.791 over 6039 result lines, 0 failed)
+  round 1: 6039 requests, JOB_STATE_SUCCEEDED, created 2026-11-14T18:39:33.472430+00:00, started 2026-11-14T18:40:59.137900+00:00, ended 2026-11-15T14:40:26.122747+00:00
+  thinking level as echoed in the results: ['LOW']
+
+Accept/reject summary (cumulative, whole file):
+  accepted: 47236
+  rejected: 11633
+    deprecated: 53
+    malformed_id: 1
+    name_mismatch: 355
+    not_in_graph: 63
+    revoked: 61
+    too_common: 11100
+  repaired: 0
+  staleness_rate: 0.006
+
+By source document type:
+  cwe: 1342 docs, 13472 proposed, 10561 accepted
+    rejected: {'too_common': 2792, 'name_mismatch': 94, 'deprecated': 18, 'not_in_graph': 6, 'revoked': 1}
+    structural proposed by catalogue: {'cwe': 1871, 'attack': 128, 'capec': 327}
+    structural accepted by catalogue: {'cwe': 1803, 'attack': 127, 'capec': 277}
+  capec: 615 docs, 6372 proposed, 5330 accepted
+    rejected: {'too_common': 996, 'revoked': 4, 'name_mismatch': 35, 'deprecated': 6, 'malformed_id': 1}
+    structural proposed by catalogue: {'cwe': 450, 'attack': 617, 'capec': 176, 'other': 1}
+    structural accepted by catalogue: {'cwe': 447, 'attack': 608, 'capec': 143}
+  attack: 1076 docs, 10764 proposed, 9045 accepted
+    rejected: {'too_common': 1571, 'name_mismatch': 74, 'revoked': 53, 'not_in_graph': 5, 'deprecated': 16}
+    structural proposed by catalogue: {'attack': 1408, 'capec': 70, 'cwe': 63}
+    structural accepted by catalogue: {'attack': 1283, 'capec': 49, 'cwe': 61}
+  cve: 3011 docs, 28261 proposed, 22300 accepted
+    rejected: {'too_common': 5741, 'name_mismatch': 152, 'not_in_graph': 52, 'revoked': 3, 'deprecated': 13}
+    structural proposed by catalogue: {'cwe': 1594, 'capec': 2201, 'attack': 2166}
+    structural accepted by catalogue: {'cwe': 1570, 'attack': 2160, 'capec': 2011}
+python exit 0
+2026-11-15T21:53:42Z
+
+[exited with code 0]
+
+=== full corpus: batch1 vs batch2 vs Stage 1 14B (rejected lists omitted)
+documents in all files: 6044
+batch1     structural proposed 11077, accepted 10536, rejected {'name_mismatch': 362, 'revoked': 61, 'deprecated': 55, 'not_in_graph': 63}; existence 179, name 362, counting-run ids 48; proposals/reply min 0 median 10.0 max 12; unparseable 0
+           tokens: prompt 5955218 (985/doc), reply 1143294 (189/doc), thinking 3687270 (610/doc), calls 6044; cost $34.9386 ($0.00578/doc at $1.0/$6.0)
+batch2     structural proposed 11072, accepted 10539, rejected {'revoked': 61, 'name_mismatch': 355, 'deprecated': 53, 'malformed_id': 1, 'not_in_graph': 63}; existence 178, name 355, counting-run ids 39; proposals/reply min 0 median 10.0 max 12; unparseable 0
+           tokens: prompt 5955218 (985/doc), reply 1146698 (190/doc), thinking 3663789 (606/doc), calls 6044; cost $34.8181 ($0.00576/doc at $1.0/$6.0)
+14b        structural proposed 20588, accepted 8031, rejected {'name_mismatch': 9852, 'malformed_id': 893, 'not_in_graph': 450, 'deprecated': 649, 'revoked': 713}; existence 2705, name 9852, counting-run ids 4237; proposals/reply min 0 median 12.0 max 12; unparseable 3
+           tokens: prompt 5124032 (848/doc), reply 1492171 (247/doc), thinking 0 (0/doc), calls 6058
+
+accepted structural ids shared (document, id), shared / union:
+  batch1 vs batch2: 8935 of 12140 = 74%   replies identical 2569 of 6044
+  batch1 vs 14b: 816 of 17603 = 5%   replies identical 116 of 6044
+  batch2 vs 14b: 826 of 17596 = 5%   replies identical 114 of 6044
+
+=== the 40-document sample's documents: online Vertex x2, batch sample, both full batch runs
+documents in all files: 40
+vertex1    structural proposed 80, accepted 73, rejected {'name_mismatch': 6, 'deprecated': 1}; existence 1, name 6, counting-run ids 0; proposals/reply min 7 median 10.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 8345 (209/doc), thinking 23993 (600/doc), calls 40
+vertex2    structural proposed 69, accepted 66, rejected {'name_mismatch': 3}; existence 0, name 3, counting-run ids 0; proposals/reply min 7 median 11.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 8919 (223/doc), thinking 25006 (625/doc), calls 40
+sampleB    structural proposed 67, accepted 63, rejected {'name_mismatch': 4}; existence 0, name 4, counting-run ids 0; proposals/reply min 8 median 10.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 7921 (198/doc), thinking 25400 (635/doc), calls 40
+full1      structural proposed 74, accepted 70, rejected {'name_mismatch': 4}; existence 0, name 4, counting-run ids 0; proposals/reply min 7 median 10.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 8082 (202/doc), thinking 26053 (651/doc), calls 40
+full2      structural proposed 69, accepted 66, rejected {'name_mismatch': 3}; existence 0, name 3, counting-run ids 0; proposals/reply min 7 median 10.0 max 12; unparseable 0
+           tokens: prompt 40182 (1005/doc), reply 8140 (204/doc), thinking 26623 (666/doc), calls 40
+
+accepted structural ids shared (document, id), shared / union:
+  vertex1 vs vertex2: 52 of 87 = 60%   replies identical 5 of 40
+  vertex1 vs sampleB: 55 of 81 = 68%   replies identical 8 of 40
+  vertex1 vs full1: 59 of 84 = 70%   replies identical 11 of 40
+  vertex1 vs full2: 57 of 82 = 70%   replies identical 14 of 40
+  vertex2 vs sampleB: 46 of 83 = 55%   replies identical 5 of 40
+  vertex2 vs full1: 57 of 79 = 72%   replies identical 9 of 40
+  vertex2 vs full2: 51 of 81 = 63%   replies identical 7 of 40
+  sampleB vs full1: 57 of 76 = 75%   replies identical 22 of 40
+  sampleB vs full2: 56 of 73 = 77%   replies identical 16 of 40
+  full1 vs full2: 62 of 74 = 84%   replies identical 21 of 40
+
+=== script
+"""Compare Gemini enrichment files: structural ids, rejections, counting runs, overlap, tokens.
+usage: compare_runs.py [--ids A,B] label=path price_in price_out ... (prices via --price label=in,out)"""
+import sys, itertools, statistics
+sys.path.insert(0, "src")
+from sira_cti.common import read_jsonl, RejectReason, TermKind
+
+args = sys.argv[1:]
+only = None; prices = {}
+runs = []
+for a in args:
+    if a.startswith("--ids="): only = set(a[6:].split(","))
+    elif a.startswith("--price="):
+        lab, v = a[8:].split("="); pi, po = map(float, v.split(",")); prices[lab] = (pi, po)
+    else:
+        lab, p = a.split("=", 1); runs.append((lab, p))
+
+data = {}
+for lab, p in runs:
+    recs = {r.doc_id: r for r in read_jsonl(p) if only is None or r.doc_id in only}
+    data[lab] = recs
+docs = sorted(set.intersection(*(set(d) for d in data.values())))
+print(f"documents in all files: {len(docs)}")
+for lab in data:
+    recs = [data[lab][d] for d in docs]
+    st = [t for r in recs for t in r.proposed_terms if t.kind is TermKind.STRUCTURAL]
+    acc = [t for t in st if t.accepted]
+    by = {}
+    for t in st:
+        if not t.accepted:
+            by[t.reject_reason.value] = by.get(t.reject_reason.value, 0) + 1
+    exist = sum(by.get(k, 0) for k in ("not_in_graph", "deprecated", "revoked", "malformed_id"))
+    counting = sum(1 for t in st if getattr(t, "in_counting_run", False))
+    n_props = [len(r.proposed_terms) for r in recs]
+    unparse = sum(1 for r in recs if any(t.reject_reason is RejectReason.LLM_JSON_ERROR for t in r.proposed_terms))
+    tok = [r.tokens for r in recs]
+    P = sum(t.prompt for t in tok); C = sum(t.completion for t in tok); T = sum(t.thinking for t in tok)
+    line = (f"{lab:10s} structural proposed {len(st)}, accepted {len(acc)}, rejected {by or '{}'}; "
+            f"existence {exist}, name {by.get('name_mismatch',0)}, counting-run ids {counting}; "
+            f"proposals/reply min {min(n_props)} median {statistics.median(n_props)} max {max(n_props)}; unparseable {unparse}")
+    print(line)
+    calls = sum(r.llm_calls for r in recs)
+    s = f"           tokens: prompt {P} ({P/len(recs):.0f}/doc), reply {C} ({C/len(recs):.0f}/doc), thinking {T} ({T/len(recs):.0f}/doc), calls {calls}"
+    if lab in prices:
+        pi, po = prices[lab]; cost = (P*pi + (C+T)*po)/1e6
+        s += f"; cost ${cost:.4f} (${cost/len(recs):.5f}/doc at ${pi}/${po})"
+    print(s)
+    rejected_list = [(r.doc_id, t.structural_id or t.term, t.reject_reason.value) for r in recs for t in r.proposed_terms
+                     if t.kind is TermKind.STRUCTURAL and not t.accepted]
+    print(f"           rejected: {rejected_list}")
+
+def accepted(lab):
+    return {(d, t.structural_id) for d in docs for t in data[lab][d].proposed_terms
+            if t.kind is TermKind.STRUCTURAL and t.accepted and t.structural_id}
+def props(lab, d):
+    return [(t.term, t.kind.value, t.claimed_name) for t in data[lab][d].proposed_terms]
+print("\naccepted structural ids shared (document, id), shared / union:")
+for a, b in itertools.combinations(data, 2):
+    A, B = accepted(a), accepted(b)
+    same = sum(1 for d in docs if props(a, d) == props(b, d))
+    print(f"  {a} vs {b}: {len(A & B)} of {len(A | B)} = {len(A & B)/max(1,len(A|B)):.0%}   replies identical {same} of {len(docs)}")

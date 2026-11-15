@@ -99,7 +99,7 @@ credits are used up** (402 "prepayment credits are depleted", seen
 
 ---
 
-## Exception 4 — the whole corpus on Vertex, batch mode, twice (APPROVED and STARTED 2026-11-15)
+## Exception 4 — the whole corpus on Vertex, batch mode, twice (APPROVED 2026-11-15; DONE 2026-11-15)
 
 | | |
 |---|---|
@@ -112,7 +112,8 @@ credits are used up** (402 "prepayment credits are depleted", seen
 | **Estimated cost** | ≈ **$68** standard (≈ $79 with 15% margin); ≈ **$35** with batch, built and tested 2026-11-14 (≈ $40 with margin; ≈ $70 / $81 for two runs). From the Vertex samples' measured tokens, thinking included |
 | **Estimated time** | online ≈ 19 hours one document at a time (11.3 s each, measured); batch: one job, Google says most finish within 24 h of starting (plus up to 72 h queue); the 40-doc job took under 5 minutes |
 | **Cap set** | `--cost-cap-usd 55` per run (pre-submit estimate $50.55 each, checked before submitting). Expected ≈ $35 each, ≈ $70 both |
-| **Spent** | not yet known — fill in from the manifests and the billing console when the jobs finish |
+| **Finished** | Both jobs SUCCEEDED, 6,039 of 6,039 requests each, 0 failed. Running time 20 h 07 min (`…/8875464979910754304`, `…_vertexbatch.jsonl`) and 19 h 59 min (`…/4267156661203894272`, `…_vertexbatch2.jsonl`), queue ≈ 1.5 min each. Results processed 2026-11-15 21:53 UTC from commit `7534173` (the poll-retry fix; the waiting commands had crashed on a timeout, the jobs had not) |
+| **Spent** | **≈ US$69.70** at the batch list price, from the billed result lines: run 1 **$34.912** (5,951,937 prompt, 1,142,219 reply, 3,684,522 thinking tokens), run 2 **$34.791** (5,951,937 / 1,145,801 / 3,660,732). $0.0058 per document. Actual charge: re-read the billing console (≈ ₹6,650 more at batch rate if ₹95.2 per $; about double that would mean the online rate was charged) |
 | **Data sent** | Public MITRE / NVD content and CTIConnect's CC-BY-4.0 corpus only |
 
 ---
@@ -142,7 +143,8 @@ credits are used up** (402 "prepayment credits are depleted", seen
 | 3 — Vertex model check, sample and resume tests (Cloud trial credits) | ≈ $0.72 |
 | 5 — second Vertex sample (Cloud trial credits) | ≈ $0.51 |
 | 6 — Vertex batch tests, 5 + 40 documents (Cloud trial credits) | ≈ $0.27 |
-| **total, calculated** | **≈ $2.53** |
+| 4 — whole corpus, Vertex batch, twice (Cloud trial credits) | ≈ $69.70 |
+| **total, calculated** | **≈ $72.23** |
 | **total, actually charged (exceptions 1–2, AI Studio key)** | **₹116.66** |
 | **actually charged (exceptions 3, 5 and 6, Cloud project, ≈ $1.50 expected)** | **₹117 used of ₹28,569 trial credit** (read 2026-11-15 by the Module 1 owner; ₹28,452 left). At the credit's implied ₹95.2 per $ (if the trial is $300) that is ≈ $1.23 — exactly exceptions 3 + 5, so exception 6's batch tests (≈ $0.27 ≈ ₹26 at batch rate, ≈ ₹51 at online rate) had probably not posted yet. Re-read in a day: ≈ ₹143 total means batch was billed at the batch rate |
 

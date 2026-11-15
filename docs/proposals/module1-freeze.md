@@ -811,7 +811,7 @@ the 40-doc sample the same estimate said $0.339 and the bill was $0.240. The buc
 The command waits up to 30 hours (`--batch-max-wait-hours`); if it is
 stopped or the laptop sleeps, **run the same command again** — it finds the
 job in `<output>.batch/state.json` and waits for it instead of submitting a
-second one. A second robustness run needs a **different `--output`**. Like
+second one. (Done this way on 2026-11-15: both waiting commands crashed on a status-check timeout after ≈ 16 h; since `7534173` such failures are retried. Re-running the commands collected the finished jobs.) **Both runs done 2026-11-15:** 20 h 07 min and 19 h 59 min, $34.91 + $34.79; `docs/results/vertex_batch_full_corpus.txt`. A second robustness run needs a **different `--output`**. Like
 the online run, it refuses to start from uncommitted code. The manifest
 says `"service": "vertex-batch"`; such a file cannot be resumed online or
 merged with an online file.

@@ -8,13 +8,23 @@
 
 ## Current headline
 
-**2026-11-15 (21:51 UTC): both full-corpus batch jobs SUCCEEDED, 6,039 of
-6,039 requests each, 0 failed.** Run 1 (`…/8875464979910754304`): running
-18:40:56 → 14:47:42 UTC = **20 h 07 min**. Run 2 (`…/4267156661203894272`):
-18:40:59 → 14:40:26 UTC = **19 h 59 min**. The results are in the bucket but
-have not yet been downloaded and processed into the output files. That step
-waits on the commit of the poll-retry fix below, then the same start
-commands are run again.
+**2026-11-15 (latest, 21:53 UTC): the Gemini robustness index is DONE —
+two full-corpus Vertex batch runs, ≈ $69.70 together (exception 4).** Both
+jobs succeeded, 6,039 of 6,039 requests each, 0 failed, 0 unparseable,
+thinking `LOW` on every line. Running time **20 h 07 min** and **19 h 59 min**
+(queue ≈ 1.5 min). Billed **$34.91 + $34.79** at the batch list price
+($0.0058 per document; the estimate was ≈ $35 each). Per run: ≈ 10,540
+structural ids accepted of ≈ 11,075 proposed (95%), ≈ 360 wrong names,
+≈ 180 non-existent or retired, **39–48 counting-run ids** (Stage 1 14B:
+4,237). The two runs share **74%** of accepted ids, and 2,569 of 6,044
+replies are identical. That is more than the online samples (~60%). On the
+40 sample documents, the full runs share 63–72% with the online Vertex runs.
+**New finding:** 117 CVE documents have the text `"<id> null"` (no
+description in the corpus). Gemini answers `[]` for most of them, but on
+1 and 4 of them it guessed generic terms ("zero day", "reserved") that the
+gates accepted (open question 16). Results file:
+`docs/results/vertex_batch_full_corpus.txt`. Still to do: confirm the
+actual charge in the billing console.
 
 **2026-11-15 (12:25 UTC): both batch jobs still running on Google; the local
 waiting commands stopped and need a commit before restarting.** Both waiting
@@ -32,7 +42,7 @@ again. They resume waiting for the same jobs; nothing is submitted twice.
 The `exit code 0` on the crashed commands came from the trailing `date`,
 not from Python.
 
-**2026-11-15: both full-corpus Gemini batch runs are submitted (robustness
+**2026-11-15 (superseded above — jobs finished): both full-corpus Gemini batch runs are submitted (robustness
 index, exception 4).** Commit `46e9f27`, two independent Vertex batch jobs,
 6,039 requests each (5 pairs of ATT&CK entries have identical text and
 share one request), cap $55 each, expected ≈ $35 each. Outputs
@@ -333,6 +343,51 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Full-corpus Gemini batch runs: done (2026-11-14 → 2026-11-15)
+
+**What.** Exception 4: all 6,044 documents, twice, as two Vertex batch jobs
+(`gemini-3.1-pro-preview`, low thinking, scorer v2, frozen settings).
+Submitted 2026-11-14 18:39 UTC from `46e9f27`; processed 2026-11-15 21:53
+UTC from `7534173`.
+
+**What went wrong on the way.** Both waiting commands crashed on one
+`httpx.ReadTimeout` after ≈ 16 h. Google's job-status call had started taking
+minutes for these large jobs. The jobs themselves were not affected. Fix
+(`7534173`): a failed status check is logged and retried; the wait stops only
+after 20 failures in a row, and the job stays resumable. 529 tests pass.
+Re-running the same command then found the finished jobs, downloaded the
+results (one file, 6,039 lines each) and processed them in ≈ 40 s.
+
+**Results** (`docs/results/vertex_batch_full_corpus.txt`):
+
+| | run 1 | run 2 | Stage 1 14B |
+|---|---|---|---|
+| running time | 20 h 07 min | 19 h 59 min | — |
+| billed (batch list price) | $34.912 | $34.791 | free (local) |
+| structural ids proposed / accepted | 11,077 / 10,536 | 11,072 / 10,539 | 20,588 / 8,031 |
+| wrong names | 362 | 355 | 9,852 |
+| non-existent or retired | 179 | 178 | 2,705 |
+| counting-run ids | 48 | 39 | 4,237 |
+| unparseable | 0 | 0 | 3 |
+
+- Run 1 vs run 2: **74%** of accepted ids shared, 2,569 of 6,044 replies
+  identical. That is more consistent than the online samples (~60%), maybe
+  because a batch job runs in one place and time. Either run vs 14B: 5%.
+- The 40 sample documents inside the full runs: 0 non-existent, 3–4 wrong
+  names, 0 counting runs, same as every Vertex sample. Shared with online
+  Vertex 1/2: 70% and 63–72%. Full run 1 vs 2 on these: 84%.
+- **117 CVE documents have no text.** The corpus gives them as
+  `"CVE-2025-38250 null"` (mostly CVE-2025-38001 … 38348, plus
+  CVE-2022-49964, CVE-2025-21002, CVE-2025-40924, CVE-2025-47189 and
+  CVE-2025-51630). 14B answered `[]` for all of them. Gemini answered `[]` for
+  116 (run 1) and 113 (run 2). For the rest it guessed generic words ("zero
+  day", "0day", "reserved", "unpublished"), and the gates accepted them,
+  because the gates check ids and frequency, not whether the document
+  supports a term. Open question 16. Separately, run 2 returned `[]` for
+  CVE-2019-1135, a rejected candidate number ("DO NOT USE"); run 1 proposed
+  "unassigned", "withdrawn" and similar.
+- Billing: list-price figures; the console has not been re-read yet.
 
 ### Vertex batch mode: built, 5-doc test, 40-doc sample (2026-11-14, evening)
 
@@ -2137,7 +2192,7 @@ Reading of this run:
 
 ## Next actions (living checklist)
 
-- [ ] **Stage 2 (Gemini, Vertex) — decide whether to spend ≈ $80** on the
+- [x] **Stage 2 (Gemini, Vertex) — decide whether to spend ≈ $80** on the
       robustness index; turn planned exception 4 in `06_POLICY_EXCEPTIONS.md`
       into a real entry. Checklist: `proposals/module1-freeze.md`,
       "Stage 2 (Gemini, Vertex)". (Added 2026-11-14.)
@@ -2155,8 +2210,13 @@ Reading of this run:
       2026-11-15: console shows **₹117 used of ₹28,569** (≈ $1.23, i.e.
       exceptions 3 + 5 only; batch not posted yet). Re-read: ≈ ₹143 total =
       batch rate, ≈ ₹168 = online rate.
-- [ ] Decide: full robustness run online (≈ $68) or batch (≈ $35; ≈ $70 for
-      two runs). Batch start command in `proposals/module1-freeze.md`.
+- [x] Decide: full robustness run online (≈ $68) or batch (≈ $35; ≈ $70 for
+      two runs). Done 2026-11-15: batch, twice, ≈ $69.70 billed.
+- [ ] Read the actual charge for exception 4 in the billing console
+      (≈ $69.70 at batch rate) into `06_POLICY_EXCEPTIONS.md`.
+- [ ] Open question 16: decide what to do with the 117 empty-text CVE
+      documents (drop, fill from NVD, or strip guessed terms) before the
+      Gemini runs are merged or indexed.
 
 - [x] Inspect the 5 `malformed_id` rejections. — Neither genuine nor
       normalizer-fixable: kind-mislabelling. Fixed.
