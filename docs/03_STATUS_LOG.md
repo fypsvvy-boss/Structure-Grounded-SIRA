@@ -8,6 +8,16 @@
 
 ## Current headline
 
+**2026-11-16 (latest, 11:12 UTC): splice DONE, enriched index rebuilt.**
+All three 117-document runs finished (14B on the Mac; Gemini batch 1 and 2
+on Vertex, exception 7), with 0 failed and 0 unparseable, and each run was
+spliced into its full run: `corpus_full_v4_14b_fixed.jsonl` and
+`corpus_full_v4_gemini-3.1-pro_vertexbatch{1,2}_fixed.jsonl`, 6,044 records
+each (5,927 carried over unchanged + 117 new). `indexes/enriched` is rebuilt
+from the fixed 14B file (old one kept as `indexes/enriched_unfixed`).
+**Next: commit; redo any numbers quoted from the runs.** Details:
+"Corpus fix → Splice: done".
+
 **2026-11-16: corpus fixed — the 117 empty CVE rows are filled (team
 decision, open question 16).** The batch charge is confirmed at the batch
 rate (₹6,781 used of ₹28,569; ₹21,788 left). `data/corpus_kb_fixed` is
@@ -442,6 +452,39 @@ for n in 1 2; do caffeinate -i .venv/bin/python scripts/enrich_corpus.py \
 
 Still to do after that: redo any numbers quoted from the runs (RQ4
 breakdown, comparisons).
+
+**Splice: done (2026-11-16).**
+
+| run on the 117 | proposed | accepted | docs with 0 accepted | failed / unparseable |
+|---|---|---|---|---|
+| 14B (Mac) | 1,404 | 1,160 | 0 | 0 / 0 |
+| Gemini batch 1 | 1,093 | 887 | 0 | 0 / 0 |
+| Gemini batch 2 | 1,092 | 901 | 0 | 0 / 0 |
+
+The 14B rejected 244 terms: 220 too_common, 13 malformed_id, 9 name_mismatch,
+2 deprecated.
+
+- **The 14B run was interrupted once.** It ran inside a Claude Code session
+  and stopped when that session closed, at 90 of 117. Re-running the same
+  command resumed it (90 skipped, 27 done, 1,151 s). The output was
+  checked: all lines are valid JSON, and the settings and code commit are
+  the same (`b3a6259`, clean). **Speed:** about 53 s per document, not the
+  ~9 s expected. These documents are longer than average, and the Mac was
+  short of free memory. The answers are not affected.
+- **Splice result, every run:** 6,044 records = 5,927 carried over (verdicts
+  re-checked on 70,686 terms for the 14B, none changed) + 117 new.
+- **Enriched index rebuilt** from `corpus_full_v4_14b_fixed.jsonl` (built
+  from `data/corpus_kb_fixed`, config hash `06e891b2b957`). The old index is
+  kept as `indexes/enriched_unfixed`.
+
+| enriched index | before (`enriched_unfixed`) | after |
+|---|---|---|
+| documents | 6,044 | 6,044 |
+| documents with a non-empty expansion | 5,852 | **5,969** (+117) |
+| accepted terms indexed | 28,705 | **29,865** (+1,160) |
+
+  Check: for all 117 documents, the index's `expansion` field is present
+  exactly when the record has accepted terms (117 / 117).
 
 ### Full-corpus Gemini batch runs: done (2026-11-14 → 2026-11-15)
 

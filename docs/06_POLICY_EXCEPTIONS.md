@@ -99,7 +99,7 @@ credits are used up** (402 "prepayment credits are depleted", seen
 
 ---
 
-## Exception 7 — the 117 fixed CVE documents on Vertex, batch mode, twice (APPROVED 2026-11-16; not started)
+## Exception 7 — the 117 fixed CVE documents on Vertex, batch mode, twice (APPROVED 2026-11-16; DONE 2026-11-16)
 
 | | |
 |---|---|
@@ -108,7 +108,8 @@ credits are used up** (402 "prepayment credits are depleted", seen
 | **Purpose** | Keep the robustness index complete on the fixed corpus without re-running all 6,044 documents (≈ $70 more) |
 | **Estimated cost** | ≈ $0.70 per run, ≈ **$1.40** both: the fixed documents are longer than average (median 929 characters of description), so ≈ $0.0060 per document as measured is a floor; the pre-submit estimate will be higher |
 | **Cap set** | `--cost-cap-usd 2` per run (the cautious pre-submit estimate must fit under it) |
-| **Spent** | not yet |
+| **Ran** | 2026-11-16 from commit `b3a6259`. Jobs `batchPredictionJobs/823967829102428160` (run 1) and `…/7187554102576939008` (run 2), each 117 of 117 succeeded, ≈ 4.5 min end to end (queued ≈ 1.5 min, running 3 min). Pre-submit estimate $0.978 each |
+| **Spent** | **≈ US$1.23** at the batch list price: run 1 **$0.597** (143,379 prompt, 21,587 reply, 54,092 thinking tokens), run 2 **$0.637** (143,379 / 22,347 / 59,895) |
 | **Data sent** | Public CVE List / NVD content only |
 
 ---
@@ -158,7 +159,8 @@ credits are used up** (402 "prepayment credits are depleted", seen
 | 5 — second Vertex sample (Cloud trial credits) | ≈ $0.51 |
 | 6 — Vertex batch tests, 5 + 40 documents (Cloud trial credits) | ≈ $0.27 |
 | 4 — whole corpus, Vertex batch, twice (Cloud trial credits) | ≈ $69.70 |
-| **total, calculated** | **≈ $72.23** |
+| 7 — the 117 fixed CVE documents, Vertex batch, twice (Cloud trial credits) | ≈ $1.23 |
+| **total, calculated** | **≈ $73.46** |
 | **total, actually charged (exceptions 1–2, AI Studio key)** | **₹116.66** |
 | **actually charged (exceptions 3–6, Cloud project)** | **₹6,781 used of ₹28,569 trial credit** (read 2026-11-16; ₹21,788 left). Matches the calculation at the batch rate: ≈ $71.2 × ₹95.2 ≈ ₹6,780. Earlier reading: **₹117 used of ₹28,569 trial credit** (read 2026-11-15 by the Module 1 owner; ₹28,452 left). At the credit's implied ₹95.2 per $ (if the trial is $300) that is ≈ $1.23 — exactly exceptions 3 + 5, so exception 6's batch tests (≈ $0.27 ≈ ₹26 at batch rate, ≈ ₹51 at online rate) had probably not posted yet. Re-read in a day: ≈ ₹143 total means batch was billed at the batch rate |
 
