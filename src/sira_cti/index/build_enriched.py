@@ -29,6 +29,7 @@ correctly by construction.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -124,6 +125,32 @@ def enrichment_summary(enrichment_path: str | Path) -> dict[str, Any]:
     }
 
 
+def file_sha256(path: str | Path) -> str:
+    """SHA-256 of a file's bytes, read in chunks (an enrichment file is ~40 MB)."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def enrichment_service(enrichment_manifest: dict[str, Any]) -> dict[str, Optional[str]]:
+    """Which service produced the enrichment file, as its own manifest records it.
+
+    ``service`` is the most specific label the run wrote: ``vertex-batch``
+    for the Gemini batch runs; the 14B (Ollama) runs record only a backend,
+    so ``ollama``. ``api`` is ``vertex`` / ``ai-studio`` for Gemini and absent
+    otherwise. Nothing is inferred from file names.
+    """
+    llm = enrichment_manifest.get("llm") or {}
+    if not isinstance(llm, dict):
+        llm = {}
+    return {
+        "service": llm.get("service") or llm.get("api") or llm.get("backend"),
+        "api": llm.get("api"),
+    }
+
+
 def repaired_ids(record: EnrichmentRecord) -> list[str]:
     """The ``repaired_to`` ids a record would add under the repair ablation.
 
@@ -154,13 +181,18 @@ def build_enriched_index(
     limit: Optional[int] = None,
     config_hash: Optional[str] = None,
     index_repaired_ids: bool = False,
+    run: Optional[int] = None,
 ) -> Path:
     """Build the enriched index. Requires a finished (or partial) enrichment JSONL.
 
-    Records ``enrichment_path`` and, if the enrichment run left its sidecar
-    manifest (``sira_cti.enrichment.corpus_side``), the prompt version and
-    model that produced it -- so an index can always be traced back to
-    exactly what enriched it (README, Reproducibility).
+    Records ``enrichment_path``, its SHA-256 and, if the enrichment run left
+    its sidecar manifest (``sira_cti.enrichment.corpus_side``), the prompt
+    version, model and service that produced it -- so an index can always be
+    traced back to exactly what enriched it (README, Reproducibility).
+
+    ``run`` numbers repeated runs of one model (the two Gemini robustness
+    runs are 1 and 2). It is given by the caller, never guessed from the
+    file name, and recorded as ``enrichment_run`` (``None`` when not given).
     """
     enrichment_path = Path(enrichment_path)
     if not enrichment_path.exists():
@@ -168,6 +200,8 @@ def build_enriched_index(
             f"{enrichment_path} does not exist -- run corpus-side enrichment first "
             "(scripts/enrich_corpus.py), which itself requires the base index for DF stats"
         )
+    if run is not None and (isinstance(run, bool) or not isinstance(run, int) or run < 1):
+        raise ValueError(f"run must be a positive integer, got {run!r}")
 
     index_dir = Path(index_dir)
     staging = Path(staging_dir) if staging_dir else index_dir.parent / f"{index_dir.name}_staging"
@@ -191,12 +225,17 @@ def build_enriched_index(
     summary = enrichment_summary(enrichment_path)
     enriched_ids = {rec.doc_id for rec in read_jsonl(enrichment_path)}
     code = enrichment_manifest.get("code") or {}
+    service = enrichment_service(enrichment_manifest)
     manifest = {
         "kind": "enriched",
         "kb_dir": str(kb_dir),
         "kinds": list(kinds),
         "doc_count": len(doc_ids),
         "enrichment_path": str(enrichment_path),
+        "enrichment_sha256": file_sha256(enrichment_path),
+        "enrichment_run": run,
+        "enrichment_service": service["service"],
+        "enrichment_api": service["api"],
         "enrichment_prompt_version": enrichment_manifest.get("prompt_version"),
         "enrichment_model": enrichment_manifest.get("model"),
         "enrichment_model_digest": enrichment_manifest.get("model_digest"),

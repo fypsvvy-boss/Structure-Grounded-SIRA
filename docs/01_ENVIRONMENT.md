@@ -369,6 +369,12 @@ A 40-document `--per-kind 10` run took ~7 minutes at concurrency 2.
 
 `build_index.py --stage enriched` always reads `index.enrichment_path` from the
 config (`corpus.jsonl`), not whatever `--output` you last enriched into.
+Point it at a file with `--enrichment-path` and at a new folder with
+`--enriched-dir` instead of editing the config. `--run N` (added 2026-11-17)
+records which run of a model the file is, as `enrichment_run` in the index
+manifest, which also records the file's SHA-256 and the service that made it.
+The three Stage 2 indexes and their exact commands: `07_PHASE1_HANDOFF.md`,
+"Stage 2: three enriched indexes".
 
 **⚠️ Always pass `--output` for now.** `corpus.jsonl` (the config default) was
 written with prompt `corpus-v1`; the live prompt is `corpus-v3`. A run without

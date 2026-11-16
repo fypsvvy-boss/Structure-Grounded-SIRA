@@ -36,6 +36,11 @@ def main() -> int:
         "--enriched-dir", default=None,
         help="enriched stage: write the index here instead of config's index.enriched_dir",
     )
+    parser.add_argument(
+        "--run", type=int, default=None,
+        help="enriched stage: which run of this model the enrichment file is (e.g. 1 or 2 for the two "
+             "Gemini robustness runs); recorded in the index manifest as enrichment_run",
+    )
     parser.add_argument("--dry-run", action="store_true", help="report what would be indexed, build nothing")
     args = parser.parse_args()
 
@@ -73,6 +78,7 @@ def main() -> int:
                 threads=index_cfg.get("threads", 2), stemmer=index_cfg.get("stemmer", "porter"),
                 limit=args.limit, config_hash=the_hash,
                 index_repaired_ids=bool(cfg["enrichment"].get("index_repaired_ids", False)),
+                run=args.run,
             )
             print(f"Enriched index built -> {path}")
 

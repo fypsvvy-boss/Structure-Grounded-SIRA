@@ -1,0 +1,388 @@
+Enriched index checks + smoke test across all four indexes (2026-11-17). NOT an evaluation: 5 made-up
+queries, no gold answers, top 5 only. Corpus data/corpus_kb_fixed, config 06e891b2b957.
+  base      indexes/base                   (contents only)
+  14B       indexes/enriched               MAIN index, qwen2.5:14b
+  Gemini 1  indexes/enriched_gemini_run1   robustness index, gemini-3.1-pro-preview, Vertex batch, run 1
+  Gemini 2  indexes/enriched_gemini_run2   robustness index, gemini-3.1-pro-preview, Vertex batch, run 2
+Gemini indexes built 2026-11-17 with:
+  scripts/build_index.py --stage enriched --enrichment-path <..._vertexbatchN_fixed.jsonl> --enriched-dir indexes/enriched_gemini_runN --run N
+Part 1: each enriched index checked against the file that built it (script 1 below). The 14B index was
+built on 2026-11-16, before the manifest recorded sha256/service/run, so those read "not recorded" there.
+Part 2: the five October queries on all four indexes (script 2 below). Outputs unedited.
+
+==================================== Part 1: index checks ====================================
+== indexes/enriched_gemini_run1
+  built from        indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch1_fixed.jsonl
+  sha256            11ad4a8369effc31d56bd1b7c14de614d7acd1ce847d38def77a740ab634f5da  recomputed matches: True
+  model / service   gemini-3.1-pro-preview / vertex-batch (api vertex)  run 1
+  kb_dir / config   data/corpus_kb_fixed / 06e891b2b957
+  documents         6044 (base 6044); same id set as base: True; manifest doc_count 6044
+  stored expansion == read_expansions() today: 6044 of 6044
+  empty expansion   1 documents: ['CAPEC-257']
+  manifest          documents_with_expansion 6043 (= 6044 - 1: True), accepted_terms 48238, parse_failures []
+  negative control  'ram' under CVE-2012-4687 (non-empty expansion without it): found=False (must be False)
+  postings          75 accepted terms from 8 sampled documents ['CWE-969', 'CWE-1218', 'CAPEC-123', 'CAPEC-413', 'T1221', 'T1204.003', 'CVE-2024-11039', 'CVE-2022-47385']
+                    123 of 123 analysed tokens are postings of the right document's expansion field
+  RESULT            PASS
+== indexes/enriched_gemini_run2
+  built from        indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch2_fixed.jsonl
+  sha256            59969486bfa7b527291b0d0fca9f270ae42fd7e16f61271790bda795f3b8a372  recomputed matches: True
+  model / service   gemini-3.1-pro-preview / vertex-batch (api vertex)  run 2
+  kb_dir / config   data/corpus_kb_fixed / 06e891b2b957
+  documents         6044 (base 6044); same id set as base: True; manifest doc_count 6044
+  stored expansion == read_expansions() today: 6044 of 6044
+  empty expansion   2 documents: ['CAPEC-257', 'CVE-2019-1135']
+  manifest          documents_with_expansion 6042 (= 6044 - 2: True), accepted_terms 48122, parse_failures []
+  negative control  'ram' under CVE-2012-4687 (non-empty expansion without it): found=False (must be False)
+  postings          76 accepted terms from 8 sampled documents ['CWE-969', 'CWE-1218', 'CAPEC-123', 'CAPEC-413', 'T1221', 'T1204.003', 'CVE-2024-11167', 'CVE-2022-47386']
+                    128 of 128 analysed tokens are postings of the right document's expansion field
+  RESULT            PASS
+== indexes/enriched
+  built from        indexes/enrichment/corpus_full_v4_14b_fixed.jsonl
+  sha256            not recorded (built before the field existed)  file now: b85f63149edbeac86c704c724ae3843b6bf36ae1e752abdeae5c391bd1667aa3
+  model / service   qwen2.5:14b / None (api None)  run None
+  kb_dir / config   data/corpus_kb_fixed / 06e891b2b957
+  documents         6044 (base 6044); same id set as base: True; manifest doc_count 6044
+  stored expansion == read_expansions() today: 6044 of 6044
+  empty expansion   75 documents: ['CAPEC-110', 'CAPEC-136', 'CAPEC-144', 'CAPEC-250', 'CAPEC-603', 'CAPEC-606', 'CAPEC-635', 'CAPEC-676', 'CVE-2019-1135', 'CVE-2020-26277', 'CVE-2020-4027', 'CVE-2022-47378', 'CVE-2024-10781', 'CVE-2024-10834', 'CVE-2025-1220', 'CVE-2025-26644', 'CVE-2025-26667', 'CVE-2025-29810', 'CVE-2025-4302', 'CVE-2025-47160', 'CVE-2025-47969', 'CVE-2025-48808', 'CVE-2025-48906', 'CVE-2025-5463', 'CWE-1083', 'CWE-1086', 'CWE-1138', 'CWE-1142', 'CWE-1177', 'CWE-1201', 'CWE-1220', 'CWE-1376', 'CWE-1397', 'CWE-1404', 'CWE-1415', 'CWE-146', 'CWE-219', 'CWE-242', 'CWE-254', 'CWE-288', 'CWE-348', 'CWE-354', 'CWE-365', 'CWE-378', 'CWE-485', 'CWE-499', 'CWE-516', 'CWE-573', 'CWE-637', 'CWE-673', 'CWE-676', 'CWE-693', 'CWE-696', 'CWE-730', 'CWE-861', 'CWE-906', 'CWE-907', 'CWE-975', 'CWE-983', 'CWE-992', 'T0880', 'T0894', 'T1036.007', 'T1036.008', 'T1064', 'T1065', 'T1071.003', 'T1090.001', 'T1222', 'T1404', 'T1480.002', 'T1516', 'T1542.001', 'T1661', 'T1662']
+  manifest          documents_with_expansion 5969 (= 6044 - 75: True), accepted_terms 29865, parse_failures ['T1064', 'T1542.001', 'CVE-2022-47378']
+  negative control  'write' under CVE-2012-4687 (non-empty expansion without it): found=False (must be False)
+  postings          49 accepted terms from 8 sampled documents ['CWE-1224', 'CWE-1052', 'CAPEC-416', 'CAPEC-388', 'T1209', 'T1087.004', 'CVE-2022-47389', 'CVE-2025-7207']
+                    96 of 96 analysed tokens are postings of the right document's expansion field
+  RESULT            PASS
+
+==================================== Part 2: smoke test ====================================
+base      indexes/base                   docs 6044  built from data/corpus_kb_fixed
+14B       indexes/enriched               docs 6044  built from indexes/enrichment/corpus_full_v4_14b_fixed.jsonl
+Gemini 1  indexes/enriched_gemini_run1   docs 6044  built from indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch1_fixed.jsonl
+Gemini 2  indexes/enriched_gemini_run2   docs 6044  built from indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch2_fixed.jsonl
+
+### repeated login failures from one IP
+  base
+    1. CAPEC-227        Sustained Client Engagement           
+    2. CAPEC-600        Credential Stuffing                   
+    3. CAPEC-187        Malicious Automated Software Update vi
+    4. CAPEC-24         Filter Failure through Buffer Overflow
+    5. T1110.003        Password Spraying                     
+  14B
+    1. T1621            Multi-Factor Authentication Request Ge  via-expansion=['login', 'repeat']
+    2. T1110.003        Password Spraying                       via-expansion=['failur', 'login']
+    3. CAPEC-227        Sustained Client Engagement             via-expansion=['login']
+    4. T1110.004        Credential Stuffing                     via-expansion=['failur', 'login']
+    5. T1110            Brute Force                             via-expansion=['login']
+  Gemini 1
+    1. CAPEC-600        Credential Stuffing                     via-expansion=['login']
+    2. CVE-2025-23168   CVE-2025-23168                          via-expansion=['failur', 'login']
+    3. CAPEC-227        Sustained Client Engagement             via-expansion=[]
+    4. T1556.001        Domain Controller Authentication        via-expansion=['login']
+    5. CAPEC-2          Inducing Account Lockout                via-expansion=['login']
+  Gemini 2
+    1. T1556.003        Pluggable Authentication Modules        via-expansion=['login']
+    2. CVE-2025-23168   CVE-2025-23168                          via-expansion=['failur', 'login']
+    3. CAPEC-227        Sustained Client Engagement             via-expansion=[]
+    4. T1556.001        Domain Controller Authentication        via-expansion=['login']
+    5. CAPEC-2          Inducing Account Lockout                via-expansion=['login']
+
+### attacker reads memory after it's freed
+  base
+    1. CWE-415          Double Free                           
+    2. CWE-416          Use After Free                        
+    3. CVE-2025-38292   CVE-2025-38292                        
+    4. CAPEC-131        Resource Leak Exposure                
+    5. CWE-825          Expired Pointer Dereference           
+  14B
+    1. CWE-415          Double Free                             via-expansion=['memori']
+    2. CVE-2025-43587   CVE-2025-43587                          via-expansion=['after', 'memori']
+    3. CWE-416          Use After Free                          via-expansion=['memori']
+    4. CAPEC-131        Resource Leak Exposure                  via-expansion=['memori']
+    5. CWE-825          Expired Pointer Dereference             via-expansion=['memori']
+  Gemini 1
+    1. CAPEC-131        Resource Leak Exposure                  via-expansion=['memori']
+    2. CVE-2025-38292   CVE-2025-38292                          via-expansion=['memori']
+    3. CWE-415          Double Free                             via-expansion=[]
+    4. CWE-825          Expired Pointer Dereference             via-expansion=['memori']
+    5. CWE-416          Use After Free                          via-expansion=[]
+  Gemini 2
+    1. CVE-2025-38292   CVE-2025-38292                          via-expansion=['memori']
+    2. CAPEC-131        Resource Leak Exposure                  via-expansion=['memori']
+    3. CWE-415          Double Free                             via-expansion=[]
+    4. CWE-825          Expired Pointer Dereference             via-expansion=['memori']
+    5. CWE-416          Use After Free                          via-expansion=[]
+
+### malware hides in a scheduled task to survive reboot
+  base
+    1. T1053.005        Scheduled Task                        
+    2. T1053.002        At                                    
+    3. T1053            Scheduled Task/Job                    
+    4. T1036.004        Masquerade Task or Service            
+    5. T1053.003        Cron                                  
+  14B
+    1. T1053.005        Scheduled Task                          via-expansion=['schedul', 'task']
+    2. T1603            Scheduled Task/Job                      via-expansion=['schedul', 'task']
+    3. CAPEC-504        Task Impersonation                      via-expansion=['malwar', 'task']
+    4. CAPEC-557        DEPRECATED: Schedule Software To Run    via-expansion=['schedul', 'task']
+    5. T1053.001        At (Linux)                              via-expansion=['schedul', 'task']
+  Gemini 1
+    1. T1053.005        Scheduled Task                          via-expansion=['schedul', 'task']
+    2. T1053.002        At                                      via-expansion=['task']
+    3. CAPEC-557        DEPRECATED: Schedule Software To Run    via-expansion=['schedul', 'task']
+    4. T1053.006        Systemd Timers                          via-expansion=['schedul', 'task']
+    5. CAPEC-638        Altered Component Firmware              via-expansion=['surviv']
+  Gemini 2
+    1. T1053.005        Scheduled Task                          via-expansion=['task']
+    2. T1053.001        At (Linux)                              via-expansion=['task']
+    3. T1036.004        Masquerade Task or Service              via-expansion=['task']
+    4. CAPEC-557        DEPRECATED: Schedule Software To Run    via-expansion=['schedul', 'task']
+    5. T1053.006        Systemd Timers                          via-expansion=['schedul', 'task']
+
+### tricking users into clicking a fake login page
+  base
+    1. CAPEC-98         Phishing                              
+    2. CAPEC-222        iFrame Overlay                        
+    3. CAPEC-103        Clickjacking                          
+    4. CAPEC-630        TypoSquatting                         
+    5. CVE-2024-11405   CVE-2024-11405                        
+  14B
+    1. CWE-206          Observable Internal Behavioral Discrep  via-expansion=['login', 'page']
+    2. CVE-2024-11405   CVE-2024-11405                          via-expansion=['login']
+    3. CAPEC-98         Phishing                                via-expansion=[]
+    4. CAPEC-222        iFrame Overlay                          via-expansion=[]
+    5. CVE-2025-7667    CVE-2025-7667                           via-expansion=['trick']
+  Gemini 1
+    1. CAPEC-103        Clickjacking                            via-expansion=['click']
+    2. CAPEC-222        iFrame Overlay                          via-expansion=['click']
+    3. CVE-2025-7021    CVE-2025-7021                           via-expansion=['click']
+    4. CAPEC-173        Action Spoofing                         via-expansion=['click']
+    5. CAPEC-98         Phishing                                via-expansion=[]
+  Gemini 2
+    1. CAPEC-103        Clickjacking                            via-expansion=['click']
+    2. CAPEC-222        iFrame Overlay                          via-expansion=['click']
+    3. CAPEC-173        Action Spoofing                         via-expansion=['click', 'fake']
+    4. CAPEC-98         Phishing                                via-expansion=[]
+    5. CAPEC-181        Flash File Overlay                      via-expansion=['click']
+
+### server lets attacker read files outside the web folder
+  base
+    1. CVE-2024-2178    CVE-2024-2178                         
+    2. T1051            Shared Webroot                        
+    3. CAPEC-41         Using Meta-characters in E-mail Header
+    4. CVE-2025-5961    CVE-2025-5961                         
+    5. CVE-2025-7699    CVE-2025-7699                         
+  14B
+    1. CVE-2025-7699    CVE-2025-7699                           via-expansion=['folder']
+    2. T1569.001        Launchctl                               via-expansion=['folder']
+    3. CVE-2025-49830   CVE-2025-49830                          via-expansion=['folder']
+    4. CVE-2025-52786   CVE-2025-52786                          via-expansion=['folder']
+    5. T1074.001        Local Data Staging                      via-expansion=['folder']
+  Gemini 1
+    1. CAPEC-126        Path Traversal                          via-expansion=['folder']
+    2. T1547.001        Registry Run Keys / Startup Folder      via-expansion=['folder']
+    3. CVE-2024-2178    CVE-2024-2178                           via-expansion=[]
+    4. T1060            Registry Run Keys / Startup Folder      via-expansion=['folder']
+    5. T1051            Shared Webroot                          via-expansion=[]
+  Gemini 2
+    1. CAPEC-126        Path Traversal                          via-expansion=['folder']
+    2. T1547.001        Registry Run Keys / Startup Folder      via-expansion=['folder']
+    3. CVE-2024-2178    CVE-2024-2178                           via-expansion=[]
+    4. T1051            Shared Webroot                          via-expansion=[]
+    5. CAPEC-41         Using Meta-characters in E-mail Header  via-expansion=[]
+
+=== overlap of top-5 sets (same documents, any order), per query
+  repeated login failures from one IP           base/14B 2  base/Gemini 1 2  14B/Gemini 1 1  14B/Gemini 2 1  Gemini 1/Gemini 2 4
+  attacker reads memory after it's freed        base/14B 4  base/Gemini 1 5  14B/Gemini 1 4  14B/Gemini 2 4  Gemini 1/Gemini 2 5
+  malware hides in a scheduled task to survive  base/14B 1  base/Gemini 1 2  14B/Gemini 1 2  14B/Gemini 2 3  Gemini 1/Gemini 2 3
+  tricking users into clicking a fake login pa  base/14B 3  base/Gemini 1 3  14B/Gemini 1 2  14B/Gemini 2 2  Gemini 1/Gemini 2 4
+  server lets attacker read files outside the   base/14B 1  base/Gemini 1 2  14B/Gemini 1 0  14B/Gemini 2 0  Gemini 1/Gemini 2 4
+
+== Reading (written by hand, 2026-11-17) ==
+- Part 1: all three enriched indexes PASS. 6,044 documents each, the same ids as the base index; the stored
+  expansion of every document equals what today's read_expansions() produces; every analysed token of the
+  sampled accepted terms (75 / 76 / 49 terms) is a posting of the right document's expansion field, and a
+  token is not found under a document whose expansion lacks it. Empty expansions: Gemini 1 one (CAPEC-257,
+  deprecated entry), Gemini 2 two (CAPEC-257, CVE-2019-1135, a REJECTED CVE number), 14B 75 (incl. the 3
+  unparseable replies). On CVE-2019-1135 Gemini run 1 got "unassigned", "withdrawn", "invalid", "empty",
+  "unused" accepted -- filler on an entry with no content, the same pattern as the 117 "null" CVEs.
+- Part 2: the two Gemini runs agree with each other more (3-5 of 5 shared per query) than either agrees with
+  the 14B (0-4). Gemini's expansion helps where its terms are specific: CAPEC-126 Path Traversal is first on
+  query 5 in both Gemini runs (no index found a path-traversal entry before); Clickjacking/iFrame Overlay lead
+  query 4. It hurts elsewhere the same way the 14B's does: one shared word in a short expansion field wins
+  ("folder" -> Registry Run Keys / Startup Folder; "login" -> T1556.x), and on query 2 CWE-416 Use After Free
+  drops to 5th. Same cause as in October: field summing at boost 1.0, short expansion fields. Five queries
+  prove nothing; the weight w is Module 3's to tune on the dev queries.
+- Run-to-run gap: Gemini 1 vs 2 already differ on 1-2 of 5 hits per query. Any 14B-vs-Gemini retrieval
+  difference in Phase 4 has to be larger than this gap to mean anything.
+
+=== script 1: index check (run once per enriched index)
+"""Check an enriched index against the enrichment file that built it. Read-only.
+
+1. document count (Lucene) == 6,044, same id set as the base index;
+2. for EVERY document: stored expansion == read_expansions() of today's code;
+3. sampled accepted terms (seed 42, 2 documents per catalogue): every analysed
+   token of every accepted term is a posting of that document's expansion field;
+4. documents whose expansion is empty, listed;
+5. manifest provenance: file, SHA-256 (recomputed), model, service, run.
+"""
+import json
+import random
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "src")
+from pyserini.index.lucene import LuceneIndexReader  # noqa: E402
+from sira_cti.common import read_jsonl  # noqa: E402
+from sira_cti.index.build_enriched import EXPANSION_FIELD, file_sha256, read_expansions  # noqa: E402
+
+index_dir = Path(sys.argv[1])
+manifest = json.loads((index_dir / "manifest.json").read_text())
+enrichment = Path(manifest["enrichment_path"])
+print(f"== {index_dir}")
+ok = True
+
+# 5. provenance
+sha = file_sha256(enrichment)
+print(f"  built from        {enrichment}")
+recorded = manifest.get("enrichment_sha256")
+print(f"  sha256            {recorded or 'not recorded (built before the field existed)'}  "
+      f"{'recomputed matches: ' + str(recorded == sha) if recorded else 'file now: ' + sha}")
+print(f"  model / service   {manifest['enrichment_model']} / {manifest.get('enrichment_service')} (api {manifest.get('enrichment_api')})  run {manifest.get('enrichment_run')}")
+print(f"  kb_dir / config   {manifest['kb_dir']} / {manifest['config_hash']}")
+if manifest.get("enrichment_sha256") is not None and manifest["enrichment_sha256"] != sha:
+    ok = False
+
+# 1. document count and id set
+reader = LuceneIndexReader(str(index_dir))
+base = LuceneIndexReader("indexes/base")
+n, nb = reader.stats()["documents"], base.stats()["documents"]
+ids = [reader.convert_internal_docid_to_collection_docid(i) for i in range(n)]
+base_ids = {base.convert_internal_docid_to_collection_docid(i) for i in range(nb)}
+same_set = set(ids) == base_ids
+print(f"  documents         {n} (base {nb}); same id set as base: {same_set}; manifest doc_count {manifest['doc_count']}")
+ok &= n == 6044 and same_set and manifest["doc_count"] == 6044
+
+# 2. every stored expansion == today's code
+expected = read_expansions(enrichment, index_repaired_ids=manifest.get("index_repaired_ids", False))
+stored = {d: json.loads(reader.doc(d).raw()).get(EXPANSION_FIELD, "") for d in ids}
+mismatch = [d for d in ids if stored[d] != expected.get(d, "")]
+print(f"  stored expansion == read_expansions() today: {n - len(mismatch)} of {n}" + (f"  MISMATCH {mismatch[:10]}" if mismatch else ""))
+ok &= not mismatch
+
+# 4. empty expansions
+empty = sorted(d for d in ids if not stored[d].strip())
+print(f"  empty expansion   {len(empty)} documents: {empty}")
+print(f"  manifest          documents_with_expansion {manifest['documents_with_expansion']} (= {n} - {len(empty)}: "
+      f"{manifest['documents_with_expansion'] == n - len(empty)}), accepted_terms {manifest['accepted_terms']}, "
+      f"parse_failures {manifest['parse_failures']}")
+ok &= manifest["documents_with_expansion"] == n - len(empty)
+
+# 3. postings for sampled accepted terms
+recs = {r.doc_id: r for r in read_jsonl(enrichment)}
+rng = random.Random(42)
+sample = []
+for src in ("cwe", "capec", "attack", "cve"):
+    pool = sorted(d for d, r in recs.items() if r.source.value == src and r.accepted_terms)
+    sample += rng.sample(pool, 2)
+# pyserini's get_postings_list reads "contents" only; go to Lucene for the expansion field.
+from jnius import autoclass  # noqa: E402
+MultiTerms = autoclass("org.apache.lucene.index.MultiTerms")
+Term = autoclass("org.apache.lucene.index.Term")
+
+
+def posting_in_expansion(token: str, doc_id: str) -> bool:
+    target = reader.convert_collection_docid_to_internal_docid(doc_id)
+    pe = MultiTerms.getTermPostingsEnum(reader.reader, EXPANSION_FIELD, Term(EXPANSION_FIELD, token).bytes())
+    return pe is not None and pe.advance(target) == target
+
+
+# Negative control: a token that is in the document's expansion must NOT be found
+# under a document whose expansion lacks it (so the lookup can say no).
+terms = tokens = found = 0
+misses = []
+for d in sample:
+    for t in recs[d].accepted_terms:
+        # The text actually indexed for a structural term is its normalised id (expansion_query()).
+        text = t.structural_id if t.structural_id else t.term
+        terms += 1
+        for tok in reader.analyze(text):
+            tokens += 1
+            if posting_in_expansion(tok, d):
+                found += 1
+            else:
+                misses.append((d, text, tok))
+control_tok = reader.analyze(recs[sample[0]].accepted_terms[0].term)[0]
+# a document WITH an expansion, whose analysed expansion lacks the token
+control_doc = next(d for d in ids if stored[d].strip() and control_tok not in reader.analyze(stored[d]))
+control_ok = not posting_in_expansion(control_tok, control_doc)
+print(f"  negative control  {control_tok!r} under {control_doc} (non-empty expansion without it): "
+      f"found={not control_ok} (must be False)")
+ok &= control_ok
+print(f"  postings          {terms} accepted terms from {len(sample)} sampled documents {sample}")
+print(f"                    {found} of {tokens} analysed tokens are postings of the right document's expansion field"
+      + (f"  MISSING {misses[:10]}" if misses else ""))
+ok &= terms >= 20 and not misses
+print(f"  RESULT            {'PASS' if ok else 'FAIL'}")
+
+=== script 2: smoke test
+"""Five made-up analyst queries, top 5, across base + the three enriched indexes.
+
+NOT an evaluation: no gold answers. Same scorer and settings as the 2026-10-14
+smoke test (docs/results/enriched_index_smoke_test.txt):
+sira_cti.retrieval.WeightedBM25Retriever, k1=0.9 b=0.4;
+base = contents only (boost 1.0); enriched = default fields {contents: 1.0, expansion: 1.0}.
+No query-side enrichment, so every difference comes from the expansion field.
+'via-expansion' = analysed query tokens present in the hit's analysed expansion field.
+"""
+import json
+import sys
+
+sys.path.insert(0, "src")
+from sira_cti.retrieval.weighted_bm25 import WeightedBM25Retriever  # noqa: E402
+
+QUERIES = [
+    "repeated login failures from one IP",
+    "attacker reads memory after it's freed",
+    "malware hides in a scheduled task to survive reboot",
+    "tricking users into clicking a fake login page",
+    "server lets attacker read files outside the web folder",
+]
+INDEXES = {
+    "base": ("indexes/base", {"orig_fields": {"contents": 1.0}}),
+    "14B": ("indexes/enriched", {}),
+    "Gemini 1": ("indexes/enriched_gemini_run1", {}),
+    "Gemini 2": ("indexes/enriched_gemini_run2", {}),
+}
+R = {name: WeightedBM25Retriever(path, **kw) for name, (path, kw) in INDEXES.items()}
+for name, (path, _) in INDEXES.items():
+    try:
+        m = json.load(open(f"{path}/manifest.json"))
+        print(f"{name:9} {path:30} docs {m['doc_count']}  built from {m.get('enrichment_path', m.get('kb_dir'))}")
+    except FileNotFoundError:
+        print(f"{name:9} {path}")
+
+
+def title(r, doc_id):
+    text = r.doc_text(doc_id)
+    return (text.split(" {")[0] if text else doc_id)[:38]
+
+
+tops = {}
+for q in QUERIES:
+    print(f"\n### {q}")
+    qtok = set(R["base"].analyze(q))
+    for name, r in R.items():
+        hits = r.retrieve(q, k=5).hits
+        tops[(q, name)] = [h.doc_id for h in hits]
+        print(f"  {name}")
+        for i, h in enumerate(hits, 1):
+            via = ""
+            if name != "base":
+                raw = json.loads(r._searcher.doc(h.doc_id).raw())
+                via = f"  via-expansion={sorted(qtok & set(r.analyze(raw.get('expansion', ''))))}"
+            print(f"    {i}. {h.doc_id:16} {title(r, h.doc_id):38}{via}")
+
+print("\n=== overlap of top-5 sets (same documents, any order), per query")
+names = list(INDEXES)
+for q in QUERIES:
+    cells = []
+    for a, b in (("base", "14B"), ("base", "Gemini 1"), ("14B", "Gemini 1"), ("14B", "Gemini 2"), ("Gemini 1", "Gemini 2")):
+        cells.append(f"{a}/{b} {len(set(tops[(q, a)]) & set(tops[(q, b)]))}")
+    print(f"  {q[:44]:44}  " + "  ".join(cells))

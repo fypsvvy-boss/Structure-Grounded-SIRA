@@ -340,3 +340,91 @@ def test_enriched_index_manifest_counts_documents_and_failures(enriched_index):
     assert manifest["parse_failures"] == []
     # The fixture run records no config hash, digest or commit; the manifest says so rather than guessing.
     assert manifest["enrichment_config_hash"] is manifest["enrichment_model_digest"] is manifest["enrichment_code_commit"] is None
+
+
+# -- index manifest: which file, which service, which run (Stage 2 indexes) --------------
+
+
+def test_enriched_index_manifest_records_the_enrichment_files_sha256(enriched_index):
+    import hashlib
+
+    index_dir, enrichment_path = enriched_index
+    manifest = json.loads((index_dir / "manifest.json").read_text())
+    assert manifest["enrichment_sha256"] == hashlib.sha256(enrichment_path.read_bytes()).hexdigest()
+
+
+def test_enriched_index_manifest_records_no_run_number_unless_given(enriched_index):
+    index_dir, _ = enriched_index
+    assert json.loads((index_dir / "manifest.json").read_text())["enrichment_run"] is None
+
+
+def test_enriched_index_manifest_records_the_run_number_and_service(tmp_path, enriched_index):
+    # Same enrichment file, a fresh index, with a run number and a Gemini-style
+    # sidecar manifest: every one of these must come through into the index manifest.
+    _, fixture_enrichment = enriched_index
+    enrichment = tmp_path / "gemini_run2.jsonl"
+    enrichment.write_bytes(fixture_enrichment.read_bytes())
+    sidecar = json.loads(fixture_enrichment.with_suffix(".jsonl.manifest.json").read_text())
+    sidecar["model"] = "gemini-3.1-pro-preview"
+    sidecar["llm"] = {"backend": "gemini", "api": "vertex", "service": "vertex-batch"}
+    enrichment.with_suffix(".jsonl.manifest.json").write_text(json.dumps(sidecar))
+
+    index_dir = build_enriched_index(
+        kb_dir=CORPUS_KB_FIXTURE, enrichment_path=enrichment, index_dir=tmp_path / "enriched_gemini_run2",
+        staging_dir=tmp_path / "staging", threads=1, config_hash="test-hash", run=2,
+    )
+    manifest = json.loads((index_dir / "manifest.json").read_text())
+    assert manifest["enrichment_run"] == 2
+    assert manifest["enrichment_model"] == "gemini-3.1-pro-preview"
+    assert manifest["enrichment_service"] == "vertex-batch" and manifest["enrichment_api"] == "vertex"
+    assert manifest["enrichment_path"] == str(enrichment)
+
+
+@pytest.mark.parametrize("bad", [0, -1, "2", 1.0, True])
+def test_build_enriched_index_refuses_a_run_number_that_is_not_a_positive_integer(tmp_path, enriched_index, bad):
+    _, enrichment = enriched_index
+    with pytest.raises(ValueError, match="run must be a positive integer"):
+        build_enriched_index(
+            kb_dir=CORPUS_KB_FIXTURE, enrichment_path=enrichment, index_dir=tmp_path / "never_built", run=bad,
+        )
+    assert not (tmp_path / "never_built").exists()   # refused before anything was written
+
+
+def test_enrichment_service_reads_the_runs_own_manifest_never_the_file_name():
+    from sira_cti.index.build_enriched import enrichment_service
+
+    gemini = {"llm": {"backend": "gemini", "api": "vertex", "service": "vertex-batch"}}
+    ollama = {"llm": {"backend": "ollama", "temperature": 0.0}}
+    assert enrichment_service(gemini) == {"service": "vertex-batch", "api": "vertex"}
+    assert enrichment_service(ollama) == {"service": "ollama", "api": None}
+    # An online Gemini run that recorded only the api, and a file with no sidecar at all.
+    assert enrichment_service({"llm": {"backend": "gemini", "api": "vertex"}}) == {"service": "vertex", "api": "vertex"}
+    assert enrichment_service({}) == {"service": None, "api": None}
+
+
+def test_file_sha256_matches_hashlib_on_a_file_larger_than_one_chunk(tmp_path):
+    import hashlib
+
+    from sira_cti.index.build_enriched import file_sha256
+
+    big = tmp_path / "big.bin"
+    big.write_bytes(bytes(range(256)) * 9000)   # ~2.2 MB: crosses the 1 MB read size twice
+    assert file_sha256(big) == hashlib.sha256(big.read_bytes()).hexdigest()
+
+
+def test_build_index_script_accepts_a_run_flag(tmp_path):
+    # A dry run builds nothing, so this only checks the flag parses; that the
+    # number reaches the manifest is the run-number test above.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    snapshot = tmp_path / "snapshot.jsonl"
+    snapshot.write_text("")
+    done = subprocess.run(
+        [sys.executable, str(root / "scripts" / "build_index.py"), "--stage", "enriched", "--dry-run",
+         "--enrichment-path", str(snapshot), "--enriched-dir", str(tmp_path / "idx"), "--run", "1"],
+        capture_output=True, text=True, cwd=root,
+    )
+    assert done.returncode == 0, done.stderr

@@ -8,12 +8,28 @@
 
 ## Current headline
 
-**2026-11-17 (latest): Stage 2 recorded — three full-corpus runs on the
+**2026-11-17 (latest): Module 1 COMPLETE. No open items.**
+- **Billing:** exception 7's actual charge is **₹117**. The console reads
+  **₹6,898 used** of ₹28,569 (₹21,671 left), up from ₹6,781, which covered
+  exceptions 3–6. That is exactly the batch-rate estimate, so all Gemini
+  spending is confirmed.
+- **Indexes:** all three enriched indexes now carry the same manifest
+  (enrichment file, SHA-256, model, service, run). The 14B index was rebuilt
+  for this and shown identical to the one it replaced.
+- **Handoff note:** updated in place to the corrected corpus.
+- **Rejected CVEs:** CVE-2019-1135 is the only rejected or reserved CVE in
+  the corpus.
+
+Details: "Last tidy-up" below. What Phase 4 needs: "Module 1 complete: what
+Phase 4 gets".
+
+**2026-11-17: Stage 2 recorded — three full-corpus runs on the
 corrected corpus, compared.** `qwen2.5:14b` is the main model (its index is
 `indexes/enriched`); the two Gemini runs are **robustness** runs (enrichment
 files only, no Lucene index built for them yet). Gemini cost ≈ $69.70
 (exception 4) + ≈ $1.23 (exception 7); the console confirms exception 4 at
-the batch rate, exception 7 not yet read. **New finding: at full scale, the
+the batch rate, exception 7 not yet read (confirmed later the same day:
+₹6,898 used, +₹117). **New finding: at full scale, the
 chapter's "relatedness does not improve" does not hold** for generated ids
 on CWE/CAPEC/ATT&CK documents (Gemini 63–67% within 2 hops vs 14B 49–50%; 0–1
 hop 26–33% vs 7–9%). Results: `docs/results/stage2_three_runs.txt`.
@@ -379,6 +395,106 @@ result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
 
+### Last tidy-up: 14B index manifest, handoff note, rejected CVEs (2026-11-17, latest)
+
+**14B index rebuilt with today's `build_index.py`**, so its manifest matches
+the Gemini indexes: `enrichment_sha256` `b85f63149edb…` (=
+`corpus_full_v4_14b_fixed.jsonl` now), `enrichment_service` `ollama`,
+`enrichment_run` 1 (the 14B has one full-corpus run). It was built into a new
+folder first and compared with the index in use:
+
+| comparison, old `indexes/enriched` vs rebuild | result |
+|---|---|
+| document ids | 6,044 = 6,044, same set |
+| stored document (id, contents, expansion), every document | 6,044 of 6,044 identical |
+| expansion postings (doc, term frequency) for the sampled terms (seed 42, 2 docs per catalogue; 73 tokens, 8,648 postings) | 73 of 73 identical |
+| whole expansion vocabulary, each term's docFreq and totalTermFreq | 6,783 = 6,783 terms, all identical; field totals 5,969 / 48,272 / 57,251 both |
+| contents field totals (docs / sumDocFreq / sumTotalTermFreq) | 6,044 / 536,085 / 999,510 both |
+
+Then swapped in as `indexes/enriched/` and re-checked (SHA-256 matches, all
+6,044 expansions equal today's code, 96 of 96 sampled tokens found). The old
+copy was moved out of `indexes/` (not kept in the repo; identical anyway).
+
+**Handoff note updated in place** (`07_PHASE1_HANDOFF.md`). The 14B source
+is `corpus_full_v4_14b_fixed.jsonl`, the totals are 72,090 / 29,865 / 5,969
+(75 empty), the config is `06e891b2b957`, the "What built it" table covers
+both machines, and all rebuild commands are current. The banner is removed.
+The old Stage 1 file and `indexes/enriched_unfixed/` are listed as
+superseded (history only).
+
+**Rejected or reserved CVEs: only CVE-2019-1135.** I searched all 3,011 CVE
+records (descriptions in both record layouts; no record has a status field)
+for "DO NOT USE", "Rejected reason", "** REJECT", "RESERVED", "withdrawn",
+"candidate" and similar. Every other match was ordinary vulnerability text
+("duplicate names", "do not use … a protection mechanism"). The records with
+the shortest descriptions (under 60 characters) are real vulnerabilities.
+For CVE-2019-1135 ("Rejected reason: DO NOT USE THIS CANDIDATE NUMBER … not
+assigned to any issues during 2019"):
+
+| run | accepted |
+|---|---|
+| 14B | nothing (no proposals) |
+| Gemini run 1 | "unassigned", "withdrawn", "invalid", "empty", "unused" |
+| Gemini run 2 | nothing (no proposals) |
+
+One document and five filler words in one robustness run, the same pattern
+as the 117 `"null"` CVEs. Left as recorded; no data changed.
+
+### Module 1 complete: what Phase 4 gets (2026-11-17)
+
+**Gemini indexes built and checked.** `build_index.py` gained `--run N`, and
+every enriched-index manifest now also records the enrichment file's SHA-256,
+the service (`vertex-batch` / `ollama`) and the run number (7 new tests,
+11 cases, in `tests/test_index_build.py`; 571 tests pass). Built with `--enriched-dir`, so the 14B index
+and the config were not touched.
+
+| check (same for all three enriched indexes) | Gemini run 1 | Gemini run 2 | 14B |
+|---|---|---|---|
+| documents, same ids as base | 6,044 ✓ | 6,044 ✓ | 6,044 ✓ |
+| stored expansion = today's code, every document | 6,044 of 6,044 | 6,044 of 6,044 | 6,044 of 6,044 |
+| sampled accepted terms → postings of the right document | 75 terms, 123 of 123 tokens | 76 terms, 128 of 128 | 49 terms, 96 of 96 |
+| negative control (token absent where it should be) | ✓ | ✓ | ✓ |
+| documents with an empty expansion | 1: CAPEC-257 | 2: CAPEC-257, CVE-2019-1135 | 75 |
+| manifest SHA-256 = file now | ✓ `11ad4a83…` | ✓ `59969486…` | not recorded (built 2026-11-16, before the field); **recorded since the rebuild below: ✓ `b85f6314…`** |
+
+Notes:
+- CAPEC-257 is a deprecated entry. Gemini proposed only its own deprecated id
+  and two too-common phrases.
+- CVE-2019-1135 is a **rejected CVE number** ("DO NOT USE THIS CANDIDATE
+  NUMBER"). Gemini run 2 proposed nothing. Run 1 had "unassigned",
+  "withdrawn", "invalid", "empty" and "unused" accepted. That is filler on an
+  empty entry, the same pattern as the 117 "null" CVEs (open question 16).
+  One document, so it is left in as recorded.
+
+**Smoke test, four indexes** (`docs/results/enriched_index_smoke_test_all.txt`;
+not an evaluation). The two Gemini runs share 3–5 of their top 5 per query.
+Gemini and the 14B share 0–4. Gemini's terms bring CAPEC-126 Path Traversal
+to first place on the path-traversal query (no index found it before). They
+also show the same weakness as the 14B: one shared word in a short expansion
+field wins ("folder" → Registry Run Keys / Startup Folder), and Use After Free
+drops to 5th on the memory query. Tuning `w` is Module 3's job.
+
+**What Phase 4 needs from Module 1** (all in place):
+
+| item | where |
+|---|---|
+| base index (plain BM25 baseline) | `indexes/base/` |
+| **main** enriched index, `qwen2.5:14b` | `indexes/enriched/` (from `corpus_full_v4_14b_fixed.jsonl`) |
+| robustness index, Gemini run 1 | `indexes/enriched_gemini_run1/` |
+| robustness index, Gemini run 2 | `indexes/enriched_gemini_run2/` |
+| enrichment records behind each (for ablations: repair flag, own-id removal, `include_graph_rejected`) | `indexes/enrichment/corpus_full_v4_{14b,gemini-3.1-pro_vertexbatch1,gemini-3.1-pro_vertexbatch2}_fixed.jsonl` |
+| handoff note: paths, roles, noise floor, relatedness finding, interfaces | `07_PHASE1_HANDOFF.md` |
+| results files | `docs/results/stage2_three_runs.txt`, `enriched_index_smoke_test_all.txt`, `stage1_full_breakdown.txt` (old numbers; corrected values in "Stage 2 compared" below), `graph_build.txt` |
+| chapter | `docs/report/module1_enrichment_and_grounding.md` |
+
+`indexes/` is gitignored: Phase 4 needs a copy of the whole folder from the
+Module 1 owner, or the rebuild commands in the handoff note (needs
+`data/corpus_kb_fixed` and the enrichment files).
+
+**Open items: none.** Exception 7's actual charge was confirmed on
+2026-11-17: ₹6,898 used of ₹28,569 (+₹117, at the batch rate;
+`06_POLICY_EXCEPTIONS.md`).
+
 ### Stage 2: the three full-corpus runs compared (2026-11-17)
 
 **What.** The three full-corpus runs, all on the corrected corpus (6,044
@@ -394,7 +510,8 @@ No model calls. Script and unedited output:
 
 Gemini total ≈ **$70.94** (exception 4 + exception 7). Actual charge: the
 console's ₹6,781 (read 2026-11-16) covers exceptions 3–6. **Exception 7's
-charge has not been read yet**: expected ≈ ₹117 more, so ≈ ₹6,898 used. The
+charge has not been read yet**: expected ≈ ₹117 more, so ≈ ₹6,898 used.
+*(Confirmed later on 2026-11-17: the console read ₹6,898.)* The
 Gemini runs have no Lucene index yet; build one with `build_index.py --stage
 enriched --enrichment-path <file> --enriched-dir <new dir>` when Module 3
 needs it.

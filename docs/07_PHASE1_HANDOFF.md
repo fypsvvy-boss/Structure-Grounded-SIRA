@@ -1,7 +1,9 @@
 # Phase 1 handoff — the enriched index, for Modules 2 and 3
 
 > Written 2026-10-14, when Stage 1 finished and the enriched index was built and
-> checked. Short on purpose; every claim points at where the detail lives.
+> checked; brought up to date 2026-11-17 (corrected corpus, two Gemini
+> robustness indexes). Short on purpose; every claim points at where the
+> detail lives.
 
 ## In one paragraph
 
@@ -12,32 +14,101 @@ common) and was kept with its verdict. The **accepted** terms are now in a
 second Lucene field, `expansion`, of the enriched index. The base index is
 unchanged and stays Module 3's plain-BM25 baseline.
 
+## Stage 2: three enriched indexes (added 2026-11-17)
+
+**`qwen2.5:14b` is the main index.** It is the one Modules 3 and 4 build on
+and report. **Both Gemini indexes are robustness indexes**: the same corpus,
+prompt, gates and settings with only the model changed, to show whether the
+findings survive a much stronger model. They do not replace the 14B index.
+
+| index | path | built from (`indexes/enrichment/`) | role |
+|---|---|---|---|
+| base | `indexes/base/` | `data/corpus_kb_fixed` (contents only) | plain-BM25 baseline |
+| **14B** | `indexes/enriched/` | `corpus_full_v4_14b_fixed.jsonl` | **main** |
+| Gemini run 1 | `indexes/enriched_gemini_run1/` | `corpus_full_v4_gemini-3.1-pro_vertexbatch1_fixed.jsonl` | robustness |
+| Gemini run 2 | `indexes/enriched_gemini_run2/` | `corpus_full_v4_gemini-3.1-pro_vertexbatch2_fixed.jsonl` | robustness |
+
+All four hold the same 6,044 documents with the same fields (`id`,
+`contents`, `expansion`), so any retriever pointed at one works on the
+others. Each enriched index's `manifest.json` records the enrichment file,
+its SHA-256, the model, the service (`ollama` for the 14B, `vertex-batch`
+for Gemini) and the run number (`enrichment_run`: 1 for the 14B, 1 or 2 for
+Gemini). All three passed the same checks (document count, every stored
+expansion, sampled postings): `docs/results/enriched_index_smoke_test_all.txt`.
+
+**The corpus is the corrected one.** 117 CVEs that CTIConnect's corpus
+exported as `"null"` are filled from the official CVE List
+(`data/corpus_kb_fixed`, config hash `06e891b2b957`) and were redone in all
+three runs; the other 5,927 records are Stage 1's, carried over unchanged
+(`03_STATUS_LOG.md`, "Corpus fix"). Rebuild commands: "Where things are"
+below.
+
+**For Phase 4: the noise floor.** Gemini gave different answers on its two
+runs (73.6% of accepted ids shared, 2,484 of 6,044 replies identical). So
+the retrieval gap between Gemini run 1 and Gemini run 2 is the noise floor.
+A 14B-vs-Gemini difference counts as real only if it is clearly larger than
+the run-1-vs-run-2 difference on the same queries and metric. Report the
+Gemini result as a range across the two runs, never one run alone. The
+smoke test already shows the two runs differing on 1–2 of their top 5 hits
+per query.
+
+**For Module 3: the 14B's ids are valid but less closely related.** Looking
+only at accepted ids the model generated (not copied from the entry), on
+CWE/CAPEC/ATT&CK documents, where distance can be measured:
+
+| generated ids | 14B | Gemini run 1 | Gemini run 2 |
+|---|---|---|---|
+| within 1 hop of the document in the graph | 8.5% | 33.3% | 33.4% |
+| within 2 hops | 50.3% | 67.3% | 67.1% |
+
+Every one of them passed the gates, so they are real, correctly named ids.
+But half of the 14B's sit three or more links away from the document. That
+means:
+- **Tune `w` carefully.** A high expansion weight lets loosely related ids
+  pull documents up. The October and November smoke tests already show
+  short expansion fields winning on one shared word.
+- **Consider two ablations.** The repair flag
+  (`enrichment.index_repaired_ids`) and removing a document's own id from its
+  expansion (305 entries in the 14B index carry their own id). Both can be
+  tested offline without new model calls.
+
+Details: `docs/results/stage2_three_runs.txt` (Part 3) and `03_STATUS_LOG.md`
+(2026-11-17).
+
 ## Where things are
 
 | what | path | notes |
 |---|---|---|
-| **enriched index** | `indexes/enriched/` | Lucene (Pyserini). Fields `id`, `contents`, `expansion`. `manifest.json` says what built it |
-| base index | `indexes/base/` | contents only; the DF gate read it during Stage 1 |
-| **enrichment records** | `indexes/enrichment/corpus_full_v4_14b.jsonl` | 6,044 lines, one per document. **The only file to build from** |
-| its manifest | `…/corpus_full_v4_14b.jsonl.manifest.json` | model, digest, prompt, every gate, both shards' SHA-256, every machine |
-| raw unparseable replies | `…/corpus_full_v4_14b.jsonl.raw_failures.jsonl` | 3 records (see below) |
-| shard files | `indexes/enrichment/kaggle_stage1_shards/` | **provenance only** — the two Kaggle shard files, their manifests and logs. No script reads them; the merged file is byte for byte the two shards one after the other (checked) |
+| **enriched index (main, 14B)** | `indexes/enriched/` | Lucene (Pyserini). Fields `id`, `contents`, `expansion`. `manifest.json` says what built it |
+| Gemini robustness indexes | `indexes/enriched_gemini_run1/`, `indexes/enriched_gemini_run2/` | same fields; see "Stage 2" above |
+| base index | `indexes/base/` | contents only, built from `data/corpus_kb_fixed`. The DF gate reads it (Stage 1 read the uncorrected base, kept as `indexes/base_unfixed/`; replaying every saved verdict against the corrected one changed none) |
+| **enrichment records (14B)** | `indexes/enrichment/corpus_full_v4_14b_fixed.jsonl` | 6,044 lines, one per document. **The only 14B file to build from** |
+| its manifest | `…/corpus_full_v4_14b_fixed.jsonl.manifest.json` | model, digest, prompt, every gate, machine; under `spliced`, the Stage 1 file the 5,927 carried records came from (its SHA-256 and full manifest, both shards included) |
+| raw unparseable replies | `…/corpus_full_v4_14b_fixed.jsonl.raw_failures.jsonl` | 3 records (see below) |
+| Gemini enrichment records | `indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch{1,2}_fixed.jsonl` | one per Gemini index, same record format |
+| superseded | `indexes/enrichment/corpus_full_v4_14b.jsonl`, `indexes/enriched_unfixed/` | Stage 1 before the corpus fix; **history only, do not build from** |
+| shard files | `indexes/enrichment/kaggle_stage1_shards/` | **provenance only** — the two Kaggle shard files, their manifests and logs. No script reads them; the Stage 1 file is byte for byte the two shards one after the other (checked) |
 
 `indexes/` is gitignored, so none of this arrives with a clone; ask the
-Module 1 owner for a copy of `indexes/`. To rebuild the enriched index from the
-records (about 4 seconds):
+Module 1 owner for a copy of `indexes/`. To rebuild the three enriched
+indexes from the records (about 5 seconds each):
 
 ```bash
 .venv/bin/python scripts/build_index.py --stage enriched \
-    --enrichment-path indexes/enrichment/corpus_full_v4_14b.jsonl
+    --enrichment-path indexes/enrichment/corpus_full_v4_14b_fixed.jsonl --run 1
+for n in 1 2; do .venv/bin/python scripts/build_index.py --stage enriched \
+    --enrichment-path indexes/enrichment/corpus_full_v4_gemini-3.1-pro_vertexbatch${n}_fixed.jsonl \
+    --enriched-dir indexes/enriched_gemini_run$n --run $n; done
 ```
 
-Do **not** edit `configs/default.yaml` to point at the new file instead: the
-config hash identifies the run (`364d30da6c75`), and the run used command-line
+The first command writes to `indexes/enriched/` (the config's
+`index.enriched_dir`). Do **not** edit `configs/default.yaml` to point at
+the files instead: the config hash identifies the runs (`06e891b2b957` since
+the corpus fix; Stage 1 was `364d30da6c75`), and the runs used command-line
 flags (`--model qwen2.5:14b --name-scorer v2`) precisely so the config could
 stay as it was. The config therefore still says `llm.model: qwen2.5:7b`,
 `name_scorer: v1` and `enrichment_path: …/corpus.jsonl`; the manifests are
-what is true for this run.
+what is true for these runs.
 
 ## What built it
 
@@ -47,8 +118,8 @@ what is true for this run.
 | prompt | `corpus-v4`, truncation rules `sections-v2` (171 long entries shortened for the model; `original_text` is always the full entry) |
 | gates | name scorer **v2** (`min_jaccard` 0.6, v1 fallback `min_overlap` 0.5), `df_max_ratio` 0.1, deprecated rejected, revoked rejected |
 | decoding | temperature 0, seed 42, `num_ctx` 4096, JSON schema, 512-token reply cap |
-| code | commit `6b4eecedf1cd`, clean tree |
-| where | Kaggle, 2× Tesla T4, two sessions, Ollama 0.33.2 |
+| code | 5,927 records: commit `6b4eecedf1cd`; the 117 corrected CVEs: commit `b3a6259`. Clean tree both times |
+| where | 5,927 records: Kaggle, 2× Tesla T4, two sessions, Ollama 0.33.2. The 117: the Mac (Apple M5), Ollama 0.40.14, same weights (digest checked) |
 | schema | **1.5.0** on every record |
 
 ## What a record contains
@@ -63,9 +134,10 @@ attack`), `original_text`, `proposed_terms` (every proposal, accepted or not),
 `02_MODULE1_STATE.md` → "The frozen enrichment-record contract". Load with
 `sira_cti.common.read_jsonl(path)`, which gives `EnrichmentRecord` objects.
 
-Totals: 70,686 terms proposed, **28,705 accepted** (41%), on **5,852 of 6,044
-documents** (the other 192 have an empty `expansion` field — nothing survived
-the gates). Full RQ4 tables: `docs/results/stage1_full_breakdown.txt`.
+Totals (14B): 72,090 terms proposed, **29,865 accepted** (41%), on **5,969 of
+6,044 documents** (the other 75 have an empty `expansion` field — nothing
+survived the gates). Full tables for all three runs:
+`docs/results/stage2_three_runs.txt`.
 
 ## What is in the `expansion` field
 
@@ -96,7 +168,8 @@ Three things to know before you use it:
 3. **Field length matters.** The expansion field is a few words long, and BM25
    scores a match in a short field much higher than the same match in a long
    description. On a five-query smoke test (not an evaluation;
-   `docs/results/enriched_index_smoke_test.txt`) this helped one query
+   `docs/results/enriched_index_smoke_test.txt`, repeated on all four indexes
+   in `enriched_index_smoke_test_all.txt`) this helped one query
    (brute-force entries rose for "repeated login failures from one IP") and
    hurt two (one word like "folder" in short expansion fields decided the
    order). The field boosts (`retrieval.fields`) are the knob; tune them on
@@ -169,6 +242,9 @@ accepted terms enter `q_exp`, and a structural term enters as its
 
 ## Counted for you (RQ4, full corpus)
 
-`docs/results/stage1_full_breakdown.txt` and `04_OPEN_QUESTIONS.md` question 14.
-To recompute any of it: `.venv/bin/python scripts/rq4_breakdown.py
-indexes/enrichment/corpus_full_v4_14b.jsonl` (read-only, about 2 seconds).
+`docs/results/stage2_three_runs.txt` (all three runs, corrected corpus) and
+`04_OPEN_QUESTIONS.md` question 14. `docs/results/stage1_full_breakdown.txt`
+is the same breakdown for Stage 1 before the corpus fix (history). To
+recompute the 14B's: `.venv/bin/python scripts/rq4_breakdown.py
+indexes/enrichment/corpus_full_v4_14b_fixed.jsonl` (read-only, about 2
+seconds).
