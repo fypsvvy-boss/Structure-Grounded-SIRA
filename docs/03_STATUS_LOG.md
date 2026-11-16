@@ -8,7 +8,18 @@
 
 ## Current headline
 
-**2026-11-16 (latest, 11:12 UTC): splice DONE, enriched index rebuilt.**
+**2026-11-17 (latest): Stage 2 recorded — three full-corpus runs on the
+corrected corpus, compared.** `qwen2.5:14b` is the main model (its index is
+`indexes/enriched`); the two Gemini runs are **robustness** runs (enrichment
+files only, no Lucene index built for them yet). Gemini cost ≈ $69.70
+(exception 4) + ≈ $1.23 (exception 7); the console confirms exception 4 at
+the batch rate, exception 7 not yet read. **New finding: at full scale, the
+chapter's "relatedness does not improve" does not hold** for generated ids
+on CWE/CAPEC/ATT&CK documents (Gemini 63–67% within 2 hops vs 14B 49–50%; 0–1
+hop 26–33% vs 7–9%). Results: `docs/results/stage2_three_runs.txt`.
+Details: "Stage 2: the three full-corpus runs compared".
+
+**2026-11-16 (11:12 UTC): splice DONE, enriched index rebuilt.**
 All three 117-document runs finished (14B on the Mac; Gemini batch 1 and 2
 on Vertex, exception 7), with 0 failed and 0 unparseable, and each run was
 spliced into its full run: `corpus_full_v4_14b_fixed.jsonl` and
@@ -367,6 +378,106 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Stage 2: the three full-corpus runs compared (2026-11-17)
+
+**What.** The three full-corpus runs, all on the corrected corpus (6,044
+records each, 117 CVEs redone and spliced on 2026-11-16), compared offline.
+No model calls. Script and unedited output:
+`docs/results/stage2_three_runs.txt`.
+
+| run | role | file | cost |
+|---|---|---|---|
+| `qwen2.5:14b` | **main model**; its index `indexes/enriched` is what Modules 2–4 use | `corpus_full_v4_14b_fixed.jsonl` | $0 (Kaggle + Mac) |
+| Gemini 3.1 Pro, run 1 | robustness | `corpus_full_v4_gemini-3.1-pro_vertexbatch1_fixed.jsonl` | ≈ $34.91 + $0.60 |
+| Gemini 3.1 Pro, run 2 | robustness | `corpus_full_v4_gemini-3.1-pro_vertexbatch2_fixed.jsonl` | ≈ $34.79 + $0.64 |
+
+Gemini total ≈ **$70.94** (exception 4 + exception 7). Actual charge: the
+console's ₹6,781 (read 2026-11-16) covers exceptions 3–6. **Exception 7's
+charge has not been read yet**: expected ≈ ₹117 more, so ≈ ₹6,898 used. The
+Gemini runs have no Lucene index yet; build one with `build_index.py --stage
+enriched --enrichment-path <file> --enriched-dir <new dir>` when Module 3
+needs it.
+
+**Main table.**
+
+| | 14B | Gemini 1 | Gemini 2 |
+|---|---|---|---|
+| terms proposed | 72,090 | 60,017 | 59,943 |
+| terms accepted | 29,865 (41%) | 48,238 (80%) | 48,122 (80%) |
+| documents with ≥ 1 accepted term | 5,969 | 6,043 | 6,042 |
+| structural proposed | 20,621 | 11,259 | 11,252 |
+| structural accepted | 8,040 (39%) | 10,718 (95%) | 10,719 (95%) |
+| rejected: wrong name | 9,861 | 362 | 355 |
+| rejected: does not exist / retired / malformed | 2,720 | 179 | 178 |
+| rejected: too common | 29,641 | 11,238 | 11,288 |
+| ids in a counting run | 4,237 | 48 | 39 |
+| unparseable replies | 3 | 0 | 0 |
+
+**Agreement** (pooled over documents, shared ÷ union):
+
+| pair | structural ids | free text, raw | free text, normalised | identical replies |
+|---|---|---|---|---|
+| Gemini 1 vs 2 | 73.6% | 62.1% | 63.8% | 2,484 |
+| 14B vs Gemini 1 | 4.6% | 1.8% | 2.3% | 0 |
+| 14B vs Gemini 2 | 4.7% | 1.8% | 2.2% | 1 |
+
+"Normalised" = lowercase, hyphen read as a space, whitespace collapsed. It
+barely matters: the two models really do write different words.
+
+**Relatedness, generated ids only, full scale — contradicts the chapter.**
+Generated = accepted structural ids not in the text the model was shown and
+not the document's own id (same definition as the 40-document table).
+Distance can only be measured on CWE/CAPEC/ATT&CK documents (CVEs have no
+graph node): 3,723 ids for the 14B, ~3,065 per Gemini run. (Most of
+Gemini's generated ids, ~5,760, are on CVEs and cannot be measured.)
+
+| generated ids, measurable | 14B | Gemini 1 | Gemini 2 |
+|---|---|---|---|
+| within 0–1 hops | 8.5% | 33.3% | 33.4% |
+| within 2 hops | 50.3% | 67.3% | 67.1% |
+| median hops | 2 | 2 | 2 |
+| unreachable (> 6 hops / no path), of anchored | 10.4% | 9.9% | 10.5% |
+| …same, without ATT&CK parent/sibling ids: 0–1 / ≤ 2 / median | 6.8% / 49.3% / 3 | 26.3% / 63.7% / 2 | 26.4% / 63.4% / 2 |
+
+The median hides it, because 2 hops is the commonest value for both models.
+The shares show Gemini's generated ids are clearly closer. The 14B's
+"within 2 hops" at full scale (50%) is the same as on the 40-document sample
+(12 of 24). Gemini's 67% is well above its sample figure (14 of 28, 14 of
+25), so the sample was too small to see the difference. **By document type**
+it is not a mix effect: on ATT&CK entries Gemini's median is 1 hop against
+the 14B's 4 (88–90% vs 47% within 2), and on CWE entries 71–72% vs 53%. On
+CAPEC entries Gemini is *farther* (36% vs 54% within 2; median 3 vs 2), but
+the 14B generated only 89 ids there. Hops remain a stand-in for relevance.
+
+**Identical replies, Gemini 1 vs 2: 2,569 → 2,484 is entirely the 117.**
+Outside the 117 the count is 2,457 both before and after (the splice copied
+those records unchanged). Inside the 117 it was 112: on the `"null"` text,
+Gemini 1 answered with nothing on 116 and Gemini 2 on 113, so 112 "identical"
+replies were two empty answers. On the real text, 27 of 117 are identical.
+The same explains 14B vs Gemini: 116 / 114 identical before (113–116 of them
+empty answers inside the 117), 0 / 1 after.
+
+**Chapter numbers that change** (`docs/report/module1_enrichment_and_grounding.md`,
+left for the Module 1 owner to edit): proposed 20,588 → 20,621; accepted
+8,031 → 8,040; existence 2,705 → 2,720; wrong name 9,852 → 9,861; CVE ids
+proposed 813 → 826 on 804 → 817 documents, own id 777 → 788; malformed
+share 4.3% → 4.4%; accepted terms 28,705 → 29,865 on 5,852 → 5,969
+documents; smoke-test base row for query 2 and enriched row for query 3;
+the appendix's run file, commit and config. Unchanged: counting runs 4,237
+(and per catalogue), CWE-on-CWE 4,608 / 6,788, 3.6×, 39% / 13% / 48% / 21%,
+61%, 171 shortened, 305 own-id entries.
+
+| chapter section | old → new |
+|---|---|
+| §8 first paragraph, §8 RQ1 answer, §10 | 9,852 → **9,861**; 2,705 → **2,720** ("3.6 times" stays) |
+| §8 table | proposed 20,588 → **20,621**; accepted 8,031 → **8,040** (39%); existence 2,705 → **2,720** (13%); wrong name 9,852 → **9,861** (48%); counting 4,237 unchanged (21%) |
+| §8 CVE ids bullet | 813 → **826** CVE ids, on 804 → **817** of 3,011 CVE documents (27%); own id 777 → **788**; malformed share 4.3% → **4.4%** (0.4% without them, unchanged) |
+| §8 RQ4 answer | 61% unchanged (12,581 of 20,621) |
+| §9 first sentence | 28,705 → **29,865** accepted terms, on 5,852 → **5,969** documents |
+| §9 smoke test | base, "attacker reads memory…": CWE-415, CWE-416, CAPEC-131, CWE-825, CWE-1330 → **CWE-415, CWE-416, CVE-2025-38292, CAPEC-131, CWE-825** (a fixed CVE, from the base rebuild); enriched, "malware hides…": positions 4–5 swap → **…, CAPEC-557, T1053.001**. All other rows unchanged (re-run with the same scorer; the old index reproduces the chapter exactly) |
+| §7 provenance, appendix | 117 records now come from the Mac (Apple M5, Ollama 0.40.14), commit `b3a6259`, config `06e891b2b957`; enriched output `corpus_full_v4_14b_fixed.jsonl` |
+| §5.5 / §10 relatedness | see the relatedness table above: the full corpus contradicts "relatedness does not improve" |
 
 ### Corpus fix: the 117 empty CVE rows (2026-11-15 → 2026-11-16)
 

@@ -41,7 +41,7 @@ The graph is built with networkx from pinned releases: ATT&CK v17.1 (Enterprise,
 | ATT&CK | Mitigation | 110 |
 | ATT&CK | Campaign | 51 |
 | ATT&CK | Data source | 42 |
-| **Total** | | **4,486** (CWE 1,450 · CAPEC 615 · ATT&CK 2,421) |
+| **Total** |  | **4,486** (CWE 1,450 · CAPEC 615 · ATT&CK 2,421) |
 
 Of the 4,486 nodes, 4,013 are active, 280 deprecated and 193 revoked.
 
@@ -62,11 +62,11 @@ Edges are of three kinds:
 | `maps_to` | CAPEC → CWE | 1,212 |
 | `maps_to` | CAPEC → ATT&CK | 271 |
 | `revoked_by` | revoked ATT&CK id → replacement | 190 |
-| **Total** | | **11,514** |
-
-The build reports no dangling edges, and all 8 spot checks pass, including an invented identifier (`T9999`) and an invented sub-technique of a real parent (`T1110.099`), both rejected as `not_in_graph`. The loader skipped 224 legacy ATT&CK records, all old mitigations filed under technique identifiers. The full build log and the input file hashes are in `docs/results/graph_build.txt`.
+| **Total** |  | **11,514** |
 
 Each node keeps its official title and, where MITRE provides one, a short name. Deprecated and revoked identifiers stay in the graph, flagged, so the validator can say why an identifier is unusable rather than only that it is missing. CVE entries have no node of their own; they link to the graph only through the CWE identifiers they cite.
+
+The build reports no dangling edges, and all 8 spot checks pass, including an invented identifier (`T9999`) and an invented sub-technique of a real parent (`T1110.099`), both rejected as `not_in_graph`. The loader skipped 224 legacy ATT&CK records, all old mitigations filed under technique identifiers. The full build log and the input file hashes are in `docs/results/graph_build.txt`.
 
 ## 3. Enrichment design
 
@@ -162,7 +162,7 @@ Scorer v2 compares against MITRE's short names. Rescoring the saved records offl
 
 The limit of v2 is reach. Only 122 of 1,450 CWE nodes have a short name, and no ATT&CK or CAPEC node does, so most verdicts still fall back to v1.
 
-### 5.5 Three models: validity improves, relatedness does not
+### 5.5 Three models: validity improves; relatedness needed the full corpus
 
 A third model was added to test whether grounding behaves differently on a model that knows the ontology well. A 32B Qwen model did not fit on the development laptop (about 20 GB at 4-bit against 16 GB), so Gemini 3.1 Pro was used via its API, at low thinking, run twice. Both runs together cost ₹116.66.
 
@@ -181,7 +181,7 @@ Three findings follow:
 
 - **The existence check had nothing left to catch on the strong model.** It rejected 0 of 73 identifiers on Gemini, against 32 on the 14B. The name check still caught 4 real identifiers with the wrong meaning in both Gemini runs.
 - **Counting is the 14B's own behaviour, not a size trend.** Gemini neither invented nor counted.
-- **Model strength improved validity, not relatedness.** Looking only at identifiers the model generated rather than copied, both the 14B and Gemini sit at a median of 2 to 2.5 hops from the source document. The stronger model proposes fewer wrong identifiers, but not more closely related ones.
+- **Relatedness could not be judged at n = 40.** Looking only at identifiers the model generated rather than copied, both the 14B and Gemini sat at a median of 2 to 2.5 hops from the source document. This first suggested that model strength improved validity but not relatedness. The full-corpus runs contradict that reading: Gemini's generated identifiers are clearly closer (Section 8). The shared median hid the difference, and 40 documents were too few to show it.
 
 The two Gemini runs agreed on 61 of 76 accepted identifiers (80%), and on the counts of existence and name rejections. The exact list of identifiers is not stable, so findings are stated as counts and patterns.
 
@@ -245,16 +245,18 @@ All 6,044 documents were enriched with qwen2.5:14b on Kaggle's free tier in two 
 
 **Failures.** Three replies could not be parsed: T1064, T1542.001 and CVE-2022-47378. In the first two, the model kept listing identifiers past its 12-term limit (T1059.001 to .020; T1070 to T1121) until the 512-token cap cut the reply off. Each is kept as a record with an `llm_json_error` placeholder and an empty expansion, so the documents remain searchable by their own text. Counting can therefore break a reply outright, not only produce wrong identifiers.
 
+**Corrected CVEs.** After the run, 117 CVE entries were found to have been loaded with empty ("null") text. They were corrected and re-enriched on the development Mac (Apple M5, Ollama 0.40.14, commit b3a6259, config 06e891b2b957), then spliced into the output, now `corpus_full_v4_14b_fixed.jsonl`. All other records are unchanged. The numbers in Sections 8 and 9 are for the corrected corpus.
+
 ## 8. Full-corpus results (RQ1, RQ4)
 
-On the full corpus, the name check rejected 3.6 times as many structural identifiers as the existence check: 9,852 against 2,705. An existence-only check would have let nearly half of all proposed identifiers into the index with the wrong meaning.
+On the full corpus, the name check rejected 3.6 times as many structural identifiers as the existence check: 9,861 against 2,720. An existence-only check would have let nearly half of all proposed identifiers into the index with the wrong meaning.
 
 | Structural identifiers | Full corpus (n = 6,044) | 40-document sample, 14B |
 | --- | --- | --- |
-| Proposed | 20,588 | 155–157 |
-| Accepted | 8,031 (39%) | 54–59 |
-| Rejected: does not exist, deprecated, revoked or malformed | 2,705 (13%) | 23–32 |
-| Rejected: real identifier, wrong name | 9,852 (48%) | 66–78 |
+| Proposed | 20,621 | 155–157 |
+| Accepted | 8,040 (39%) | 54–59 |
+| Rejected: does not exist, deprecated, revoked or malformed | 2,720 (13%) | 23–32 |
+| Rejected: real identifier, wrong name | 9,861 (48%) | 66–78 |
 | In a counting run | 4,237 (21%) | 47–51 |
 
 The three outcomes sum exactly to the identifiers proposed: every structural rejection on the full corpus came from the two graph-based gates, none from document frequency. The sample ranges span the Mac and Kaggle runs. The accepted and wrong-name shares match the sample (35–38% and 42–50%). Existence rejections and counting runs are lower on the full corpus (13% against 15–21%, and 21% against 30–33%). The likely reason is that the sample takes 10 documents per catalogue, while CVEs, which count least, make up half the full corpus.
@@ -263,15 +265,46 @@ The three outcomes sum exactly to the identifiers proposed: every structural rej
 
 - **CWE entries.** Of 6,788 CWE identifiers proposed on CWE entries, 4,608 (68%) had the wrong name. Counting is also heaviest here.
 - **Counting runs by catalogue.** CWE 2,659, ATT&CK 1,149, CVE 279, CAPEC 150.
-- **CVE identifiers proposed as structural terms.** Despite the prompt forbidding it, the model proposed 813 CVE identifiers, on 804 of 3,011 CVE documents (27%). 777 were the entry's own identifier, so the habit is mostly self-reference rather than guessing other CVEs. These are caught as malformed; they raise the malformed share of structural rejections from 0.4% to 4.3%.
+- **CVE identifiers proposed as structural terms.** Despite the prompt forbidding it, the model proposed 826 CVE identifiers, on 817 of 3,011 CVE documents (27%). 788 were the entry's own identifier, so the habit is mostly self-reference rather than guessing other CVEs. These are caught as malformed; they raise the malformed share of structural rejections from 0.4% to 4.4%.
 
-**Answer to RQ1.** Grounding transfers, but not as SIRA built it. Validating against the real graph does reject unsupported vocabulary (2,705 identifiers). The larger failure, though, is real identifiers with the wrong meaning, which an existence check cannot see in a namespace where nearly every number exists. Name–ID consistency is the adaptation that makes the mechanism work on MITRE's ontology.
+**Answer to RQ1.** Grounding transfers, but not as SIRA built it. Validating against the real graph does reject unsupported vocabulary (2,720 identifiers). The larger failure, though, is real identifiers with the wrong meaning, which an existence check cannot see in a namespace where nearly every number exists. Name–ID consistency is the adaptation that makes the mechanism work on MITRE's ontology.
 
 **Answer to RQ4 (provisional on this model).** A non-trivial fraction of LLM proposals fails validation: 61% of structural proposals on the 14B. Whether removing the filter degrades retrieval precision is Module 4's ablation; the smoke test in Section 9 suggests it matters.
 
+### Robustness check: the same pipeline with Gemini
+
+On a much stronger model, the gates barely fire and the generated identifiers sit closer to their documents, so how much work grounding does is a property of the model, not of the method alone. To test this, the full corpus was enriched twice more with Gemini 3.1 Pro (`gemini-3.1-pro-preview`, via Vertex AI, low thinking) under the same frozen prompt, schema, truncation and gates. qwen2.5:14b remains the main model; the two Gemini runs are robustness indexes.
+
+| Full corpus (n = 6,044) | 14B | Gemini run 1 | Gemini run 2 |
+| --- | --- | --- | --- |
+| Terms proposed | 72,090 | 60,017 | 59,943 |
+| Terms accepted | 29,865 (41%) | 48,238 (80%) | 48,122 (80%) |
+| Rejected: too common | 29,641 | 11,238 | 11,288 |
+| Structural IDs proposed | 20,621 | 11,259 | 11,252 |
+| Structural IDs accepted | 8,040 (39%) | 10,718 (95%) | 10,719 (95%) |
+| Rejected: wrong name | 9,861 | 362 | 355 |
+| Rejected: does not exist, retired or malformed | 2,720 | 179 | 179 |
+| IDs in a counting run | 4,237 | 48 | 39 |
+| IDs copied from the document text | 29% | 15% | 14% |
+| Replies that could not be parsed | 3 | 0 | 0 |
+
+Relatedness is measured on generated identifiers only: accepted, not in the text the model was shown, and not the document's own identifier. Distance can be measured only on CWE, CAPEC and ATT&CK documents, since CVEs have no node in the graph.
+
+| Generated identifiers, measurable | 14B | Gemini run 1 | Gemini run 2 |
+| --- | --- | --- | --- |
+| Count | 3,723 | 3,072 | 3,060 |
+| Within 0–1 hops | 8.5% | 33.3% | 33.4% |
+| Within 2 hops | 50.3% | 67.3% | 67.1% |
+| Median hops | 2 | 2 | 2 |
+| Unreachable (over 6 hops or no path) | 10.4% | 9.9% | 10.5% |
+
+- **The gates barely fire on Gemini.** About 360 name rejections against 9,861, and 179 existence rejections against 2,720. Counting runs fall from 4,237 to 39–48.
+- **Gemini's generated identifiers are closer.** A third are within one hop, against 8.5% for the 14B, and two thirds within two hops, against half. The median is 2 for all three runs, which is why it hid the difference. The gap survives removing parent and sub-technique links such as T1053 and T1053.005 (26% against 7% within one hop; 64% against 49% within two) and holds by document type: on ATT&CK documents Gemini's median is 1 hop against the 14B's 4, and on CWE documents 71–72% are within two hops against 53%. The one exception is CAPEC, where Gemini is farther (36% against 54% within two hops), but the 14B generated only 89 identifiers there.
+- **The two models produce different expansions, not versions of one.** The 14B and Gemini share 4.6–4.7% of accepted structural identifiers and 2.2–2.3% of free-text terms (after normalising case, spacing and hyphens). The two Gemini runs share 73.6% and 63.8%. Gemini results are therefore reported as ranges across both runs, and in Phase 4 the retrieval gap between the two Gemini indexes sets the noise floor for any 14B-versus-Gemini difference.
+
 ## 9. The enriched index and handoff
 
-The enriched index holds all 6,044 documents with 28,705 accepted terms spread over 5,852 of them, and it is handed to Modules 2 and 3 with one clear warning: expansion terms must be weighted, not simply added.
+The enriched index holds all 6,044 documents with 29,865 accepted terms spread over 5,969 of them, and it is handed to Modules 2 and 3 with one clear warning: expansion terms must be weighted, not simply added.
 
 **Checks.** The document count is 6,044. For every document, the stored expansion matches what the current code produces. 42 of 42 sampled words from accepted terms are listed under the right document (for example, "password guessing" and T1110 under T1110; "rapl" and "intel" under CVE-2020-8695). The three failed documents carry an empty expansion.
 
@@ -280,8 +313,8 @@ The enriched index holds all 6,044 documents with 28,705 accepted terms spread o
 | Query | Base index, top 5 | Enriched index, top 5 |
 | --- | --- | --- |
 | repeated login failures from one IP | CAPEC-227, CAPEC-600, CAPEC-187, CAPEC-24, T1110.003 | T1621, T1110.003, CAPEC-227, T1110.004, T1110 |
-| attacker reads memory after it's freed | CWE-415, CWE-416, CAPEC-131, CWE-825, CWE-1330 | CWE-415, CVE-2025-43587, CWE-416, CAPEC-131, CWE-825 |
-| malware hides in a scheduled task | T1053.005, T1053.002, T1053, T1036.004, T1053.003 | T1053.005, T1603, CAPEC-504, T1053.001, CAPEC-557 |
+| attacker reads memory after it's freed | CWE-415, CWE-416, CVE-2025-38292, CAPEC-131, CWE-825 | CWE-415, CVE-2025-43587, CWE-416, CAPEC-131, CWE-825 |
+| malware hides in a scheduled task | T1053.005, T1053.002, T1053, T1036.004, T1053.003 | T1053.005, T1603, CAPEC-504, CAPEC-557, T1053.001 |
 | tricking users into clicking a fake login page | CAPEC-98, CAPEC-222, CAPEC-103, CAPEC-630, CVE-2024-11405 | CWE-206, CVE-2024-11405, CAPEC-98, CAPEC-222, CVE-2025-7667 |
 | server lets attacker read files outside the web folder | CVE-2024-2178, T1051, CAPEC-41, CVE-2025-5961, CVE-2025-7699 | CVE-2025-7699, T1569.001, CVE-2025-49830, CVE-2025-52786, T1074.001 |
 
@@ -301,32 +334,32 @@ SIRA's grounding transfers to MITRE's ontology in principle, but the shape of th
 
 **Named versus numbered identifiers.** SIRA validates Wikipedia categories, which are names. A hallucinated category name is unlikely to exist by accident, so asking whether it exists is a strong test. CWE, CAPEC and ATT&CK use dense integer identifiers, where counting upward almost always lands on a real entry. The same existence test becomes weak: on the full corpus it caught 2,705 bad identifiers while 9,852 real-but-wrong ones would have passed it. Checking that the model knows what an identifier means, by comparing its claimed title with the official one, restores the strength the existence test had on Wikipedia.
 
-**Grounding's value depends on the model's prior knowledge.** SIRA's authors note that a frozen LLM is most useful when the corpus lies within its pretraining knowledge, but they do not test the other case. The three-model comparison shows the consequence for grounding. On the 7B, the gates barely fired, because the model mostly copied identifiers from the page. On the 14B, they did most of the work. On Gemini, the existence check found nothing to reject. Any claim about the value of grounding therefore has to name the model it was measured on.
+**Grounding's value depends on the model's prior knowledge.** SIRA's authors note that a frozen LLM is most useful when the corpus lies within its pretraining knowledge, but they do not test the other case. The model comparison shows the consequence for grounding. On the 7B, the gates barely fired, because the model mostly copied identifiers from the page. On the 14B, they did most of the work. On Gemini they had little left to do: across the full corpus the name check rejected about 360 Gemini identifiers against 9,861 on the 14B, and the existence check 179 against 2,720. Any claim about the value of grounding therefore has to name the model it was measured on.
 
-**Validity is not relatedness.** The current gates establish that an identifier exists and is correctly named. They do not establish that it is relevant to the document. Generated identifiers sat at a median of about 2 to 2.5 hops on both the 14B and Gemini, so a stronger model reduces errors without proposing more closely related identifiers. A gate for relatedness remains open; graph distance is a candidate measure, but used as a filter it would penalise exactly the novel links that enrichment exists to add.
+**A stronger model improves both validity and relatedness.** The 40-document sample suggested that model strength made identifiers valid without making them more related, because generated identifiers sat at a median of about 2 hops on both models. The full corpus contradicts this: a third of Gemini's generated identifiers are within one hop of their document, against 8.5% for the 14B. The gates, however, establish only that an identifier exists and is correctly named, not that it is relevant, so on the 14B the accepted identifiers are valid but less closely related. A gate for relatedness remains open. Graph distance is the candidate measure, but used as a filter it would penalise exactly the novel links that enrichment exists to add.
 
 ## 11. Threats to validity
 
 The full-corpus counts are robust, but the model comparisons rest on a small sample and an imperfect third model.
 
-- **Sample size.** Development findings use 40 documents. Single documents swing the counts, as the deprecated-identifier difference between the Mac and Kaggle runs shows (15 against 4). Findings are therefore reported as counts and ranges, and the central ones were confirmed on the full corpus.
-- **Model size mixed with model family.** Gemini is a different model family from Qwen, so the three-model comparison cannot separate "bigger" from "different maker". A 32B Qwen model would, but it did not fit the development laptop.
-- **Gemini's configuration.** Gemini ran at low thinking to stay within the cost cap, so it was not tested at full strength. Its seed was accepted but not honoured, so its runs cannot be reproduced exactly. Its temperature was 0, against Google's recommendation of 1.0 for this model family, to match the local runs.
+- **Sample size.** Development findings use 40 documents. Single documents swing the counts, as the deprecated-identifier difference between the Mac and Kaggle runs shows (15 against 4). More seriously, the sample hid a real effect: at n = 40 the 14B and Gemini looked equally related, and the full corpus showed they are not. Findings are reported as counts and ranges, and every central finding was re-checked on the full corpus.
+- **Model size mixed with model family.** Gemini is a different model family from Qwen, so the model comparison cannot separate "bigger" from "different maker". A 32B Qwen model would, but it did not fit the development laptop.
+- **Gemini's configuration and variability.** Gemini ran at low thinking to stay within the cost cap, so it was not tested at full strength. Its seed was accepted but not honoured, and its temperature was 0, against Google's recommendation of 1.0 for this model family, to match the local runs. Its two full runs agree on 74% of accepted structural identifiers and 64% of free-text terms, so Gemini figures are given as ranges and specific identifiers are never compared.
 - **Distance as a proxy for relevance.** Hops in the ontology are a rough stand-in for relatedness, and distance cannot be measured for CVE documents, which have no node in the graph.
 - **Name scorer reach.** Scorer v2's short names cover only 122 of 1,450 CWE nodes and no ATT&CK or CAPEC node, so most verdicts use v1, which misses within-family confusions.
 - **Copy measurement.** "Copied from the entry" is a string match against the text the model saw; it can miss paraphrased copies and over-count coincidences.
 - **Latency.** Per-record latency in the development runs includes queueing and contention, so it is not usable for RQ3. Clean latency must be measured in Phase 4.
-- **Hardware.** The full run used T4 GPUs, not the laptop the method was developed on. Replies differ across hardware even with identical model, software and seed, although the measured patterns held.
+- **Hardware and software.** The full run used T4 GPUs, not the laptop the method was developed on, and the 117 corrected CVEs were re-enriched on a Mac with a newer Ollama (0.40.14). Replies differ across hardware even with identical model, software and seed, although the measured patterns held.
 
 ## 12. Limitations and future work
 
 The next steps follow directly from the threats above:
 
-- **A relatedness gate.** Combine graph distance with the counting-run flag, which together separated enumeration from genuine sequential links (Section 5.3), and test it without penalising novel links.
+- **A relatedness gate.** The 14B's accepted identifiers are valid but less related than Gemini's, so this is the main gap in the method. Combine graph distance with the counting-run flag, which together separated enumeration from genuine sequential links (Section 5.3), and test it without penalising novel links.
 - **A better name scorer.** The experimental v3 scorer, which matches symmetrically on every node, caught six wrong titles v2 could not reach. It also flagged two ATT&CK identifiers under their pre-rename titles, so it needs a way to accept old official names.
 - **Repair as an ablation.** Index the 11 cleanly repaired identifiers and measure the effect on retrieval in Phase 4.
 - **A within-family size comparison.** Run the 40-document sample on qwen2.5:32b on a larger GPU, to separate model size from model family.
-- **Stage 2.** Enrich the full corpus once with Gemini 3.1 Pro under the frozen method and the same truncation rule, as the final index for the benchmark run. At low thinking this is estimated at about $67 at standard pricing, or about $34 through batch mode, which still needs testing for this model. No setting may be tuned on that index after it exists.
+- **Searchable Gemini indexes.** Both Gemini runs exist only as enrichment records. Lucene indexes must be built for Phase 4, where the gap between the two Gemini indexes sets the noise floor for any 14B-versus-Gemini retrieval difference.
 
 ## Appendix: reproducibility
 
@@ -344,10 +377,13 @@ Every result in this chapter can be traced to a committed configuration and a sa
 | Truncation | sections-v2, 6,000-character budget, 4,096-token context |
 | Decoding | temperature 0, seed 42, 512-token cap, JSON-schema constrained, concurrency 1 |
 | Full-run hardware | Kaggle, 2× Tesla T4, two sessions |
+| Corrected CVEs (117) | Mac (Apple M5), Ollama 0.40.14, commit b3a6259, config 06e891b2b957 |
 | Development hardware | MacBook Air, 16 GB |
-| Enriched output | indexes/enrichment/corpus\_full\_v4\_14b.jsonl (6,044 records) |
+| Enriched output | indexes/enrichment/corpus\_full\_v4\_14b\_fixed.jsonl (6,044 records) |
 | Shard provenance | indexes/enrichment/kaggle\_stage1\_shards/ |
+| Robustness runs | gemini-3.1-pro-preview via Vertex AI, low thinking, two full runs |
 | Full breakdown | docs/results/stage1\_full\_breakdown.txt |
+| Three-run comparison | docs/results/stage2\_three\_runs.txt |
 | Smoke test | docs/results/enriched\_index\_smoke\_test.txt |
 | Sample comparison | docs/results/kaggle\_sample\_vs\_mac\_14b.txt |
 
