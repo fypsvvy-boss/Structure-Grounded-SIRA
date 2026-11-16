@@ -61,8 +61,8 @@ every document is covered exactly once.
 
    ```bash
    D=~/Desktop/sira-kaggle-inputs
-   mkdir -p "$D/data/CTIConnect/corpus_kb" "$D/data/raw" "$D/indexes/enrichment"
-   cp data/CTIConnect/corpus_kb/{cve,cwe,capec,mitre}.jsonl "$D/data/CTIConnect/corpus_kb/"
+   mkdir -p "$D/data/corpus_kb_fixed" "$D/data/raw" "$D/indexes/enrichment"
+   cp data/corpus_kb_fixed/{cve,cwe,capec,mitre}.jsonl "$D/data/corpus_kb_fixed/"
    cp -R data/raw/attack data/raw/cwe data/raw/capec "$D/data/raw/"
    cp -R indexes/base "$D/indexes/"
    cp indexes/enrichment/corpus_stratified_v4_14b_sections-v2.jsonl{,.manifest.json} "$D/indexes/enrichment/"

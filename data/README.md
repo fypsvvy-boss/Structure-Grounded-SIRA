@@ -76,6 +76,32 @@ Verify the `/data` layout, task splits and qrels format **now**, in parallel
 with the rest of Phase 1. It is the project's highest-impact unknown, and it is
 cheap to check today and expensive to discover in week 10.
 
+## The fixed corpus (`data/corpus_kb_fixed`) — what the config uses
+
+CTIConnect's `corpus_kb/cve.jsonl` has **117 rows exported with
+`"contents": "null"`**, so those documents are just `"CVE-2025-38250 null"`.
+All 117 were on NVD before the snapshot date (2025-09-01), so this was a bug
+in the export. The team decided on 2026-11-15 to fix it (`docs/04_OPEN_QUESTIONS.md`
+q16). `configs/default.yaml`'s `corpus.kb_dir` points at the fixed copy. Build
+it after cloning CTIConnect:
+
+```bash
+.venv/bin/python scripts/build_fixed_corpus.py
+```
+
+No network needed. It checks CTIConnect's files against their own
+`MANIFEST.json`, fills only the 117 `"null"` rows from the committed patch
+`configs/corpus_patches/cve_null_fill_v1.jsonl`, copies everything else byte
+for byte, and writes a `MANIFEST.json` saying what changed. Each filled row is
+the NVD record **as it stood on 2025-09-01**: the English description then in
+force, plus any CWE ids attached by then. NVD analysis added later (most of
+these are Linux kernel CVEs analysed months afterwards) and CVSS scores are
+left out; each patch row lists what was left out and why.
+
+The patch itself was made once with `scripts/fetch_cve_fill.py`, which asks
+NVD's public CVE and CVE Change History APIs (CVE ids only, no key; replies
+cached in `data/raw/nvd_fill/`). Rerun it only to rebuild the patch.
+
 ## After fetching
 
 ```bash

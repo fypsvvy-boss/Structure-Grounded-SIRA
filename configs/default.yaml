@@ -110,7 +110,14 @@ corpus:
   # are canonicalised to match CTIConnect's own baseline convention (CVE-…,
   # CWE-…, CAPEC-…, T####[.###]) so the index this module builds stays
   # doc-id-compatible with CTIConnect's qrels and other baselines.
-  kb_dir: data/CTIConnect/corpus_kb
+  #
+  # The FIXED copy (decided by the team 2026-11-15, open question 16):
+  # CTIConnect's corpus_kb with the 117 CVE rows it exported as "null" filled
+  # with their NVD record as of the 2025-09-01 snapshot. Every other line is
+  # byte-identical. Build it with scripts/build_fixed_corpus.py (no network)
+  # from configs/corpus_patches/cve_null_fill_v1.jsonl -- see data/README.md.
+  # The unfixed original is data/CTIConnect/corpus_kb.
+  kb_dir: data/corpus_kb_fixed
   kinds: [cve, cwe, capec, mitre]
 
 index:

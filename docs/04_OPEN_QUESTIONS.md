@@ -1331,7 +1331,7 @@ over the two full runs.
 
 ---
 
-## 16. (Opened 2026-11-15) 117 CVE documents have no text, and Gemini sometimes guesses terms for them
+## 16. (Opened 2026-11-15; DECIDED 2026-11-15 by the team: fix the corpus — DONE 2026-11-16) 117 CVE documents have no text, and Gemini sometimes guesses terms for them
 
 **What we found.** 117 CVE documents in the corpus have the text
 `"<id> null"`: the id, then the word `null`, and no description. Most are
@@ -1366,4 +1366,17 @@ the other way round: the term is *not* in the document at all.
 **Related:** CVE-2019-1135 is a rejected candidate number ("DO NOT USE THIS
 CANDIDATE NUMBER"). Run 1 proposed "unassigned", "withdrawn" and similar;
 run 2 proposed nothing.
+
+### Decision and what was done (2026-11-15 → 2026-11-16)
+
+**Team decision: option 3, fix the corpus.** All 117 were published before
+the snapshot, so `null` was an export bug. None appears in a CTIConnect
+task or answer file, so no gold answer changes. Each row is filled with its
+official CVE List record as it stood at the end of 2025-09-01: the
+description, plus CWE ids attached by then (3 of 117). Nothing NVD added
+later goes in, and no CVSS scores. The fixed copy is `data/corpus_kb_fixed`;
+only those 117 lines differ. The base index is rebuilt, and no saved verdict
+in the three full runs changes under it. Details: `03_STATUS_LOG.md`,
+"Corpus fix"; how to build: `data/README.md`. **Still to do:** re-enrich the
+117 documents in each run and splice them in.
 

@@ -8,6 +8,20 @@
 
 ## Current headline
 
+**2026-11-16: corpus fixed — the 117 empty CVE rows are filled (team
+decision, open question 16).** The batch charge is confirmed at the batch
+rate (₹6,781 used of ₹28,569; ₹21,788 left). `data/corpus_kb_fixed` is
+CTIConnect's corpus_kb with the 117 `"null"` CVE rows filled from the
+official CVE List as it stood at the end of 2025-09-01 (commit `98fa1ad`).
+Only those 117 lines differ; the config now points there. The base index is
+rebuilt (old one kept as `indexes/base_unfixed`). **No saved verdict
+changes** in any of the three full runs under the new word counts, so the
+other 5,927 documents' records stay valid. **Chosen 2026-11-16 (Module 1
+owner): splice.** Redo only the 117 documents (14B locally, free; Gemini ×2
+in batch, ≈ $1.40, exception 7), then join them into the three runs with the
+new `scripts/splice_enrichment.py`. **Next: commit, then run the commands in
+"Corpus fix → Splice plan".** 560 tests pass.
+
 **2026-11-15 (latest, 21:53 UTC): the Gemini robustness index is DONE —
 two full-corpus Vertex batch runs, ≈ $69.70 together (exception 4).** Both
 jobs succeeded, 6,039 of 6,039 requests each, 0 failed, 0 unparseable,
@@ -343,6 +357,91 @@ tried and failed, and the gate needs four-owner sign-off for a new
 result so far is CVE-only), (3) investigate the zero ATT&CK/CAPEC proposals.
 
 ## Log
+
+### Corpus fix: the 117 empty CVE rows (2026-11-15 → 2026-11-16)
+
+**Decision (team, 2026-11-15):** fix the corpus (open question 16, option 3).
+
+**What was found first.** All 117 CVEs were published before CTIConnect's
+snapshot date (2025-09-01), so `"contents": "null"` was a bug in their
+export, not a CVE that didn't exist yet. None of the 117 appears in any
+CTIConnect task or answer file. They are background documents, so filling
+them changes no gold answer. 114 are Linux kernel CVEs, 2 come from MITRE
+and 1 from CPANSec.
+
+**Source.**
+- First try: NVD's CVE Change History API, rebuilding each record as of the
+  cutoff. NVD answered slowly, and then the history service stopped
+  answering after 21 of 117.
+- Used instead: the official CVE List (`CVEProject/cvelistV5`) at its last
+  commit of 2025-09-01, `98fa1ad30aab38c0795065b63e249ed0a1d93b7d`. That is
+  the record as it was on the day. All 117 were fetched in seconds.
+- Every record checked: `PUBLISHED`, published and last updated before the
+  cutoff, English description present. The 22 descriptions NVD did send are
+  identical to the CVE List text.
+
+**What goes in.** The description (144–3,998 characters, median 929) and
+any CWE ids attached by the cutoff: 3 of 117, from CISA-ADP and CPANSec,
+labelled `Secondary` as NVD does. Left out: NVD's own analysis, which for
+these came after the snapshot (e.g. CVE-2025-38250's CWE-416 on
+2025-11-19), and CVSS scores. 3 records had a score; the other rows carry
+scores in NVD's format, which the CVE List doesn't use.
+
+**How (new code, 15 tests):**
+- `src/sira_cti/index/corpus_patch.py`
+- `scripts/fetch_cve_fill.py` writes the committed patch
+  `configs/corpus_patches/cve_null_fill_v1.jsonl` (sha256 `12c8a79a4bd4…`).
+- `scripts/build_fixed_corpus.py` writes `data/corpus_kb_fixed`. It refuses
+  if CTIConnect's files differ from their MANIFEST, if a `"null"` row has no
+  patch, or if the patch touches any other row. Only 117 lines of
+  `cve.jsonl` differ; `cwe`/`capec`/`mitre` are byte-identical. New
+  `cve.jsonl` sha256 `1677fe0ff1f1…`.
+- `configs/default.yaml` `corpus.kb_dir` now points at `data/corpus_kb_fixed`
+  (new config hash `06e891b2b957`). `data/README.md` says how to build it.
+  `docs/kaggle-run.md` copy commands updated.
+
+**Effect on what already exists.**
+- Base index rebuilt from the fixed corpus; the old one is kept as
+  `indexes/base_unfixed`.
+- Word counts moved where expected: "kernel" 67 → 181 documents, "resolved"
+  34 → 148, "null pointer dereference" 219 → 131 (the fake word "null" is
+  gone).
+- **"linux kernel" went 489 → 603, just under the too_common cut-off of
+  604.4.** One more kernel document would make it "too common".
+- Replaying every saved verdict of the three full runs (14B, Gemini batch 1
+  and 2) against the new index: **0 changes** outside the 117 (and 0 against
+  the old index, as a check). So the 5,927 other records stay valid as
+  they are.
+
+**Splice plan** (chosen by the Module 1 owner, 2026-11-16; exception 7 for
+the Gemini part). `scripts/splice_enrichment.py` (16 tests) joins an old full
+run with a small file holding only the changed documents. It carries an old
+record over only if its text is unchanged *and* every gate gives the same
+verdict against the current graph and base index. It takes a new record only
+for a document whose text changed, and only if made from the current text.
+Both files must share every method setting except the config hash and the
+document selection. Old lines are copied byte for byte. The old manifest is
+kept whole under `spliced.carried.manifest`. Nothing is written unless every
+check passes.
+
+```bash
+IDS=$(.venv/bin/python -c "import json;print(','.join(json.loads(l)['cve_id'] for l in open('configs/corpus_patches/cve_null_fill_v1.jsonl')))")
+# 14B, local, free (same weights 7cdf5a0187d5 as Stage 1)
+caffeinate -i .venv/bin/python scripts/enrich_corpus.py --model qwen2.5:14b --name-scorer v2 \
+    --kinds cwe,capec,attack,cve --doc-ids "$IDS" \
+    --output indexes/enrichment/corpus_fix117_v4_14b.jsonl
+# Gemini, two batch runs (exception 7)
+for n in 1 2; do caffeinate -i .venv/bin/python scripts/enrich_corpus.py \
+    --backend gemini --gemini-api vertex --batch --model gemini-3.1-pro-preview --thinking-level low \
+    --name-scorer v2 --kinds cwe,capec,attack,cve --doc-ids "$IDS" \
+    --price-in 1.00 --price-out 6.00 --cost-cap-usd 2 \
+    --output indexes/enrichment/corpus_fix117_v4_gemini-3.1-pro_vertexbatch$n.jsonl; done
+# then, per run: splice_enrichment.py OLD_FULL NEW_117 --output <..._fixed.jsonl>
+# and: build_index.py --stage enriched --enrichment-path indexes/enrichment/corpus_full_v4_14b_fixed.jsonl
+```
+
+Still to do after that: redo any numbers quoted from the runs (RQ4
+breakdown, comparisons).
 
 ### Full-corpus Gemini batch runs: done (2026-11-14 → 2026-11-15)
 
@@ -2212,11 +2311,13 @@ Reading of this run:
       batch rate, ≈ ₹168 = online rate.
 - [x] Decide: full robustness run online (≈ $68) or batch (≈ $35; ≈ $70 for
       two runs). Done 2026-11-15: batch, twice, ≈ $69.70 billed.
-- [ ] Read the actual charge for exception 4 in the billing console
-      (≈ $69.70 at batch rate) into `06_POLICY_EXCEPTIONS.md`.
-- [ ] Open question 16: decide what to do with the 117 empty-text CVE
-      documents (drop, fill from NVD, or strip guessed terms) before the
-      Gemini runs are merged or indexed.
+- [x] Read the actual charge for exception 4 in the billing console.
+      Done 2026-11-16: ₹6,781 used of ₹28,569 = the batch rate.
+- [x] Read the batch-test charge (exception 6). Confirmed with exception 4.
+- [x] Fix the corpus (q16): the 117 empty CVE rows filled. Done 2026-11-16.
+- [ ] Re-enrich the 117 fixed documents (14B, Gemini ×2), splice them into
+      the three runs, rebuild the enriched index.
+- [x] Open question 16: decided 2026-11-15 by the team: fix the corpus.
 
 - [x] Inspect the 5 `malformed_id` rejections. — Neither genuine nor
       normalizer-fixable: kind-mislabelling. Fixed.

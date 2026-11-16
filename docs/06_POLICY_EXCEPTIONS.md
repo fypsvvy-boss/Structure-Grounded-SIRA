@@ -99,6 +99,20 @@ credits are used up** (402 "prepayment credits are depleted", seen
 
 ---
 
+## Exception 7 — the 117 fixed CVE documents on Vertex, batch mode, twice (APPROVED 2026-11-16; not started)
+
+| | |
+|---|---|
+| **What** | The 117 CVE documents filled by the corpus fix (open question 16), `gemini-3.1-pro-preview`, low thinking, same frozen settings and flags as exception 4 (`--batch`, `--name-scorer v2`), once for each of the two robustness runs, selected with `--doc-ids`. Then spliced into the two full runs with `scripts/splice_enrichment.py` |
+| **Approved by** | Module 1 owner, 2026-11-16 (chose "Splice: redo only 117", which includes this spend). Team approval: the team decided the corpus fix on 2026-11-15 |
+| **Purpose** | Keep the robustness index complete on the fixed corpus without re-running all 6,044 documents (≈ $70 more) |
+| **Estimated cost** | ≈ $0.70 per run, ≈ **$1.40** both: the fixed documents are longer than average (median 929 characters of description), so ≈ $0.0060 per document as measured is a floor; the pre-submit estimate will be higher |
+| **Cap set** | `--cost-cap-usd 2` per run (the cautious pre-submit estimate must fit under it) |
+| **Spent** | not yet |
+| **Data sent** | Public CVE List / NVD content only |
+
+---
+
 ## Exception 4 — the whole corpus on Vertex, batch mode, twice (APPROVED 2026-11-15; DONE 2026-11-15)
 
 | | |
@@ -113,7 +127,7 @@ credits are used up** (402 "prepayment credits are depleted", seen
 | **Estimated time** | online ≈ 19 hours one document at a time (11.3 s each, measured); batch: one job, Google says most finish within 24 h of starting (plus up to 72 h queue); the 40-doc job took under 5 minutes |
 | **Cap set** | `--cost-cap-usd 55` per run (pre-submit estimate $50.55 each, checked before submitting). Expected ≈ $35 each, ≈ $70 both |
 | **Finished** | Both jobs SUCCEEDED, 6,039 of 6,039 requests each, 0 failed. Running time 20 h 07 min (`…/8875464979910754304`, `…_vertexbatch.jsonl`) and 19 h 59 min (`…/4267156661203894272`, `…_vertexbatch2.jsonl`), queue ≈ 1.5 min each. Results processed 2026-11-15 21:53 UTC from commit `7534173` (the poll-retry fix; the waiting commands had crashed on a timeout, the jobs had not) |
-| **Spent** | **≈ US$69.70** at the batch list price, from the billed result lines: run 1 **$34.912** (5,951,937 prompt, 1,142,219 reply, 3,684,522 thinking tokens), run 2 **$34.791** (5,951,937 / 1,145,801 / 3,660,732). $0.0058 per document. Actual charge: re-read the billing console (≈ ₹6,650 more at batch rate if ₹95.2 per $; about double that would mean the online rate was charged) |
+| **Spent** | **≈ US$69.70** at the batch list price, from the billed result lines: run 1 **$34.912** (5,951,937 prompt, 1,142,219 reply, 3,684,522 thinking tokens), run 2 **$34.791** (5,951,937 / 1,145,801 / 3,660,732). $0.0058 per document. **Actual charge confirmed at the batch rate:** the console read **₹6,781 used of ₹28,569** on 2026-11-16 (Module 1 owner), up ₹6,664 from ₹117. Expected at the batch rate: ≈ ₹6,636 for these two runs + ≈ ₹26 for exception 6 = ≈ ₹6,662. The online rate would have been ≈ ₹13,300 |
 | **Data sent** | Public MITRE / NVD content and CTIConnect's CC-BY-4.0 corpus only |
 
 ---
@@ -146,7 +160,7 @@ credits are used up** (402 "prepayment credits are depleted", seen
 | 4 — whole corpus, Vertex batch, twice (Cloud trial credits) | ≈ $69.70 |
 | **total, calculated** | **≈ $72.23** |
 | **total, actually charged (exceptions 1–2, AI Studio key)** | **₹116.66** |
-| **actually charged (exceptions 3, 5 and 6, Cloud project, ≈ $1.50 expected)** | **₹117 used of ₹28,569 trial credit** (read 2026-11-15 by the Module 1 owner; ₹28,452 left). At the credit's implied ₹95.2 per $ (if the trial is $300) that is ≈ $1.23 — exactly exceptions 3 + 5, so exception 6's batch tests (≈ $0.27 ≈ ₹26 at batch rate, ≈ ₹51 at online rate) had probably not posted yet. Re-read in a day: ≈ ₹143 total means batch was billed at the batch rate |
+| **actually charged (exceptions 3–6, Cloud project)** | **₹6,781 used of ₹28,569 trial credit** (read 2026-11-16; ₹21,788 left). Matches the calculation at the batch rate: ≈ $71.2 × ₹95.2 ≈ ₹6,780. Earlier reading: **₹117 used of ₹28,569 trial credit** (read 2026-11-15 by the Module 1 owner; ₹28,452 left). At the credit's implied ₹95.2 per $ (if the trial is $300) that is ≈ $1.23 — exactly exceptions 3 + 5, so exception 6's batch tests (≈ $0.27 ≈ ₹26 at batch rate, ≈ ₹51 at online rate) had probably not posted yet. Re-read in a day: ≈ ₹143 total means batch was billed at the batch rate |
 
 **Confirmed by the key owner on 2026-10-08: the key is on the paid tier, and
 the actual charge for both exceptions together was ₹116.66.** The bill is in
